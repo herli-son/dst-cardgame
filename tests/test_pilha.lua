@@ -3,7 +3,7 @@ local Cards = require("duelo/core/cards")
 
 local log
 local IDS = { "t_bicho", "t_sobrev", "t_raio", "t_flecha", "t_cura", "t_lento", "t_lento2",
-  "t_pergunta", "t_forcado" }
+  "t_pergunta", "t_forcado", "t_torre" }
 
 -- Alvo: { p = jogador, slot = espaço } de uma criatura em campo.
 local function creature_target(g, p, action)
@@ -34,6 +34,9 @@ local function define_test_cards()
   Cards.define{ id = "t_forcado", kind = "equipamento", slot = "mao", cost = 0, durability = 2,
     activation = { speed = "rapido", once_per_period = true },
     activate = function(g, p) log[#log + 1] = "forcado" end }
+  Cards.define{ id = "t_torre", kind = "estrutura", cost = 0, targets = creature_target,
+    activation = { speed = "rapido" },
+    activate = function(g, p, st, a) log[#log + 1] = "torre:" .. a.target.slot end }
 end
 
 local function clear_test_cards()
@@ -173,6 +176,18 @@ return {
     T.eq(ok, false, "segunda vez no mesmo período")
     g:act(1, { type = "pass" }); g:act(2, { type = "pass" })
     T.eq(log[1], "forcado")
+    clear_test_cards()
+  end },
+
+  { "alvo perdido também vale para efeitos ativados", function(T)
+    local g = new_game({ "t_torre" }, { "t_bicho" })
+    cast(g, 1, "t_torre"); cast(g, 2, "t_bicho", { slot = 2 })
+    local ok = g:act(1, { type = "activate", structure = 1, target = { p = 2, slot = 6 } })
+    T.eq(ok, false, "alvo inválido na ativação")
+    T.ok(g:act(1, { type = "activate", structure = 1, target = { p = 2, slot = 2 } }))
+    g.players[2].field[2] = nil
+    g:act(1, { type = "pass" }); g:act(2, { type = "pass" })
+    T.eq(#log, 0)
     clear_test_cards()
   end },
 }
