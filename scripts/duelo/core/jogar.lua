@@ -76,7 +76,10 @@ return function(Game)
 
   function Game:hp(c)
     local base = c.def.hp or 0
-    if c.def.stats then local _, h = c.def.stats(self, c); base = h end
+    if c.def.stats then
+      local _, h = c.def.stats(self, c)
+      if h ~= nil then base = h end
+    end
     return base + (c.hp_bonus or 0) + (self.equip_bonus and self:equip_bonus(c, "hp_bonus") or 0)
   end
 
@@ -85,8 +88,11 @@ return function(Game)
   function Game:place_creature(p, card, slot, opts)
     opts = opts or {}
     local def = self:def_of(card)
+    -- Cada entrada em campo é uma instância nova, com uid próprio: uma carta que
+    -- sai e volta não é mais o mesmo alvo.
     local c = {
-      uid = card.uid or self:next_uid(),
+      uid = self:next_uid(),
+      card_uid = card.uid,
       card = card,
       def = def,
       owner = p,
@@ -97,7 +103,7 @@ return function(Game)
       ficha = opts.ficha or card.ficha or false,
     }
     self.players[p].field[slot] = c
-    self:emit{ t = "summon", p = p, slot = slot, uid = c.uid, id = def.id, ficha = c.ficha }
+    self:emit{ t = "summon", p = p, slot = slot, uid = c.uid, card_uid = c.card_uid, id = def.id, ficha = c.ficha }
     if def.on_play then def.on_play(self, c) end
     for _, other in ipairs(self:all_creatures()) do
       if other ~= c and other.def.on_any_enter and self.players[other.owner].field[other.slot] == other then
@@ -105,6 +111,47 @@ return function(Game)
       end
     end
     return c
+  end
+
+  function Game:find_creature(uid)
+    for p = 1, 2 do
+      for s = 1, Game.FIELD_SLOTS do
+        local c = self.players[p].field[s]
+        if c and c.uid == uid then return c end
+      end
+    end
+  end
+
+  ----------------------------------------------------------------------------
+  -- Alvos
+  ----------------------------------------------------------------------------
+
+  -- Alvos de criatura são escritos como { p = jogador, slot = espaço }, em
+  -- action.target ou na lista action.targets. Na jogada, o motor guarda o uid de
+  -- cada criatura escolhida; ao resolver, o alvo só vale se for a mesma criatura.
+  local function each_target(action, fn)
+    if action.target then fn(action.target) end
+    for _, t in ipairs(action.targets or {}) do fn(t) end
+  end
+
+  function Game:lock_targets(action)
+    each_target(action, function(t)
+      if t.slot then
+        local c = self:creature_at(t.p, t.slot)
+        t.uid = c and c.uid or nil
+      end
+    end)
+  end
+
+  function Game:targets_still_valid(action)
+    local ok = true
+    each_target(action, function(t)
+      if t.uid then
+        local c = self:creature_at(t.p, t.slot)
+        if c == nil or c.uid ~= t.uid then ok = false end
+      end
+    end)
+    return ok
   end
 
   ----------------------------------------------------------------------------
@@ -136,6 +183,8 @@ return function(Game)
     if not ok then return false, err end
 
     table.remove(zone, action.hand_index)
+    -- Custo fixado ou alterado por zona (Sapo, Inventário) não acompanha a carta.
+    card.cost_override, card.cost_mod = nil, nil
     g:spend_mana(p, cost)
     if uses_fogueira then g:spend_fogueira(p) end
     g:emit{ t = "play", p = p, id = def.id, cost = cost }
@@ -150,7 +199,8 @@ return function(Game)
 
   -- Manda a carta usada para o descarte; fichas deixam de existir.
   function Game:to_discard(p, card)
-    if card.ficha then return end
+    if card.ficha then return self:vanish(p, card, "descarte") end
+    self:reset_card(card)
     local d = self.players[p].discard
     d[#d + 1] = card
   end
@@ -168,10 +218,12 @@ return function(Game)
       return true
     end,
     resolve = function(g, p, card, def, action)
+      g:lock_targets(action)
       return g:use_speed(p, def.speed, def.id, function(gg)
-        -- Se o alvo deixou de valer até a resolução, o feitiço perde o efeito.
-        local valid = true
-        if def.targets then valid = def.targets(gg, p, action) end
+        -- Alvo perdido: se o alvo saiu de campo (ou foi trocado) até a resolução,
+        -- o feitiço não acontece.
+        local valid = gg:targets_still_valid(action)
+        if valid and def.targets then valid = def.targets(gg, p, action) end
         if valid then
           def.on_cast(gg, p, action, card)
         else

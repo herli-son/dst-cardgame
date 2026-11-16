@@ -9,6 +9,8 @@
 
 return function(Game)
   Game.EQUIP_SLOTS = { mao = true, peito = true, cabeca = true }
+  -- Ordem fixa dos espaços, para descarte e eventos sempre na mesma sequência.
+  Game.EQUIP_ORDER = { "mao", "peito", "cabeca" }
 
   -- Só Sobreviventes usam equipamentos, salvo cartas que digam o contrário.
   function Game:can_equip(c)
@@ -17,7 +19,7 @@ return function(Game)
 
   -- Guarda uma carta no Inventário; acima do limite de mão, ela é destruída.
   function Game:add_to_inventory(p, card)
-    if self:hand_count(p) >= Game.HAND_LIMIT then
+    if self:hand_count(p) >= self:hand_limit(p) then
       self:destroy_card(p, card, "limite_de_mao")
       return false
     end
@@ -38,7 +40,8 @@ return function(Game)
       self:add_to_inventory(c.owner, old.card)
     end
     local e = {
-      uid = card.uid or self:next_uid(),
+      uid = self:next_uid(),
+      card_uid = card.uid,
       card = card,
       def = def,
       durability = card.durability or def.durability,
@@ -55,15 +58,29 @@ return function(Game)
     if e == nil then return end
     c.equips[equip_slot] = nil
     self:emit{ t = "unequip", p = c.owner, slot = c.slot, equip_slot = equip_slot, id = e.def.id, reason = reason }
-    if not e.card.ficha then
-      e.card.durability = nil
-      local d = self.players[c.owner].discard
-      d[#d + 1] = e.card
-    end
+    self:to_discard(c.owner, e.card)
   end
 
   function Game:discard_all_equips(c, reason)
-    for s in pairs(Game.EQUIP_SLOTS) do self:discard_equip(c, s, reason) end
+    for _, s in ipairs(Game.EQUIP_ORDER) do self:discard_equip(c, s, reason) end
+  end
+
+  -- Manda todos os equipamentos para o Inventário do dono, com os marcadores
+  -- (ex.: Telelocador). Fichas deixam de existir.
+  function Game:return_all_equips(c, reason)
+    for _, s in ipairs(Game.EQUIP_ORDER) do
+      local e = c.equips[s]
+      if e then
+        c.equips[s] = nil
+        self:emit{ t = "unequip", p = c.owner, slot = c.slot, equip_slot = s, id = e.def.id, reason = reason }
+        if e.card.ficha then
+          self:vanish(c.owner, e.card, reason)
+        else
+          e.card.durability = e.durability
+          self:add_to_inventory(c.owner, e.card)
+        end
+      end
+    end
   end
 
   -- Gasta durabilidade; em zero, o equipamento vai para o descarte.

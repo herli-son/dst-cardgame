@@ -48,11 +48,31 @@ local function new_player(deck)
   }
 end
 
+-- Copia o baralho recebido: a partida nunca altera as tabelas de quem a criou e
+-- cada carta ganha um identificador próprio desta partida.
+local function copy_deck(g, deck)
+  local copy = {}
+  for i, card in ipairs(deck or {}) do
+    local c = {}
+    for k, v in pairs(card) do c[k] = v end
+    c.uid = g:next_uid()
+    copy[i] = c
+  end
+  return copy
+end
+
 function Game.new(opts)
   opts = opts or {}
   local g = setmetatable({}, Game)
   g.rng = opts.rng or default_rng
-  g.players = { new_player(opts.decks and opts.decks[1]), new_player(opts.decks and opts.decks[2]) }
+  g.uid_counter = 0
+  g.hooks = { period = {}, round_start = {}, round_end = {}, death = {} }
+  -- Modificadores do limite de mão: fn(game, p) -> número a somar (ex.: Mochila).
+  g.hand_limit_mods = {}
+  g.players = {
+    new_player(copy_deck(g, opts.decks and opts.decks[1])),
+    new_player(copy_deck(g, opts.decks and opts.decks[2])),
+  }
   g.first = opts.first or g.rng(2)
   g.use_mulligan = opts.mulligan ~= false
   g.phase = "setup" -- "setup" | "mulligan" | "playing" | "over"
@@ -65,11 +85,6 @@ function Game.new(opts)
   g.fogueira = { nil, nil }
   g.fogueira_pending = { 0, 0 }
   g.events = {}
-  for p = 1, 2 do
-    for _, card in ipairs(g.players[p].deck) do
-      if card.uid == nil then card.uid = g:next_uid() end
-    end
-  end
   return g
 end
 
@@ -85,6 +100,13 @@ function Game:shuffle_deck(p)
   end
 end
 
+-- Limite de mão do jogador, com os modificadores ativos.
+function Game:hand_limit(p)
+  local n = Game.HAND_LIMIT
+  for _, fn in ipairs(self.hand_limit_mods) do n = n + (fn(self, p) or 0) end
+  return n
+end
+
 -- Tudo o que conta para o limite de mão: mão, Inventário e cartas separadas.
 function Game:hand_count(p)
   local pl = self.players[p]
@@ -95,20 +117,32 @@ end
 -- não pode ser recuperada por efeitos que buscam no descarte.
 function Game:destroy_card(p, card, reason)
   if card.ficha then return self:vanish(p, card, reason) end
+  self:reset_card(card)
   local pl = self.players[p]
   pl.destroyed[#pl.destroyed + 1] = card
-  self:emit{ t = "destroyed", p = p, card = card, reason = reason }
+  self:emit{ t = "destroyed", p = p, uid = card.uid, id = card.id, reason = reason }
+end
+
+-- Limpa os marcadores que só valem numa zona (custo fixado, durabilidade, usos).
+function Game:reset_card(card)
+  card.cost_override = nil
+  card.cost_mod = nil
+  card.durability = nil
+  card.used_round = nil
+  card.used_period = nil
 end
 
 -- Coloca uma carta na mão respeitando o limite; acima dele, a carta é destruída.
-function Game:add_to_hand(p, card)
-  if self:hand_count(p) >= Game.HAND_LIMIT then
+-- source diz de onde ela veio ("baralho", "ficha", "campo"...). O evento leva a
+-- carta, mas é privado: a camada do mod só mostra id e uid ao dono.
+function Game:add_to_hand(p, card, source)
+  if self:hand_count(p) >= self:hand_limit(p) then
     self:destroy_card(p, card, "limite_de_mao")
     return false
   end
   local pl = self.players[p]
   pl.hand[#pl.hand + 1] = card
-  self:emit{ t = "draw", p = p }
+  self:emit{ t = "to_hand", p = p, uid = card.uid, id = card.id, source = source or "baralho", private = true }
   return true
 end
 
@@ -117,7 +151,7 @@ function Game:draw(p, n)
   for _ = 1, n or 1 do
     local card = table.remove(pl.deck)
     if card == nil then return end
-    self:add_to_hand(p, card)
+    self:add_to_hand(p, card, "baralho")
   end
 end
 
@@ -140,6 +174,7 @@ end
 -- (lista de índices, pode ser vazia). As devolvidas voltam ao baralho, que é
 -- embaralhado, e o jogador compra a mesma quantidade. Uma vez por jogador.
 function Game:mulligan(p, indices)
+  if p ~= 1 and p ~= 2 then return false, "jogador inválido" end
   if self.phase ~= "mulligan" then return false, "fora da fase de troca" end
   local pl = self.players[p]
   if pl.mulligan_done then return false, "troca já feita" end
@@ -217,7 +252,8 @@ Game.FOGUEIRA_START = 3
 Game.FOGUEIRA_DAMAGE = 2
 
 -- Ações que continuam permitidas com a fogueira em zero: passar, atacar e ativar efeitos.
-Game.allowed_at_zero_fogueira = { pass = true, attack = true, activate = true, choose = true }
+-- Bloquear faz parte de responder a um ataque e escolher completa um efeito já pago.
+Game.allowed_at_zero_fogueira = { pass = true, attack = true, activate = true, choose = true, block = true }
 
 -- Acende quando a noite começa, com o valor inicial mais os bônus guardados na rodada.
 function Game:light_fogueira()
@@ -379,6 +415,11 @@ function Game:act(p, action)
   local ok, err, passes_turn = handler(self, p, action)
   if not ok then return false, err end
   self.passes = 0
+  -- Um efeito que abriu uma escolha segura a vez até ela ser feita.
+  if self.pending_choice and self.pending_choice.passes_turn == nil then
+    self.pending_choice.passes_turn = passes_turn ~= false
+    return true
+  end
   if passes_turn ~= false and self.winner == nil and not self:stack_open() then
     self:advance_vez()
   end

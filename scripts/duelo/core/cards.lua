@@ -30,6 +30,11 @@ function Cards.define(def)
   end
   if def.kind == "feitico" then
     assert(SPEEDS[def.speed], "carta " .. def.id .. ": feitiço precisa de speed instantaneo, rapido ou lento")
+    assert(type(def.on_cast) == "function", "carta " .. def.id .. ": feitiço precisa de on_cast")
+  end
+  if def.kind == "equipamento" then
+    assert(def.slot == "mao" or def.slot == "peito" or def.slot == "cabeca",
+      "carta " .. def.id .. ": equipamento precisa de slot mao, peito ou cabeca")
   end
   def.kw = def.kw or {}
   def.types = def.types or {}

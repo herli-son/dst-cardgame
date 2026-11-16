@@ -35,24 +35,31 @@ return function(Game)
     pl.structures[slot] = nil
     self:emit{ t = "break", p = p, slot = slot, uid = st.uid, id = st.def.id, reason = reason }
     if st.def.on_break then st.def.on_break(self, st) end
-    if not st.ficha then pl.discard[#pl.discard + 1] = st.card end
+    if st.ficha then
+      self:vanish(p, st.card, reason)
+    else
+      self:to_discard(p, st.card)
+    end
   end
 
+  Game.first_free_structure = first_free
+
   -- Coloca uma estrutura num espaço. Com a zona cheia, a nova substitui a do
-  -- espaço indicado, que é quebrada.
+  -- espaço indicado, que é quebrada; sem espaço indicado, a zona precisa ter vaga.
   function Game:put_structure(p, card, slot, opts)
     opts = opts or {}
-    slot = slot or first_free(self, p) or 1
+    slot = slot or first_free(self, p)
+    assert(slot ~= nil, "zona de estruturas cheia: é preciso indicar qual substituir")
     if self.players[p].structures[slot] then self:break_structure(p, slot, "substituida") end
     local def = self:def_of(card)
     local st = {
-      uid = card.uid or self:next_uid(),
+      uid = self:next_uid(),
+      card_uid = card.uid,
       card = card,
       def = def,
       owner = p,
       slot = slot,
       ficha = opts.ficha or card.ficha or false,
-      used_round = nil,
     }
     self.players[p].structures[slot] = st
     self:emit{ t = "structure", p = p, slot = slot, uid = st.uid, id = def.id }
@@ -70,6 +77,10 @@ return function(Game)
       end
       if s == nil and first_free(g, p) == nil then
         return false, "zona cheia: escolha qual estrutura substituir"
+      end
+      -- Só se substitui com a zona cheia.
+      if s ~= nil and g.players[p].structures[s] ~= nil and first_free(g, p) ~= nil then
+        return false, "há espaço livre: substituir só com a zona cheia"
       end
       return true
     end,
@@ -103,8 +114,11 @@ return function(Game)
     g.pending_choice = nil
     ch.resolve(g, idx)
     -- Escolha aberta durante a resolução da pilha: continua resolvendo.
-    if g.resolving and g.pending_choice == nil then g:resolve_stack() end
-    return true, nil, false
+    if g.resolving and g.pending_choice == nil then
+      g:resolve_stack()
+      return true, nil, false
+    end
+    return true, nil, ch.passes_turn == true
   end
 
   ----------------------------------------------------------------------------
@@ -139,9 +153,11 @@ return function(Game)
     local spec = def.activation
     local ok, why = g:can_use_speed(spec.speed)
     if not ok then return false, why end
-    if spec.once_per_round and src.used_round == g.round then return false, "já ativada nesta rodada" end
+    -- Os usos ficam na carta, não na instância: reequipar ou rejogar não zera o limite.
+    local card = src.card
+    if spec.once_per_round and card.used_round == g.round then return false, "já ativada nesta rodada" end
     local period_key = g.round .. ":" .. tostring(g:period())
-    if spec.once_per_period and src.used_period == period_key then return false, "já ativada neste período" end
+    if spec.once_per_period and card.used_period == period_key then return false, "já ativada neste período" end
     if def.targets then
       local valid, why = def.targets(g, p, action)
       if not valid then return false, why or "alvo inválido" end
@@ -150,14 +166,16 @@ return function(Game)
       local can, reason = def.can_activate(g, p, src, action)
       if not can then return false, reason or "condição do efeito não atendida" end
     end
-    src.used_round = g.round
-    src.used_period = period_key
+    card.used_round = g.round
+    card.used_period = period_key
     g:emit{ t = "activate", p = p, id = def.id, speed = spec.speed }
     -- Equipamentos com efeito de uso perdem 1 de durabilidade ao usar o efeito.
     if src.holder and src.durability then g:wear(src.holder, def.slot, 1) end
+    g:lock_targets(action)
     return true, nil, g:use_speed(p, spec.speed, def.id, function(gg)
-      -- Alvo perdido: se o alvo deixou de valer até a resolução, o efeito não acontece.
-      if def.targets and not def.targets(gg, p, action) then
+      -- Alvo perdido: se o alvo saiu de campo (ou foi trocado) até a resolução,
+      -- o efeito não acontece.
+      if not gg:targets_still_valid(action) or (def.targets and not def.targets(gg, p, action)) then
         gg:emit{ t = "fizzle", p = p, id = def.id }
         return
       end

@@ -24,7 +24,7 @@ return function(Game)
     local card = self:make_token(id)
     local def = self:def_of(card)
     if opts.zone == "hand" then
-      if self:add_to_hand(p, card) then return card end
+      if self:add_to_hand(p, card, "ficha") then return card end
       return nil
     end
     if def.kind == "criatura" then
@@ -36,7 +36,14 @@ return function(Game)
       end
       return self:place_creature(p, card, slot, { ficha = true })
     elseif def.kind == "estrutura" then
-      return self:put_structure(p, card, opts.slot, { ficha = true })
+      local slot = opts.slot or self.first_free_structure(self, p)
+      if slot == nil then
+        -- Zona cheia: o dono escolhe qual estrutura a ficha substitui.
+        self:set_choice(p, { reason = "substituir_estrutura", options = { 1, 2 },
+          resolve = function(g, idx) g:put_structure(p, card, idx, { ficha = true }) end })
+        return nil
+      end
+      return self:put_structure(p, card, slot, { ficha = true })
     end
     error("ficha de tipo sem lugar em campo: " .. tostring(def.kind))
   end
@@ -60,7 +67,18 @@ return function(Game)
     elseif dest == "destroyed" then
       self:destroy_card(c.owner, card, reason)
     else
-      pl.discard[#pl.discard + 1] = card
+      self:to_discard(c.owner, card)
     end
+  end
+
+  -- Abater: a criatura morre, vai para o descarte e dispara os efeitos "ao morrer"
+  -- (o dela, on_death, e os ganchos "death" da partida).
+  function Game:kill(c, reason)
+    local pl = self.players[c.owner]
+    if pl.field[c.slot] ~= c then return end
+    self:emit{ t = "death", p = c.owner, slot = c.slot, uid = c.uid, id = c.def.id, reason = reason }
+    self:remove_creature(c, "discard", reason or "abatida")
+    if c.def.on_death then c.def.on_death(self, c) end
+    self:run_hooks("death", c)
   end
 end
