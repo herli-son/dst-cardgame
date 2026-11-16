@@ -7,17 +7,17 @@ local function deck(n)
 end
 
 local function new_game(first)
-  local g = Game.new{ decks = { deck(40), deck(40) }, first = first, rng = function(n) return 1 end }
+  local g = Game.new{ decks = { deck(40), deck(40) }, first = first, mulligan = false, rng = function(n) return 1 end }
   g:start()
   return g
 end
 
 return {
-  { "mão inicial de 4 cartas", function(T)
+  { "mão inicial de 4 cartas e compra de 1 no início da rodada 1", function(T)
     local g = new_game(1)
-    T.eq(#g.players[1].hand, 4)
-    T.eq(#g.players[2].hand, 4)
-    T.eq(#g.players[1].deck, 36)
+    T.eq(#g.players[1].hand, 5)
+    T.eq(#g.players[2].hand, 5)
+    T.eq(#g.players[1].deck, 35)
   end },
 
   { "quem tem o token age primeiro", function(T)
