@@ -8,11 +8,12 @@ local function register_test_actions()
     return true
   end
   Game.actions.ativar = function() return true end
+  Game.actions.activate = function() return true end
   Game.actions.attack = function() return true end
 end
 
 local function clear_test_actions()
-  Game.actions.carta, Game.actions.ativar, Game.actions.attack = nil, nil, nil
+  Game.actions.carta, Game.actions.ativar, Game.actions.attack, Game.actions.activate = nil, nil, nil, nil
 end
 
 local function new_game()
@@ -54,15 +55,15 @@ return {
     clear_test_actions()
   end },
 
-  { "com a fogueira em 0 só é possível passar ou atacar", function(T)
+  { "com a fogueira em 0 só é possível passar, atacar ou ativar efeitos", function(T)
     local g = new_game()
     go_to_night(g)
     g.fogueira[1] = 0
     local ok = g:act(1, { type = "carta" })
-    T.eq(ok, false)
-    ok = g:act(1, { type = "ativar" })
-    T.eq(ok, false, "ativar também é bloqueado (regra atual do doc)")
-    T.ok(g:act(1, { type = "attack" }), "atacar continua permitido")
+    T.eq(ok, false, "jogar carta é bloqueado")
+    T.ok(g:act(1, { type = "activate" }), "ativar efeito continua permitido")
+    g.fogueira[2] = 0
+    T.ok(g:act(2, { type = "attack" }), "atacar continua permitido")
     clear_test_actions()
   end },
 
