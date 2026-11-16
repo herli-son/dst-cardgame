@@ -69,7 +69,7 @@ return function(Game)
   function Game:atk(c)
     local base = c.def.atk or 0
     if c.def.stats then base = (c.def.stats(self, c)) end
-    local v = base + (c.atk_bonus or 0)
+    local v = base + (c.atk_bonus or 0) + (self.equip_bonus and self:equip_bonus(c, "atk_bonus") or 0)
     if v < 0 then v = 0 end
     return v
   end
@@ -77,7 +77,7 @@ return function(Game)
   function Game:hp(c)
     local base = c.def.hp or 0
     if c.def.stats then local _, h = c.def.stats(self, c); base = h end
-    return base + (c.hp_bonus or 0)
+    return base + (c.hp_bonus or 0) + (self.equip_bonus and self:equip_bonus(c, "hp_bonus") or 0)
   end
 
   -- Coloca uma criatura em campo. opts.ficha marca criaturas criadas por efeito.
@@ -111,10 +111,14 @@ return function(Game)
   -- Jogar uma carta da mão
   ----------------------------------------------------------------------------
 
-  -- action = { type = "play", hand_index = n, ... campos de cada tipo ... }
+  -- action = { type = "play", hand_index = n, from = "hand" | "inventory", ... campos de cada tipo ... }
   Game.actions.play = function(g, p, action)
     local pl = g.players[p]
-    local card = pl.hand[action.hand_index or -1]
+    local zone
+    if action.from == nil or action.from == "hand" then zone = pl.hand
+    elseif action.from == "inventory" then zone = pl.inventory
+    else return false, "origem inválida" end
+    local card = zone[action.hand_index or -1]
     if card == nil then return false, "carta não está na mão" end
     local def = g:def_of(card)
     if def == nil then return false, "carta desconhecida: " .. tostring(card.id) end
@@ -128,7 +132,7 @@ return function(Game)
     local ok, err = rule.validate(g, p, card, def, action)
     if not ok then return false, err end
 
-    table.remove(pl.hand, action.hand_index)
+    table.remove(zone, action.hand_index)
     g:spend_mana(p, cost)
     if uses_fogueira then g:spend_fogueira(p) end
     g:emit{ t = "play", p = p, id = def.id, cost = cost }
