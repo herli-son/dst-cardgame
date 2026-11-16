@@ -18,6 +18,11 @@ local registry = {}
 
 function Cards.define(def)
   assert(type(def.id) == "string", "carta sem id")
+  if def.activate then
+    -- Cada carta com efeito ativado diz se ele gasta a vez; não há padrão.
+    assert(def.activation and type(def.activation.passes_turn) == "boolean",
+      "carta " .. def.id .. ": activation.passes_turn precisa ser true ou false")
+  end
   def.kw = def.kw or {}
   def.types = def.types or {}
   def.cost = def.cost or 0

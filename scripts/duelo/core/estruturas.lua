@@ -2,7 +2,7 @@
 -- Instala os métodos no Game: require("duelo/core/estruturas")(Game)
 --
 -- Campos da definição de uma estrutura:
---   activation = { once_per_round = true, passes_turn = true }   (padrão: gasta a vez)
+--   activation = { once_per_round = bool, passes_turn = bool }   (passes_turn é obrigatório)
 --   activate(game, p, estrutura, action)   efeito ativado; pode abrir uma escolha
 --   on_break(game, estrutura)              ao ser quebrada
 
@@ -120,7 +120,7 @@ return function(Game)
     st.used_round = g.round
     g:emit{ t = "activate", p = p, slot = st.slot, id = def.id }
     def.activate(g, p, st, action)
-    local passes = spec.passes_turn ~= false
+    local passes = spec.passes_turn
     if g.pending_choice then
       -- A vez só passa depois da escolha, se o efeito gastar a vez.
       g.pending_choice.passes_turn = passes
