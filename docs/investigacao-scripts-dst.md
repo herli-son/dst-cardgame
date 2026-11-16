@@ -23,6 +23,22 @@ User Story: #28 · Feature: #27
 | Mover criatura até o alvo | Confirmado | `components/locomotor.lua` | O movimento existe; a ida e a volta ao tile serão comandadas pelo mod. |
 | Reduzir criaturas grandes | A testar no jogo | Motor do jogo (`Transform:SetScale`) | A escala funciona no modelo; efeitos presos ao modelo precisam ser conferidos dentro do jogo. |
 
+## Decisões
+
+### Relógio da partida
+
+Usa o relógio natural do jogo (`components/clock.lua`), sem relógio próprio.
+
+- **Duração dos períodos:** o jogo exige que dia, entardecer e noite somem 16 segmentos (`NUM_SEGS = 16`), então não dá para dividir em três partes iguais. Usamos o mais próximo: **5, 5 e 6** segmentos.
+- **Avanço por jogada:** de manhã e à tarde, cada vez jogada consome **50% do período**. Duas vezes completam o período, como nas regras (vezes 1 e 2 de manhã, 3 e 4 à tarde).
+- **Noite:** ao chegar, o relógio fica **travado em 50% da noite** até o fim da rodada.
+- **Entre as jogadas o relógio não anda.** Como ele avança sozinho com o tempo real, o mod intercepta a atualização do relógio e só o move quando a partida avança.
+
+### Câmera
+
+- **Rotação desligada:** `TheCamera:SetControllable(false)` faz `RotLeft` e `RotRight` (`components/playercontroller.lua`) ignorarem as teclas de girar. Isso também desliga o zoom; se o zoom for desejado, o bloqueio passa a ser só nas funções de girar.
+- **Cada jogador vê a mesa do seu lado:** a câmera é de cada cliente, então o mod define a direção com `TheCamera:SetHeadingTarget` (`cameras/followcamera.lua`). Um jogador fica com a direção oposta à do outro (diferença de 180°), e cada um vê o próprio campo na parte de baixo da tela.
+
 ## Pendências para os próximos passos
 
 - Testar dentro do jogo a escala dos Chefes e os efeitos presos a eles.
