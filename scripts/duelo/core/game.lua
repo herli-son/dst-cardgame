@@ -94,6 +94,7 @@ end
 -- Destruir é diferente de descartar: a carta vai para a zona de destruídas e
 -- não pode ser recuperada por efeitos que buscam no descarte.
 function Game:destroy_card(p, card, reason)
+  if card.ficha then return self:vanish(p, card, reason) end
   local pl = self.players[p]
   pl.destroyed[#pl.destroyed + 1] = card
   self:emit{ t = "destroyed", p = p, card = card, reason = reason }
@@ -391,5 +392,6 @@ require("duelo/core/pilha")(Game)
 require("duelo/core/jogar")(Game)
 require("duelo/core/estruturas")(Game)
 require("duelo/core/equipamentos")(Game)
+require("duelo/core/fichas")(Game)
 
 return Game
