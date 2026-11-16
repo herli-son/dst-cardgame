@@ -202,8 +202,8 @@ end
 Game.FOGUEIRA_START = 3
 Game.FOGUEIRA_DAMAGE = 2
 
--- Ações que continuam permitidas com a fogueira em zero.
-Game.allowed_at_zero_fogueira = { pass = true, attack = true }
+-- Ações que continuam permitidas com a fogueira em zero: passar, atacar e ativar efeitos.
+Game.allowed_at_zero_fogueira = { pass = true, attack = true, activate = true }
 
 -- Acende quando a noite começa, com o valor inicial mais os bônus guardados na rodada.
 function Game:light_fogueira()
@@ -346,7 +346,7 @@ function Game:act(p, action)
   local handler = Game.actions[action.type]
   if handler == nil then return false, "ação desconhecida: " .. tostring(action.type) end
   if self:is_night_lit() and self.fogueira[p] <= 0 and not Game.allowed_at_zero_fogueira[action.type] then
-    return false, "fogueira apagada: só é possível passar ou atacar"
+    return false, "fogueira apagada: só é possível passar, atacar ou ativar efeitos"
   end
   local ok, err, passes_turn = handler(self, p, action)
   if not ok then return false, err end
