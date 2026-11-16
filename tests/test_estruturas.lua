@@ -12,14 +12,14 @@ local function define_test_cards()
     on_break = function(g, st) log[#log + 1] = "quebrou:" .. st.def.id end }
   -- Ativação 1 vez por rodada, sem gastar a vez, com escolha.
   Cards.define{ id = "t_maquina", kind = "estrutura", cost = 1,
-    activation = { once_per_round = true, passes_turn = false },
+    activation = { once_per_round = true, speed = "instantaneo" },
     activate = function(g, p, st)
       g:set_choice(p, { reason = "teste", options = { "a", "b" }, allow_none = true,
         resolve = function(gg, idx) log[#log + 1] = "escolheu:" .. tostring(idx) end })
     end }
-  -- Ativação que gasta a vez.
+  -- Ativação Lenta: abre a pilha.
   Cards.define{ id = "t_tambor", kind = "estrutura", cost = 1,
-    activation = { passes_turn = true },
+    activation = { speed = "lento" },
     activate = function(g, p, st) log[#log + 1] = "tambor" end }
   Cards.define{ id = "t_fraca", kind = "criatura", cost = 0, atk = 0, hp = 1 }
 end
@@ -82,22 +82,27 @@ return {
     clear_test_cards()
   end },
 
-  { "carta com efeito ativado precisa dizer se gasta a vez", function(T)
+  { "carta com efeito ativado precisa dizer o tipo do efeito", function(T)
     local ok = pcall(Cards.define, { id = "t_sem_regra", kind = "estrutura", activate = function() end })
     T.eq(ok, false)
     Cards.remove("t_sem_regra")
   end },
 
-  { "ativação marcada para gastar a vez passa a vez", function(T)
+  { "ativação Lenta abre a pilha e só resolve quando o outro não responde", function(T)
     local g = new_game({ "t_tambor" })
     play(g, 1, "t_tambor"); pass(g)
     T.ok(g:act(1, { type = "activate", structure = 1 }))
+    T.eq(#log, 0, "ainda na pilha")
+    T.eq(g.active, 1, "quem abriu continua com a vez para empilhar mais")
+    T.ok(g:act(1, { type = "pass" }))
+    T.eq(g.active, 2, "pronto: a vez vai para o outro")
+    T.ok(g:act(2, { type = "pass" }))
     T.eq(log[1], "tambor")
-    T.eq(g.active, 2)
+    T.eq(g.active, 2, "depois de resolver, a vez é de quem não abriu")
     clear_test_cards()
   end },
 
-  { "ativação com escolha: só a escolha é aceita até ser resolvida, e não gasta a vez", function(T)
+  { "ativação Instantânea com escolha: só a escolha é aceita até ser resolvida, e não gasta a vez", function(T)
     local g = new_game({ "t_maquina" })
     play(g, 1, "t_maquina"); pass(g)
     T.ok(g:act(1, { type = "activate", structure = 1 }))
@@ -129,6 +134,9 @@ return {
     play(g, 1, "t_tambor"); pass(g)
     g.fogueira[1], g.fogueira[2] = 0, 0
     T.ok(g:act(1, { type = "activate", structure = 1 }))
+    T.ok(g:act(1, { type = "pass" }))
+    T.ok(g:act(2, { type = "pass" }))
+    T.eq(log[1], "tambor")
     clear_test_cards()
   end },
 }
