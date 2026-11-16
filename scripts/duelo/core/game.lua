@@ -14,6 +14,9 @@ Game.START_HAND = 4
 -- devolve: ok (boolean), erro (string | nil), passa_a_vez (boolean).
 Game.actions = {}
 
+-- Funções chamadas quando o período muda: hook(game, periodo).
+Game.period_hooks = {}
+
 local function other(p)
   return p == 1 and 2 or 1
 end
@@ -83,6 +86,26 @@ function Game:start()
   self:begin_round()
 end
 
+-- Período pela vez: vezes 1 e 2 de manhã, 3 e 4 à tarde, da 5 em diante à noite.
+-- O combate acontece dentro de uma única vez, então o período não avança no meio dele.
+function Game.period_of(vez)
+  if vez <= 2 then return "manha" elseif vez <= 4 then return "tarde" end
+  return "noite"
+end
+
+function Game:period()
+  return Game.period_of(self.vez)
+end
+
+function Game:update_period()
+  local per = self:period()
+  if per ~= self.current_period then
+    self.current_period = per
+    self:emit{ t = "period", period = per, round = self.round }
+    for _, hook in ipairs(Game.period_hooks) do hook(self, per) end
+  end
+end
+
 function Game:begin_round()
   self.round = self.round + 1
   if self.round == 1 then
@@ -93,7 +116,9 @@ function Game:begin_round()
   self.active = self.attacker
   self.vez = 1
   self.passes = 0
+  self.current_period = nil
   self:emit{ t = "round_start", round = self.round, attacker = self.attacker }
+  self:update_period()
 end
 
 function Game:end_round()
@@ -107,6 +132,7 @@ function Game:advance_vez()
   self.vez = self.vez + 1
   self.active = other(self.active)
   self:emit{ t = "vez", vez = self.vez, active = self.active }
+  self:update_period()
 end
 
 -- Ponto único de entrada das jogadas.
