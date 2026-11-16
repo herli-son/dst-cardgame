@@ -136,7 +136,9 @@ return function(Game)
     if action.creature then
       local c = g:creature_at(p, action.creature)
       if c == nil then return nil, "não há criatura nesse espaço" end
-      local e = c.equips and c.equips[action.equip or ""]
+      -- Sem action.equip, o efeito é da própria criatura.
+      if action.equip == nil then return c end
+      local e = c.equips[action.equip]
       if e == nil then return nil, "não há equipamento nesse espaço" end
       e.holder = c
       return e

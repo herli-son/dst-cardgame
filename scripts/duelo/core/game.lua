@@ -17,8 +17,34 @@ Game.DRAW_PER_ROUND = 1
 -- devolve: ok (boolean), erro (string | nil), passa_a_vez (boolean).
 Game.actions = {}
 
--- Funções chamadas quando o período muda: hook(game, periodo).
+-- Regras do próprio motor chamadas quando o período muda: hook(game, periodo).
+-- Efeitos de cartas não entram aqui: usam Game:on(...), que vale só para a partida.
 Game.period_hooks = {}
+
+-- Ganchos por partida, para efeitos de cartas. Eventos:
+--   "period" (g, periodo), "round_start" (g), "round_end" (g), "death" (g, criatura)
+local HOOK_EVENTS = { period = true, round_start = true, round_end = true, death = true }
+
+function Game:on(event, fn)
+  assert(HOOK_EVENTS[event], "evento de gancho desconhecido: " .. tostring(event))
+  local list = self.hooks[event]
+  list[#list + 1] = fn
+  return fn
+end
+
+function Game:off(event, fn)
+  local list = self.hooks[event]
+  for i = #list, 1, -1 do
+    if list[i] == fn then table.remove(list, i) end
+  end
+end
+
+function Game:run_hooks(event, ...)
+  -- Copia a lista: um gancho pode se remover enquanto roda.
+  local list = {}
+  for i, fn in ipairs(self.hooks[event]) do list[i] = fn end
+  for _, fn in ipairs(list) do fn(self, ...) end
+end
 
 local function other(p)
   return p == 1 and 2 or 1
@@ -241,6 +267,7 @@ function Game:update_period()
     self.current_period = per
     self:emit{ t = "period", period = per, round = self.round }
     for _, hook in ipairs(Game.period_hooks) do hook(self, per) end
+    self:run_hooks("period", per)
   end
 end
 
@@ -346,10 +373,12 @@ function Game:begin_round()
   for p = 1, 2 do self:round_upkeep(p) end
   self:check_winner()
   if self.winner ~= nil then return end
+  self:run_hooks("round_start")
   self:update_period()
 end
 
 function Game:end_round()
+  self:run_hooks("round_end")
   -- Terminar a rodada à noite com a fogueira em zero causa dano. As duas
   -- verificações acontecem antes de decidir o vencedor, para um empate ser possível.
   if self:is_night_lit() and not self.fogueira_no_damage then

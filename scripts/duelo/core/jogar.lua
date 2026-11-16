@@ -158,13 +158,15 @@ return function(Game)
   -- Jogar uma carta da mão
   ----------------------------------------------------------------------------
 
-  -- action = { type = "play", hand_index = n, from = "hand" | "inventory", ... campos de cada tipo ... }
+  -- Zonas de onde se joga: todas contam como mão.
+  Game.PLAYABLE_ZONES = { hand = "hand", inventory = "inventory", separated = "separated" }
+
+  -- action = { type = "play", hand_index = n, from = "hand" | "inventory" | "separated", ... }
   Game.actions.play = function(g, p, action)
     local pl = g.players[p]
-    local zone
-    if action.from == nil or action.from == "hand" then zone = pl.hand
-    elseif action.from == "inventory" then zone = pl.inventory
-    else return false, "origem inválida" end
+    local zone_name = Game.PLAYABLE_ZONES[action.from or "hand"]
+    if zone_name == nil then return false, "origem inválida" end
+    local zone = pl[zone_name]
     local card = zone[action.hand_index or -1]
     if card == nil then return false, "carta não está na mão" end
     local def = g:def_of(card)

@@ -49,19 +49,27 @@ return function(Game)
   end
 
   -- Tira uma criatura de campo. dest = "discard" | "hand" | "deck" | "destroyed".
-  -- Os equipamentos vão para o descarte. Fichas deixam de existir em qualquer destino.
-  function Game:remove_creature(c, dest, reason)
+  -- opts.equips = "discard" (padrão) ou "inventory" (ex.: Telelocador).
+  -- Fichas deixam de existir em qualquer destino.
+  function Game:remove_creature(c, dest, reason, opts)
+    opts = opts or {}
     local pl = self.players[c.owner]
     if pl.field[c.slot] ~= c then return end
     pl.field[c.slot] = nil
-    self:discard_all_equips(c, reason)
+    if opts.equips == "inventory" then
+      self:return_all_equips(c, reason)
+    else
+      self:discard_all_equips(c, reason)
+    end
     self:emit{ t = "leave", p = c.owner, slot = c.slot, uid = c.uid, id = c.def.id, dest = dest, reason = reason }
     local card = c.card
-    card.durability = nil
     if c.ficha or card.ficha then
       self:vanish(c.owner, card, reason)
-    elseif dest == "hand" then
-      self:add_to_hand(c.owner, card)
+      return
+    end
+    self:reset_card(card)
+    if dest == "hand" then
+      self:add_to_hand(c.owner, card, "campo")
     elseif dest == "deck" then
       pl.deck[#pl.deck + 1] = card
     elseif dest == "destroyed" then
