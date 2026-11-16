@@ -17,8 +17,9 @@ local function define_test_cards()
       g:set_choice(p, { reason = "teste", options = { "a", "b" }, allow_none = true,
         resolve = function(gg, idx) log[#log + 1] = "escolheu:" .. tostring(idx) end })
     end }
-  -- Ativação comum: gasta a vez.
+  -- Ativação que gasta a vez.
   Cards.define{ id = "t_tambor", kind = "estrutura", cost = 1,
+    activation = { passes_turn = true },
     activate = function(g, p, st) log[#log + 1] = "tambor" end }
   Cards.define{ id = "t_fraca", kind = "criatura", cost = 0, atk = 0, hp = 1 }
 end
@@ -81,7 +82,13 @@ return {
     clear_test_cards()
   end },
 
-  { "ativação comum gasta a vez", function(T)
+  { "carta com efeito ativado precisa dizer se gasta a vez", function(T)
+    local ok = pcall(Cards.define, { id = "t_sem_regra", kind = "estrutura", activate = function() end })
+    T.eq(ok, false)
+    Cards.remove("t_sem_regra")
+  end },
+
+  { "ativação marcada para gastar a vez passa a vez", function(T)
     local g = new_game({ "t_tambor" })
     play(g, 1, "t_tambor"); pass(g)
     T.ok(g:act(1, { type = "activate", structure = 1 }))
