@@ -36,7 +36,8 @@ Usa o relógio natural do jogo (`components/clock.lua`), sem relógio próprio.
 
 ### Câmera
 
-- **Rotação desligada:** `TheCamera:SetControllable(false)` faz `RotLeft` e `RotRight` (`components/playercontroller.lua`) ignorarem as teclas de girar. Isso também desliga o zoom; se o zoom for desejado, o bloqueio passa a ser só nas funções de girar.
+- **Rotação desligada, zoom liberado:** o mod bloqueia só `RotLeft` e `RotRight` (`components/playercontroller.lua`), em vez de usar `TheCamera:SetControllable(false)`, que desligaria o zoom junto.
+- **Ângulo da câmera:** a referência é a visão isométrica do mod Zoom+. O nosso mod define o próprio ângulo e a distância da câmera (`cameras/followcamera.lua`), sem depender de outro mod instalado.
 - **Cada jogador vê a mesa do seu lado:** a câmera é de cada cliente, então o mod define a direção com `TheCamera:SetHeadingTarget` (`cameras/followcamera.lua`). Um jogador fica com a direção oposta à do outro (diferença de 180°), e cada um vê o próprio campo na parte de baixo da tela.
 
 ## Pendências para os próximos passos
