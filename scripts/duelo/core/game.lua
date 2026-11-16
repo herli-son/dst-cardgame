@@ -36,6 +36,7 @@ local function new_player(deck)
     deck = deck or {}, -- o topo do baralho é o último elemento
     hand = {},
     discard = {},
+    destroyed = {},   -- cartas destruídas: saem de jogo e não voltam (diferente do descarte)
     field = {},       -- 6 espaços de criatura
     structures = {},  -- 2 espaços de estrutura
     inventory = {},
@@ -85,14 +86,21 @@ function Game:hand_count(p)
   return #pl.hand + #pl.inventory + #pl.separated
 end
 
+-- Destruir é diferente de descartar: a carta vai para a zona de destruídas e
+-- não pode ser recuperada por efeitos que buscam no descarte.
+function Game:destroy_card(p, card, reason)
+  local pl = self.players[p]
+  pl.destroyed[#pl.destroyed + 1] = card
+  self:emit{ t = "destroyed", p = p, card = card, reason = reason }
+end
+
 -- Coloca uma carta na mão respeitando o limite; acima dele, a carta é destruída.
 function Game:add_to_hand(p, card)
-  local pl = self.players[p]
   if self:hand_count(p) >= Game.HAND_LIMIT then
-    pl.discard[#pl.discard + 1] = card
-    self:emit{ t = "burn", p = p, card = card }
+    self:destroy_card(p, card, "limite_de_mao")
     return false
   end
+  local pl = self.players[p]
   pl.hand[#pl.hand + 1] = card
   self:emit{ t = "draw", p = p }
   return true

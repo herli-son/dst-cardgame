@@ -50,7 +50,7 @@ return {
     T.eq(#g.players[2].hand, 6)
   end },
 
-  { "limite de mão 10 contando Inventário e separadas; o excedente é destruído", function(T)
+  { "limite de mão 10 contando Inventário e separadas; o excedente vai para as destruídas", function(T)
     local g = new_game{ mulligan = false }
     local pl = g.players[1]
     pl.inventory = { { id = "inv1" }, { id = "inv2" } }
@@ -59,10 +59,10 @@ return {
     pass_round(g)
     pass_round(g)
     T.eq(g:hand_count(1), 10)
-    local discard_before = #pl.discard
     pass_round(g)
     T.eq(g:hand_count(1), 10, "não passa de 10")
-    T.eq(#pl.discard, discard_before + 1, "a carta comprada acima do limite é destruída")
+    T.eq(#pl.destroyed, 1, "a carta comprada acima do limite é destruída")
+    T.eq(#pl.discard, 0, "destruir não é descartar")
   end },
 
   { "troca inicial: a partida só começa depois que os dois decidem", function(T)
