@@ -11,6 +11,10 @@
 --   on_play(game, criatura)            efeito ao entrar em campo
 --   on_any_enter(game, criatura, nova) reage a qualquer criatura que entrar
 --   stats(game, criatura) -> atk, hp   atributos que dependem do estado (ex.: Morcego)
+-- Feitiço:
+--   speed ("instantaneo" | "rapido" | "lento")
+--   targets(game, p, action) -> ok, erro   confere os alvos (na jogada e de novo ao resolver)
+--   on_cast(game, p, action, card)        o efeito
 
 local Cards = {}
 
@@ -18,10 +22,14 @@ local registry = {}
 
 function Cards.define(def)
   assert(type(def.id) == "string", "carta sem id")
+  local SPEEDS = { instantaneo = true, rapido = true, lento = true }
   if def.activate then
-    -- Cada carta com efeito ativado diz se ele gasta a vez; não há padrão.
-    assert(def.activation and type(def.activation.passes_turn) == "boolean",
-      "carta " .. def.id .. ": activation.passes_turn precisa ser true ou false")
+    -- Cada efeito ativado diz o seu tipo: Instantâneo, Rápido ou Lento.
+    assert(def.activation and SPEEDS[def.activation.speed],
+      "carta " .. def.id .. ": activation.speed precisa ser instantaneo, rapido ou lento")
+  end
+  if def.kind == "feitico" then
+    assert(SPEEDS[def.speed], "carta " .. def.id .. ": feitiço precisa de speed instantaneo, rapido ou lento")
   end
   def.kw = def.kw or {}
   def.types = def.types or {}

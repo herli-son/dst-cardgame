@@ -124,6 +124,9 @@ return function(Game)
     if def == nil then return false, "carta desconhecida: " .. tostring(card.id) end
     local rule = Game.play_rules[def.kind]
     if rule == nil then return false, "tipo de carta ainda não suportado: " .. tostring(def.kind) end
+    if g:stack_open() and not (rule.allowed_in_stack and rule.allowed_in_stack(g, def)) then
+      return false, "com a pilha aberta, só Rápidos e Instantâneos"
+    end
 
     local cost = g:card_cost(p, card)
     if not g:can_pay_mana(p, cost) then return false, "mana insuficiente" end
@@ -136,9 +139,48 @@ return function(Game)
     g:spend_mana(p, cost)
     if uses_fogueira then g:spend_fogueira(p) end
     g:emit{ t = "play", p = p, id = def.id, cost = cost }
-    rule.resolve(g, p, card, def, action)
-    return true, nil, not def.keeps_turn
+    local passes = rule.resolve(g, p, card, def, action)
+    if passes == nil then passes = not def.keeps_turn end
+    return true, nil, passes
   end
+
+  ----------------------------------------------------------------------------
+  -- Feitiços
+  ----------------------------------------------------------------------------
+
+  -- Manda a carta usada para o descarte; fichas deixam de existir.
+  function Game:to_discard(p, card)
+    if card.ficha then return end
+    local d = self.players[p].discard
+    d[#d + 1] = card
+  end
+
+  Game.play_rules.feitico = {
+    allowed_in_stack = function(g, def) return def.speed ~= "lento" end,
+    -- Os alvos ficam na própria ação (action.target, action.targets...) e a carta os confere.
+    validate = function(g, p, card, def, action)
+      local ok, err = g:can_use_speed(def.speed)
+      if not ok then return false, err end
+      if def.targets then
+        local valid, why = def.targets(g, p, action)
+        if not valid then return false, why or "alvo inválido" end
+      end
+      return true
+    end,
+    resolve = function(g, p, card, def, action)
+      return g:use_speed(p, def.speed, def.id, function(gg)
+        -- Se o alvo deixou de valer até a resolução, o feitiço perde o efeito.
+        local valid = true
+        if def.targets then valid = def.targets(gg, p, action) end
+        if valid then
+          def.on_cast(gg, p, action, card)
+        else
+          gg:emit{ t = "fizzle", p = p, id = def.id }
+        end
+        gg:to_discard(p, card)
+      end)
+    end,
+  }
 
   ----------------------------------------------------------------------------
   -- Criaturas

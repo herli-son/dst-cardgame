@@ -2,7 +2,7 @@
 -- Instala os métodos no Game: require("duelo/core/estruturas")(Game)
 --
 -- Campos da definição de uma estrutura:
---   activation = { once_per_round = bool, passes_turn = bool }   (passes_turn é obrigatório)
+--   activation = { once_per_round = bool, speed = "instantaneo" | "rapido" | "lento" }
 --   activate(game, p, estrutura, action)   efeito ativado; pode abrir uma escolha
 --   on_break(game, estrutura)              ao ser quebrada
 
@@ -102,30 +102,57 @@ return function(Game)
     if idx ~= nil and (ch.options == nil or ch.options[idx] == nil) then return false, "opção inválida" end
     g.pending_choice = nil
     ch.resolve(g, idx)
-    return true, nil, ch.passes_turn == true
+    -- Escolha aberta durante a resolução da pilha: continua resolvendo.
+    if g.resolving and g.pending_choice == nil then g:resolve_stack() end
+    return true, nil, false
   end
 
   ----------------------------------------------------------------------------
   -- Efeitos ativados de estruturas
   ----------------------------------------------------------------------------
 
-  -- action = { type = "activate", structure = slot, ... }
-  Game.actions.activate = function(g, p, action)
-    local st = g:structure_at(p, action.structure or -1)
-    if st == nil then return false, "não há estrutura nesse espaço" end
-    local def = st.def
-    if def.activate == nil then return false, "essa estrutura não tem efeito ativado" end
-    local spec = def.activation or {}
-    if spec.once_per_round and st.used_round == g.round then return false, "já ativada nesta rodada" end
-    st.used_round = g.round
-    g:emit{ t = "activate", p = p, slot = st.slot, id = def.id }
-    def.activate(g, p, st, action)
-    local passes = spec.passes_turn
-    if g.pending_choice then
-      -- A vez só passa depois da escolha, se o efeito gastar a vez.
-      g.pending_choice.passes_turn = passes
-      return true, nil, false
+  -- De onde vem o efeito: uma estrutura (action.structure = espaço) ou um equipamento
+  -- (action.creature = espaço da criatura, action.equip = "mao" | "peito" | "cabeca").
+  local function source_of(g, p, action)
+    if action.structure then
+      local st = g:structure_at(p, action.structure)
+      if st == nil then return nil, "não há estrutura nesse espaço" end
+      return st
     end
-    return true, nil, passes
+    if action.creature then
+      local c = g:creature_at(p, action.creature)
+      if c == nil then return nil, "não há criatura nesse espaço" end
+      local e = c.equips and c.equips[action.equip or ""]
+      if e == nil then return nil, "não há equipamento nesse espaço" end
+      e.holder = c
+      return e
+    end
+    return nil, "escolha a carta que vai ativar"
+  end
+
+  -- action = { type = "activate", structure = slot } ou { creature = slot, equip = "mao" }, mais os alvos
+  Game.actions.activate = function(g, p, action)
+    local src, err = source_of(g, p, action)
+    if src == nil then return false, err end
+    local def = src.def
+    if def.activate == nil then return false, "essa carta não tem efeito ativado" end
+    local spec = def.activation
+    local ok, why = g:can_use_speed(spec.speed)
+    if not ok then return false, why end
+    if spec.once_per_round and src.used_round == g.round then return false, "já ativada nesta rodada" end
+    local period_key = g.round .. ":" .. tostring(g:period())
+    if spec.once_per_period and src.used_period == period_key then return false, "já ativada neste período" end
+    if def.can_activate then
+      local can, reason = def.can_activate(g, p, src, action)
+      if not can then return false, reason or "condição do efeito não atendida" end
+    end
+    src.used_round = g.round
+    src.used_period = period_key
+    g:emit{ t = "activate", p = p, id = def.id, speed = spec.speed }
+    -- Equipamentos com efeito de uso perdem 1 de durabilidade ao usar o efeito.
+    if src.holder and src.durability then g:wear(src.holder, def.slot, 1) end
+    return true, nil, g:use_speed(p, spec.speed, def.id, function(gg)
+      def.activate(gg, p, src, action)
+    end)
   end
 end
