@@ -142,6 +142,10 @@ return function(Game)
     if spec.once_per_round and src.used_round == g.round then return false, "já ativada nesta rodada" end
     local period_key = g.round .. ":" .. tostring(g:period())
     if spec.once_per_period and src.used_period == period_key then return false, "já ativada neste período" end
+    if def.targets then
+      local valid, why = def.targets(g, p, action)
+      if not valid then return false, why or "alvo inválido" end
+    end
     if def.can_activate then
       local can, reason = def.can_activate(g, p, src, action)
       if not can then return false, reason or "condição do efeito não atendida" end
@@ -152,6 +156,11 @@ return function(Game)
     -- Equipamentos com efeito de uso perdem 1 de durabilidade ao usar o efeito.
     if src.holder and src.durability then g:wear(src.holder, def.slot, 1) end
     return true, nil, g:use_speed(p, spec.speed, def.id, function(gg)
+      -- Alvo perdido: se o alvo deixou de valer até a resolução, o efeito não acontece.
+      if def.targets and not def.targets(gg, p, action) then
+        gg:emit{ t = "fizzle", p = p, id = def.id }
+        return
+      end
       def.activate(gg, p, src, action)
     end)
   end
