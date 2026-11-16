@@ -216,7 +216,7 @@ Game.FOGUEIRA_START = 3
 Game.FOGUEIRA_DAMAGE = 2
 
 -- Ações que continuam permitidas com a fogueira em zero: passar, atacar e ativar efeitos.
-Game.allowed_at_zero_fogueira = { pass = true, attack = true, activate = true }
+Game.allowed_at_zero_fogueira = { pass = true, attack = true, activate = true, choose = true }
 
 -- Acende quando a noite começa, com o valor inicial mais os bônus guardados na rodada.
 function Game:light_fogueira()
@@ -344,6 +344,7 @@ function Game:act(p, action)
   if self.phase ~= "playing" then return false, "a partida ainda não começou" end
   if p ~= self.active then return false, "não é a sua vez" end
   if type(action) ~= "table" or action.type == nil then return false, "ação inválida" end
+  if self.pending_choice and action.type ~= "choose" then return false, "há uma escolha pendente" end
 
   if action.type == "pass" then
     self.passes = self.passes + 1
@@ -371,5 +372,6 @@ function Game:act(p, action)
 end
 
 require("duelo/core/jogar")(Game)
+require("duelo/core/estruturas")(Game)
 
 return Game
