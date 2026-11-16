@@ -51,4 +51,16 @@ function Cards.remove(id)
   registry[id] = nil
 end
 
+-- Usado pelos testes para isolar o registro entre casos.
+function Cards.snapshot()
+  local copy = {}
+  for k, v in pairs(registry) do copy[k] = v end
+  return copy
+end
+
+function Cards.restore(snap)
+  for k in pairs(registry) do registry[k] = nil end
+  for k, v in pairs(snap) do registry[k] = v end
+end
+
 return Cards
