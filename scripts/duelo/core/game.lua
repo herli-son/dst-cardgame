@@ -65,6 +65,11 @@ function Game.new(opts)
   g.fogueira = { nil, nil }
   g.fogueira_pending = { 0, 0 }
   g.events = {}
+  for p = 1, 2 do
+    for _, card in ipairs(g.players[p].deck) do
+      if card.uid == nil then card.uid = g:next_uid() end
+    end
+  end
   return g
 end
 
@@ -364,5 +369,7 @@ function Game:act(p, action)
   end
   return true
 end
+
+require("duelo/core/jogar")(Game)
 
 return Game
