@@ -38,7 +38,7 @@ Usa o relógio natural do jogo (`components/clock.lua`), sem relógio próprio.
 
 - **Rotação desligada, zoom liberado:** o mod bloqueia só `RotLeft` e `RotRight` (`components/playercontroller.lua`), em vez de usar `TheCamera:SetControllable(false)`, que desligaria o zoom junto.
 - **Ângulo da câmera ajustável:** o jogador troca o ângulo por um botão na tela e por uma tecla de atalho, alternando entre predefinições (por exemplo: padrão do jogo, aérea e vista de cima). Cada predefinição muda campos da câmera (`zoomstep`, `distancetarget`, `mindist`, `maxdist`, `mindistpitch`, `maxdistpitch` em `cameras/followcamera.lua`). O nosso mod tem as próprias predefinições, sem depender de outro mod instalado.
-- **Referência:** o Zoom+ não está instalado nesta máquina. O mod de câmera encontrado foi o "[DST]Aerial View" (Oficina, id 694531911), que troca entre vista aérea, vista de cima e padrão com uma tecla, ajustando esses mesmos campos. Serve de referência de abordagem; o código dele não é copiado.
+- **Referência:** o mod "[DST]Aerial View" (Oficina, id 694531911), que troca entre vista aérea, vista de cima e padrão com uma tecla, ajustando esses mesmos campos. As predefinições do nosso mod partem dos ângulos dele. Serve de referência de abordagem; o código dele não é copiado.
 - **Cada jogador vê a mesa do seu lado:** a câmera é de cada cliente, então o mod define a direção com `TheCamera:SetHeadingTarget` (`cameras/followcamera.lua`). Um jogador fica com a direção oposta à do outro (diferença de 180°), e cada um vê o próprio campo na parte de baixo da tela.
 
 ## Pendências para os próximos passos
