@@ -9,6 +9,9 @@ Game.__index = Game
 
 Game.START_LIFE = 20
 Game.START_HAND = 4
+Game.MAX_MANA = 10
+Game.HAND_LIMIT = 10
+Game.DRAW_PER_ROUND = 1
 
 -- Ações registradas por tipo. Cada handler recebe (game, player, action) e
 -- devolve: ok (boolean), erro (string | nil), passa_a_vez (boolean).
@@ -33,9 +36,15 @@ local function new_player(deck)
     deck = deck or {}, -- o topo do baralho é o último elemento
     hand = {},
     discard = {},
+    destroyed = {},   -- cartas destruídas: saem de jogo e não voltam (diferente do descarte)
     field = {},       -- 6 espaços de criatura
     structures = {},  -- 2 espaços de estrutura
     inventory = {},
+    separated = {},   -- cartas separadas: reveladas, com marcadores, contam como mão
+    mana = 0,
+    max_mana = 0,
+    fome = 0,         -- marcador de Fome: dano da próxima rodada com baralho vazio
+    mulligan_done = false,
   }
 end
 
@@ -45,6 +54,8 @@ function Game.new(opts)
   g.rng = opts.rng or default_rng
   g.players = { new_player(opts.decks and opts.decks[1]), new_player(opts.decks and opts.decks[2]) }
   g.first = opts.first or g.rng(2)
+  g.use_mulligan = opts.mulligan ~= false
+  g.phase = "setup" -- "setup" | "mulligan" | "playing" | "over"
   g.round = 0
   g.attacker = nil -- jogador com o token de ataque nesta rodada
   g.active = nil   -- jogador que tem a vez
@@ -69,13 +80,38 @@ function Game:shuffle_deck(p)
   end
 end
 
+-- Tudo o que conta para o limite de mão: mão, Inventário e cartas separadas.
+function Game:hand_count(p)
+  local pl = self.players[p]
+  return #pl.hand + #pl.inventory + #pl.separated
+end
+
+-- Destruir é diferente de descartar: a carta vai para a zona de destruídas e
+-- não pode ser recuperada por efeitos que buscam no descarte.
+function Game:destroy_card(p, card, reason)
+  local pl = self.players[p]
+  pl.destroyed[#pl.destroyed + 1] = card
+  self:emit{ t = "destroyed", p = p, card = card, reason = reason }
+end
+
+-- Coloca uma carta na mão respeitando o limite; acima dele, a carta é destruída.
+function Game:add_to_hand(p, card)
+  if self:hand_count(p) >= Game.HAND_LIMIT then
+    self:destroy_card(p, card, "limite_de_mao")
+    return false
+  end
+  local pl = self.players[p]
+  pl.hand[#pl.hand + 1] = card
+  self:emit{ t = "draw", p = p }
+  return true
+end
+
 function Game:draw(p, n)
   local pl = self.players[p]
   for _ = 1, n or 1 do
     local card = table.remove(pl.deck)
     if card == nil then return end
-    pl.hand[#pl.hand + 1] = card
-    self:emit{ t = "draw", p = p }
+    self:add_to_hand(p, card)
   end
 end
 
@@ -85,7 +121,66 @@ function Game:start()
     self:draw(p, Game.START_HAND)
   end
   self:emit{ t = "start", first = self.first }
-  self:begin_round()
+  if self.use_mulligan then
+    self.phase = "mulligan"
+    self:emit{ t = "mulligan_start" }
+  else
+    self.phase = "playing"
+    self:begin_round()
+  end
+end
+
+-- Troca inicial: cada jogador escolhe quais cartas da mão inicial devolver
+-- (lista de índices, pode ser vazia). As devolvidas voltam ao baralho, que é
+-- embaralhado, e o jogador compra a mesma quantidade. Uma vez por jogador.
+function Game:mulligan(p, indices)
+  if self.phase ~= "mulligan" then return false, "fora da fase de troca" end
+  local pl = self.players[p]
+  if pl.mulligan_done then return false, "troca já feita" end
+  local chosen, back = {}, {}
+  for _, i in ipairs(indices or {}) do
+    if pl.hand[i] == nil or chosen[i] then return false, "índice inválido" end
+    chosen[i] = true
+  end
+  local keep = {}
+  for i, card in ipairs(pl.hand) do
+    if chosen[i] then back[#back + 1] = card else keep[#keep + 1] = card end
+  end
+  pl.hand = keep
+  for _, card in ipairs(back) do pl.deck[#pl.deck + 1] = card end
+  self:shuffle_deck(p)
+  self:draw(p, #back)
+  pl.mulligan_done = true
+  self:emit{ t = "mulligan", p = p, count = #back }
+  if self.players[1].mulligan_done and self.players[2].mulligan_done then
+    self.phase = "playing"
+    self:begin_round()
+  end
+  return true
+end
+
+-- Início da rodada para cada jogador: Fome (se o baralho estiver vazio), mana e compra.
+function Game:round_upkeep(p)
+  local pl = self.players[p]
+  if #pl.deck == 0 then
+    pl.fome = pl.fome + 1
+    pl.life = pl.life - pl.fome
+    self:emit{ t = "player_damage", p = p, amount = pl.fome, source = "fome", life = pl.life }
+  end
+  pl.max_mana = math.min(Game.MAX_MANA, self.round)
+  pl.mana = pl.max_mana
+  self:emit{ t = "mana", p = p, mana = pl.mana, max = pl.max_mana }
+  self:draw(p, Game.DRAW_PER_ROUND)
+end
+
+function Game:can_pay_mana(p, cost)
+  return self.players[p].mana >= (cost or 0)
+end
+
+function Game:spend_mana(p, cost)
+  local pl = self.players[p]
+  pl.mana = pl.mana - (cost or 0)
+  self:emit{ t = "mana", p = p, mana = pl.mana, max = pl.max_mana }
 end
 
 -- Período pela vez: vezes 1 e 2 de manhã, 3 e 4 à tarde, da 5 em diante à noite.
@@ -173,7 +268,10 @@ function Game:check_winner()
   elseif dead2 then
     self.winner = 1
   end
-  if self.winner ~= nil then self:emit{ t = "game_over", winner = self.winner } end
+  if self.winner ~= nil then
+    self.phase = "over"
+    self:emit{ t = "game_over", winner = self.winner }
+  end
 end
 
 function Game:damage_player(p, n, source)
@@ -203,6 +301,9 @@ function Game:begin_round()
   self.passes = 0
   self.current_period = nil
   self:emit{ t = "round_start", round = self.round, attacker = self.attacker }
+  for p = 1, 2 do self:round_upkeep(p) end
+  self:check_winner()
+  if self.winner ~= nil then return end
   self:update_period()
 end
 
@@ -235,6 +336,7 @@ end
 -- Ponto único de entrada das jogadas.
 function Game:act(p, action)
   if self.winner ~= nil then return false, "partida encerrada" end
+  if self.phase ~= "playing" then return false, "a partida ainda não começou" end
   if p ~= self.active then return false, "não é a sua vez" end
   if type(action) ~= "table" or action.type == nil then return false, "ação inválida" end
 

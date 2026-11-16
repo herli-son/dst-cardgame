@@ -1,7 +1,13 @@
 local Game = require("duelo/core/game")
 
+local function deck(n)
+  local d = {}
+  for i = 1, n do d[i] = { id = "carta" .. i } end
+  return d
+end
+
 local function new_game()
-  local g = Game.new{ decks = { {}, {} }, first = 1, rng = function() return 1 end }
+  local g = Game.new{ decks = { deck(20), deck(20) }, first = 1, mulligan = false, rng = function() return 1 end }
   g:start()
   return g
 end
