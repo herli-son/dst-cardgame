@@ -15,9 +15,10 @@ function T.ok(cond, msg)
   if not cond then error(msg or "condição falsa", 2) end
 end
 
--- Cada caso roda isolado: todo o estado global do motor é salvo antes e
--- restaurado depois, mesmo quando o caso falha. Isso inclui o módulo Game inteiro
--- (constantes, métodos e tabelas, em qualquer profundidade) e o registro de cartas.
+-- Cada caso roda isolado: o estado global do motor é salvo antes e restaurado
+-- depois, mesmo quando o caso falha. Isso cobre o módulo Game inteiro (constantes,
+-- métodos e tabelas, em qualquer profundidade), o registro de cartas e o conteúdo
+-- de cada definição registrada. Variáveis locais dos módulos ficam de fora.
 local Game = require("duelo/core/game")
 local Cards = require("duelo/core/cards")
 
@@ -41,7 +42,9 @@ local function snapshot()
     end
   end
   walk(Game)
-  return { contents = contents, cards = Cards.snapshot() }
+  local cards = Cards.snapshot()
+  for _, def in pairs(cards) do walk(def) end
+  return { contents = contents, cards = cards }
 end
 
 local function restore(snap)
@@ -53,6 +56,9 @@ local function restore(snap)
   end
   Cards.restore(snap.cards)
 end
+
+-- Expostos para o teste que confere o próprio isolamento.
+T.snapshot, T.restore = snapshot, restore
 
 local function run_file(name)
   local tests = require(name)

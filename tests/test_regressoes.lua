@@ -677,12 +677,68 @@ return {
     T.eq(g.players[1].structures[7], nil)
   end },
 
-  { "o executor restaura tabelas aninhadas do motor (parte 1: altera)", function(T)
+  { "o executor restaura tabelas aninhadas do motor e as definições de carta", function(T)
+    define_test_cards()
+    local snap = T.snapshot()
+    local original = Game.play_rules.feitico.validate
+    local cast = Cards.get("r_raio").on_cast
     Game.play_rules.feitico.validate = function() return false, "alterado" end
+    Cards.get("r_raio").on_cast = function() end
+    Game.NOVA_CONSTANTE = 1
+    T.restore(snap)
+    T.eq(Game.play_rules.feitico.validate, original)
+    T.eq(Cards.get("r_raio").on_cast, cast)
+    T.eq(Game.NOVA_CONSTANTE, nil)
   end },
 
-  { "o executor restaura tabelas aninhadas do motor (parte 2: confere)", function(T)
-    local g = new_game({ "r_raio" })
-    T.ok(play(g, 1, "r_raio"), "a regra de jogada de feitiço voltou ao original")
+  { "erro no preparo de uma escolha não prende as escolhas seguintes", function(T)
+    local g = new_game()
+    local ok = pcall(g.set_choice, g, 1, { reason = "x", options = { "a" },
+      prepare = function() error("falha") end, resolve = function() end })
+    T.eq(ok, false)
+    T.ok(not g.opening_choice)
+    g:set_choice(2, { reason = "y", options = { "a" }, resolve = function() end })
+    T.ok(g.pending_choice ~= nil and g.pending_choice.reason == "y")
+  end },
+
+  { "escolha pedida ao resolver outra entra no fim da fila", function(T)
+    local g = new_game()
+    g:set_choice(1, { reason = "a", options = { "x" }, resolve = function(gg)
+      gg:set_choice(1, { reason = "a2", options = { "x" }, resolve = function() log[#log + 1] = "a2" end })
+    end })
+    g:set_choice(2, { reason = "b", options = { "x" }, resolve = function() log[#log + 1] = "b" end })
+    T.ok(g:act(1, { type = "choose", index = 1 }))
+    T.eq(g.pending_choice.reason, "b")
+    T.ok(g:act(2, { type = "choose", index = 1 }))
+    T.eq(g.pending_choice.reason, "a2")
+  end },
+
+  { "conferência de alvo recebe o jogador como { player = p } na jogada", function(T)
+    local g = new_game()
+    local seen
+    Cards.define{ id = "r_cura", kind = "feitico", speed = "rapido", cost = 0,
+      targets = function(gg, p, a, objects)
+        if seen == nil then seen = objects[1].player end
+        return true
+      end,
+      on_cast = function() end }
+    g.players[1].hand[#g.players[1].hand + 1] = { id = "r_cura", uid = g:next_uid() }
+    T.ok(play(g, 1, "r_cura", { target = { p = 2, zone = "jogador" } }))
+    T.eq(seen, 2)
+  end },
+
+  { "efeito ativado com alvo recebe os objetos na jogada e ao resolver", function(T)
+    local g = new_game()
+    local seen = {}
+    Cards.define{ id = "r_canhao", kind = "estrutura", cost = 0,
+      activation = { speed = "rapido" },
+      targets = function(gg, p, a, objects) seen[#seen + 1] = objects[1]; return true end,
+      activate = function(gg, p, src, a, objects) seen[#seen + 1] = objects[1] end }
+    g:put_structure(1, { id = "r_canhao", uid = g:next_uid() }, 1)
+    local alvo = g:place_creature(2, { id = "r_bicho", uid = g:next_uid() }, 4)
+    T.ok(g:act(1, { type = "activate", structure = 1, target = { p = 2, slot = 4 } }))
+    g:act(1, { type = "pass" }); g:act(2, { type = "pass" })
+    T.eq(#seen, 3)
+    for _, o in ipairs(seen) do T.eq(o, alvo) end
   end },
 }
