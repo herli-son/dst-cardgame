@@ -869,4 +869,41 @@ return {
     T.eq(err.code, "X")
     T.ok(tostring(err.cleanup_error):find("ERRO_P") ~= nil)
   end },
+
+  { "fora da pilha, a próxima escolha falha no preparo: a vez passa mesmo assim", function(T)
+    local g = new_game()
+    Cards.define{ id = "r_prep_falha", kind = "criatura", cost = 0, atk = 0, hp = 1,
+      on_play = function(gg, c)
+        gg:set_choice(1, { reason = "a", options = { "x" }, resolve = function() end })
+        gg:set_choice(1, { reason = "p", options = { "x" }, prepare = function() error("ERRO_P") end,
+          resolve = function() end })
+      end }
+    g.players[1].hand[#g.players[1].hand + 1] = { id = "r_prep_falha", uid = g:next_uid() }
+    T.ok(play(g, 1, "r_prep_falha", { slot = 6 }))
+    local ok = pcall(g.act, g, 1, { type = "choose", index = 1 })
+    T.eq(ok, false)
+    T.eq(g.pending_choice, nil)
+    T.eq(g.active, 2)
+  end },
+
+  { "erro da pilha e erro da fila aparecem juntos", function(T)
+    local g = new_game()
+    Cards.define{ id = "r_baixo", kind = "feitico", speed = "rapido", cost = 0,
+      on_cast = function() error("ERRO_B") end }
+    Cards.define{ id = "r_cima", kind = "feitico", speed = "rapido", cost = 0,
+      on_cast = function(gg)
+        gg:set_choice(1, { reason = "a", options = { "x" }, resolve = function() end })
+        gg:set_choice(1, { reason = "p", options = { "x" }, prepare = function() error("ERRO_P") end,
+          resolve = function() end })
+      end }
+    local pl = g.players[1]
+    pl.hand[#pl.hand + 1] = { id = "r_baixo", uid = g:next_uid() }
+    pl.hand[#pl.hand + 1] = { id = "r_cima", uid = g:next_uid() }
+    play(g, 1, "r_baixo"); play(g, 1, "r_cima")
+    g:act(1, { type = "pass" }); g:act(2, { type = "pass" })
+    local ok, err = pcall(g.act, g, 1, { type = "choose", index = 1 })
+    T.eq(ok, false)
+    T.ok(tostring(err):find("ERRO_P") ~= nil)
+    T.ok(tostring(err):find("ERRO_B") ~= nil)
+  end },
 }
