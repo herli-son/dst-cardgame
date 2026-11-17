@@ -78,7 +78,6 @@ end
 -- Sinal interno: a partida foi decidida por um efeito aninhado, e o resto do
 -- efeito de fora não acontece. É capturado pelo efeito mais externo.
 local DECIDED = {}
-Game.DECIDED = DECIDED
 
 -- Erro capturado: guarda o valor original e o traceback do ponto onde ele
 -- nasceu, uma vez só; quem relança uma captura pronta não a embrulha de novo.
@@ -650,7 +649,6 @@ Game.allowed_with_stack = { play = true, activate = true, choose = true, block =
 -- Somente start, mulligan e act são a interface pública do motor. As outras
 -- funções (create_token, kill, set_choice...) são usadas pelas cartas, sempre
 -- dentro de uma dessas entradas protegidas.
-
 
 local function error_message(err)
   if type(err) == "string" then return err end
