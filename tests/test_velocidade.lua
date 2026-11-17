@@ -288,14 +288,14 @@ return {
     T.eq(g:speed(c, "attack"), 2, "o fixo expirou; o relativo continua")
   end },
 
-  { "erro num efeito de Golpear não deixa a vitória adiada", function(T)
+  { "erro num efeito de Golpear não deixa efeitos abertos", function(T)
     local g = new_game()
     Cards.define{ id = "v_bug", kind = "criatura", cost = 0, atk = 1, hp = 5,
       on_strike = function() error("falha") end }
     local c = put(g, 1, "v_bug", 1)
-    -- Direto na fase, sem passar pela entrada pública (que também zera a marca).
+    -- Direto na fase, sem passar pela entrada pública (que também zera a contagem).
     T.eq(pcall(g.strike_phase, g, { { c, { player = 2 } } }), false)
-    T.ok(not g.defer_winner)
+    T.eq(g.effect_depth, 0)
     g:damage_player(2, 99, "teste")
     T.eq(g.winner, 1)
   end },
@@ -345,5 +345,88 @@ return {
     for _, ev in ipairs(g.events) do if ev.t == "death" then death = ev end end
     T.eq(death.reason, "dano")
     T.eq(death.killer_uid, nil)
+  end },
+
+  { "morte causada por um feitiço é um efeito à parte: o feitiço decide primeiro", function(T)
+    local g = new_game()
+    Cards.define{ id = "v_vinga", kind = "criatura", cost = 0, atk = 0, hp = 1,
+      on_death = function(gg) gg:damage_player(1, 99, "teste") end }
+    Cards.define{ id = "v_fulmina", kind = "feitico", speed = "instantaneo", cost = 0,
+      on_cast = function(gg)
+        gg:damage_player(2, 99, "teste")
+        gg:kill(gg:creature_at(2, 1), "teste")
+      end }
+    put(g, 2, "v_vinga", 1)
+    local pl = g.players[1]
+    pl.hand[#pl.hand + 1] = { id = "v_fulmina", uid = g:next_uid() }
+    g:act(1, { type = "play", hand_index = #pl.hand })
+    T.eq(g.winner, 1, "o efeito de morte não acontece")
+    T.ok(g.players[1].life > 0)
+  end },
+
+  { "morte causada por um feitiço decide sozinha se vier antes", function(T)
+    local g = new_game()
+    Cards.define{ id = "v_vinga2", kind = "criatura", cost = 0, atk = 0, hp = 1,
+      on_death = function(gg) gg:damage_player(1, 99, "teste") end }
+    Cards.define{ id = "v_fulmina2", kind = "feitico", speed = "instantaneo", cost = 0,
+      on_cast = function(gg)
+        gg:kill(gg:creature_at(2, 1), "teste")
+        gg:damage_player(2, 99, "teste")
+      end }
+    put(g, 2, "v_vinga2", 1)
+    local pl = g.players[1]
+    pl.hand[#pl.hand + 1] = { id = "v_fulmina2", uid = g:next_uid() }
+    g:act(1, { type = "play", hand_index = #pl.hand })
+    T.eq(g.winner, 2)
+  end },
+
+  { "efeito ao morrer que deixa os dois jogadores sem vida é empate", function(T)
+    local g = new_game()
+    Cards.define{ id = "v_bomba", kind = "criatura", cost = 0, atk = 0, hp = 1,
+      on_death = function(gg) gg:damage_player(2, 99, "teste"); gg:damage_player(1, 99, "teste") end }
+    local c = put(g, 1, "v_bomba", 1)
+    g:kill(c, "teste")
+    T.eq(g.winner, 0)
+  end },
+
+  { "resolução de escolha que deixa os dois jogadores sem vida é empate", function(T)
+    local g = new_game()
+    g:set_choice(1, { reason = "x", options = { "a" }, resolve = function(gg)
+      gg:damage_player(1, 99, "teste"); gg:damage_player(2, 99, "teste")
+    end })
+    g:act(1, { type = "choose", index = 1 })
+    T.eq(g.winner, 0)
+  end },
+
+  { "Golpear da criatura e do equipamento contam separadamente", function(T)
+    local g = new_game()
+    Cards.define{ id = "v_sob", kind = "criatura", cost = 0, atk = 1, hp = 5, sobrevivente = true,
+      on_strike = function(gg) gg:damage_player(2, 99, "teste") end }
+    Cards.define{ id = "v_arma", kind = "equipamento", slot = "mao", cost = 0,
+      on_strike = function(gg) gg:damage_player(1, 99, "teste") end }
+    local c = put(g, 1, "v_sob", 1)
+    g:equip(c, { id = "v_arma", uid = g:next_uid() })
+    fight(g, { 1 })
+    T.eq(g.winner, 1)
+  end },
+
+  { "efeito ativado que deixa os dois jogadores sem vida é empate", function(T)
+    local g = new_game()
+    Cards.define{ id = "v_bomba_est", kind = "estrutura", cost = 0, activation = { speed = "instantaneo" },
+      activate = function(gg) gg:damage_player(1, 99, "teste"); gg:damage_player(2, 99, "teste") end }
+    g:put_structure(1, { id = "v_bomba_est", uid = g:next_uid() }, 1)
+    g:act(1, { type = "activate", structure = 1 })
+    T.eq(g.winner, 0)
+  end },
+
+  { "feitiço de cima que fere os dois é empate, mesmo ferindo primeiro quem jogou", function(T)
+    local g = new_game()
+    Cards.define{ id = "v_auto", kind = "feitico", speed = "rapido", cost = 0,
+      on_cast = function(gg) gg:damage_player(1, 99, "teste"); gg:damage_player(2, 99, "teste") end }
+    local pl = g.players[1]
+    pl.hand[#pl.hand + 1] = { id = "v_auto", uid = g:next_uid() }
+    g:act(1, { type = "play", hand_index = #pl.hand })
+    g:act(1, { type = "pass" }); g:act(2, { type = "pass" })
+    T.eq(g.winner, 0)
   end },
 }
