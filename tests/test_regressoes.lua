@@ -711,6 +711,52 @@ return {
     T.eq(g.pending_choice.reason, "b")
     T.ok(g:act(2, { type = "choose", index = 1 }))
     T.eq(g.pending_choice.reason, "a2")
+    T.ok(g:act(1, { type = "choose", index = 1 }))
+    T.eq(log[1], "b"); T.eq(log[2], "a2")
+  end },
+
+  { "erro ao resolver uma escolha não prende a fila", function(T)
+    local g = new_game()
+    g:set_choice(1, { reason = "a", options = { "x" }, resolve = function() error("falha") end })
+    g:set_choice(2, { reason = "b", options = { "x" }, resolve = function() end })
+    local ok, err = pcall(g.act, g, 1, { type = "choose", index = 1 })
+    T.eq(ok, false)
+    T.ok(tostring(err):find("falha") ~= nil)
+    T.ok(tostring(err):find("traceback") ~= nil, "traz o traceback do efeito")
+    T.eq(g.pending_choice.reason, "b")
+  end },
+
+  { "erro no preparo de uma escolha da fila abre a seguinte", function(T)
+    local g = new_game()
+    g:set_choice(1, { reason = "a", options = { "x" }, resolve = function() end })
+    g:set_choice(1, { reason = "p", options = { "x" }, prepare = function() error("falha") end,
+      resolve = function() end })
+    g:set_choice(2, { reason = "c", options = { "x" }, resolve = function() end })
+    local ok = pcall(g.act, g, 1, { type = "choose", index = 1 })
+    T.eq(ok, false)
+    T.eq(g.pending_choice.reason, "c")
+  end },
+
+  { "escolha pedida ao resolver outra, com a pilha resolvendo, segura a pilha", function(T)
+    local g = new_game()
+    Cards.define{ id = "r_duvida", kind = "feitico", speed = "rapido", cost = 0,
+      on_cast = function(gg)
+        gg:set_choice(1, { reason = "a", options = { "x" }, resolve = function(g2)
+          g2:set_choice(2, { reason = "a2", options = { "x" }, resolve = function() log[#log + 1] = "a2" end })
+        end })
+      end }
+    Cards.define{ id = "r_depois", kind = "feitico", speed = "rapido", cost = 0,
+      on_cast = function() log[#log + 1] = "depois" end }
+    local pl = g.players[1]
+    pl.hand[#pl.hand + 1] = { id = "r_depois", uid = g:next_uid() }
+    pl.hand[#pl.hand + 1] = { id = "r_duvida", uid = g:next_uid() }
+    play(g, 1, "r_depois"); play(g, 1, "r_duvida")
+    g:act(1, { type = "pass" }); g:act(2, { type = "pass" })
+    T.ok(g:act(1, { type = "choose", index = 1 }))
+    T.eq(#log, 0, "a pilha espera a escolha que entrou na fila")
+    T.ok(g:act(2, { type = "choose", index = 1 }))
+    T.eq(log[1], "a2"); T.eq(log[2], "depois")
+    T.eq(g:stack_open(), false)
   end },
 
   { "conferência de alvo recebe o jogador como { player = p } na jogada", function(T)
