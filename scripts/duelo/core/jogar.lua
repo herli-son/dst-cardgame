@@ -143,6 +143,11 @@ return function(Game)
     end
   end
 
+  local function object_at(g, t)
+    if (t.zone or "criatura") == "estrutura" then return g:structure_at(t.p, t.slot) end
+    return g:creature_at(t.p, t.slot)
+  end
+
   function Game:check_targets(action)
     local err
     each_target(action, function(t)
@@ -154,15 +159,13 @@ return function(Game)
       if t.p ~= 1 and t.p ~= 2 then err = "jogador do alvo inválido"; return end
       if type(t.slot) ~= "number" or t.slot % 1 ~= 0 or t.slot < 1 or t.slot > max then
         err = "espaço do alvo inválido"
+        return
       end
+      -- O alvo precisa existir na jogada; "alvo perdido" vale só para o que sai depois.
+      if object_at(self, t) == nil then err = "não há alvo nesse espaço" end
     end)
     if err then return false, err end
     return true
-  end
-
-  local function object_at(g, t)
-    if (t.zone or "criatura") == "estrutura" then return g:structure_at(t.p, t.slot) end
-    return g:creature_at(t.p, t.slot)
   end
 
   -- Devolve as travas { {zone, uid}, ... } dos alvos; ficam com o efeito na pilha,
