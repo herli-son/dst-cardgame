@@ -479,14 +479,28 @@ return function(Game)
     self.combat = nil
     self:finalize_blocks(cb)
     self:emit{ t = "combat_start", p = cb.attacker }
-    local struck, struck_player = {}, {}
-    for _, phase in ipairs({ "rapida", "normal" }) do
+    self:run_combat_phases(cb, 1, {}, {})
+  end
+
+  local PHASES = { "rapida", "normal" }
+
+  -- Roda as fases a partir de first. Se uma fase deixar uma escolha aberta (um
+  -- "ao morrer" ou um Golpear que pede escolha), as fases seguintes voltam para a
+  -- pilha e só rodam depois da escolha, com as mortes já resolvidas.
+  function Game:run_combat_phases(cb, first, struck, struck_player)
+    for i = first, #PHASES do
+      local phase = PHASES[i]
       local strikes = phase_strikes(self, cb, phase, struck, struck_player)
       if #strikes > 0 then
         self:emit{ t = "strike_phase", phase = phase }
         self:strike_phase(strikes)
       end
       if self.winner ~= nil then return end
+      if i < #PHASES and self:choices_waiting() then
+        self.stack[#self.stack + 1] = { owner = cb.attacker, label = "ataque",
+          resolve = function(g) g:run_combat_phases(cb, i + 1, struck, struck_player) end }
+        return
+      end
     end
     self:emit{ t = "combat_end", p = cb.attacker }
   end
