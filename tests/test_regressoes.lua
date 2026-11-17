@@ -260,13 +260,13 @@ return {
     T.eq(card.used_round, nil)
   end },
 
-  { "evento de destruição traz id e uid", function(T)
+  { "evento de destruição traz id e card_uid", function(T)
     local g = new_game()
     local card = { id = "r_bicho", uid = g:next_uid() }
     g:destroy_card(1, card, "teste")
     local ev = g.events[#g.events]
     T.eq(ev.t, "destroyed")
-    T.eq(ev.uid, card.uid)
+    T.eq(ev.card_uid, card.uid)
     T.eq(ev.id, "r_bicho")
     T.eq(ev.card, nil)
   end },

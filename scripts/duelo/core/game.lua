@@ -3,6 +3,11 @@
 -- A partida é um objeto Game. Os jogadores só agem por Game:act(p, action);
 -- tudo o que acontece fica registrado em Game.events, que a camada do mod
 -- usa para mostrar animações e atualizar a interface.
+--
+-- Identificadores nos eventos: card_uid identifica a carta durante toda a partida;
+-- uid identifica um objeto em campo (criatura, estrutura ou equipamento) e muda a
+-- cada entrada. Eventos de objeto em campo trazem os dois; eventos de zona trazem
+-- card_uid. Eventos com private = true só podem ser mostrados ao jogador p.
 
 local Game = {}
 Game.__index = Game
@@ -146,7 +151,7 @@ function Game:destroy_card(p, card, reason)
   self:reset_card(card)
   local pl = self.players[p]
   pl.destroyed[#pl.destroyed + 1] = card
-  self:emit{ t = "destroyed", p = p, uid = card.uid, id = card.id, reason = reason }
+  self:emit{ t = "destroyed", p = p, card_uid = card.uid, id = card.id, reason = reason }
 end
 
 -- Limpa os marcadores que só valem numa zona (custo fixado, durabilidade, usos).
@@ -159,8 +164,8 @@ function Game:reset_card(card)
 end
 
 -- Coloca uma carta na mão respeitando o limite; acima dele, a carta é destruída.
--- source diz de onde ela veio ("baralho", "ficha", "campo"...). O evento leva a
--- carta, mas é privado: a camada do mod só mostra id e uid ao dono.
+-- source diz de onde ela veio ("baralho", "ficha", "campo"...). O evento traz o id
+-- da carta e é privado: a camada do mod só repassa id e card_uid ao dono.
 function Game:add_to_hand(p, card, source)
   if self:hand_count(p) >= self:hand_limit(p) then
     self:destroy_card(p, card, "limite_de_mao")
@@ -168,7 +173,7 @@ function Game:add_to_hand(p, card, source)
   end
   local pl = self.players[p]
   pl.hand[#pl.hand + 1] = card
-  self:emit{ t = "to_hand", p = p, uid = card.uid, id = card.id, source = source or "baralho", private = true }
+  self:emit{ t = "to_hand", p = p, card_uid = card.uid, id = card.id, source = source or "baralho", private = true }
   return true
 end
 

@@ -231,7 +231,7 @@ return function(Game)
     card.cost_override, card.cost_mod = nil, nil
     g:spend_mana(p, cost)
     if uses_fogueira then g:spend_fogueira(p) end
-    g:emit{ t = "play", p = p, id = def.id, cost = cost }
+    g:emit{ t = "play", p = p, card_uid = card.uid, id = def.id, cost = cost }
     local passes = rule.resolve(g, p, card, def, action)
     if passes == nil then passes = not def.keeps_turn end
     return true, nil, passes

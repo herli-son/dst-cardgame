@@ -33,7 +33,7 @@ return function(Game)
     local st = pl.structures[slot]
     if st == nil then return end
     pl.structures[slot] = nil
-    self:emit{ t = "break", p = p, slot = slot, uid = st.uid, id = st.def.id, reason = reason }
+    self:emit{ t = "break", p = p, slot = slot, uid = st.uid, card_uid = st.card_uid, id = st.def.id, reason = reason }
     if st.def.on_break then st.def.on_break(self, st) end
     if st.ficha then
       self:vanish(p, st.card, reason)
@@ -62,7 +62,7 @@ return function(Game)
       ficha = opts.ficha or card.ficha or false,
     }
     self.players[p].structures[slot] = st
-    self:emit{ t = "structure", p = p, slot = slot, uid = st.uid, id = def.id }
+    self:emit{ t = "structure", p = p, slot = slot, uid = st.uid, card_uid = st.card_uid, id = def.id }
     if def.on_play then def.on_play(self, st) end
     return st
   end
@@ -203,7 +203,7 @@ return function(Game)
     end
     card.used_round = g.round
     card.used_period = period_key
-    g:emit{ t = "activate", p = p, id = def.id, speed = spec.speed }
+    g:emit{ t = "activate", p = p, uid = src.uid, card_uid = src.card_uid, id = def.id, speed = spec.speed }
     -- Equipamentos com efeito de uso perdem 1 de durabilidade ao usar o efeito.
     if src.holder and src.durability then g:wear(src.holder, def.slot, 1) end
     local locks = g:lock_targets(action)

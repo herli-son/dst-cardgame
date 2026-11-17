@@ -25,7 +25,7 @@ return function(Game)
     end
     local inv = self.players[p].inventory
     inv[#inv + 1] = card
-    self:emit{ t = "inventory", p = p, id = card.id }
+    self:emit{ t = "inventory", p = p, card_uid = card.uid, id = card.id }
     return true
   end
 
@@ -47,7 +47,8 @@ return function(Game)
       durability = card.durability or def.durability,
     }
     c.equips[def.slot] = e
-    self:emit{ t = "equip", p = c.owner, slot = c.slot, equip_slot = def.slot, id = def.id }
+    self:emit{ t = "equip", p = c.owner, slot = c.slot, holder_uid = c.uid, equip_slot = def.slot,
+      uid = e.uid, card_uid = e.card_uid, id = def.id }
     if def.on_equip then def.on_equip(self, c, e) end
     return e
   end
@@ -57,7 +58,8 @@ return function(Game)
     local e = c.equips[equip_slot]
     if e == nil then return end
     c.equips[equip_slot] = nil
-    self:emit{ t = "unequip", p = c.owner, slot = c.slot, equip_slot = equip_slot, id = e.def.id, reason = reason }
+    self:emit{ t = "unequip", p = c.owner, slot = c.slot, holder_uid = c.uid, equip_slot = equip_slot,
+      uid = e.uid, card_uid = e.card_uid, id = e.def.id, reason = reason }
     self:to_discard(c.owner, e.card)
   end
 
@@ -72,7 +74,8 @@ return function(Game)
       local e = c.equips[s]
       if e then
         c.equips[s] = nil
-        self:emit{ t = "unequip", p = c.owner, slot = c.slot, equip_slot = s, id = e.def.id, reason = reason }
+        self:emit{ t = "unequip", p = c.owner, slot = c.slot, holder_uid = c.uid, equip_slot = s,
+          uid = e.uid, card_uid = e.card_uid, id = e.def.id, reason = reason }
         if e.card.ficha then
           self:vanish(c.owner, e.card, reason)
         else

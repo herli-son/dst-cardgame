@@ -12,7 +12,7 @@ return function(Game)
   end
 
   function Game:vanish(p, card, reason)
-    self:emit{ t = "vanish", p = p, id = card.id, uid = card.uid, reason = reason }
+    self:emit{ t = "vanish", p = p, id = card.id, card_uid = card.uid, reason = reason }
   end
 
   -- Cria uma ficha para o jogador p.
