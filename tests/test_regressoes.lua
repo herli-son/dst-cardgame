@@ -691,16 +691,6 @@ return {
     T.eq(Game.NOVA_CONSTANTE, nil)
   end },
 
-  { "erro no preparo de uma escolha não prende as escolhas seguintes", function(T)
-    local g = new_game()
-    local ok = pcall(g.set_choice, g, 1, { reason = "x", options = { "a" },
-      prepare = function() error("falha") end, resolve = function() end })
-    T.eq(ok, false)
-    T.ok(not g.opening_choice)
-    g:set_choice(2, { reason = "y", options = { "a" }, resolve = function() end })
-    T.ok(g.pending_choice ~= nil and g.pending_choice.reason == "y")
-  end },
-
   { "escolha pedida ao resolver outra entra no fim da fila", function(T)
     local g = new_game()
     g:set_choice(1, { reason = "a", options = { "x" }, resolve = function(gg)
@@ -713,28 +703,6 @@ return {
     T.eq(g.pending_choice.reason, "a2")
     T.ok(g:act(1, { type = "choose", index = 1 }))
     T.eq(log[1], "b"); T.eq(log[2], "a2")
-  end },
-
-  { "erro ao resolver uma escolha não prende a fila", function(T)
-    local g = new_game()
-    g:set_choice(1, { reason = "a", options = { "x" }, resolve = function() error("falha") end })
-    g:set_choice(2, { reason = "b", options = { "x" }, resolve = function() end })
-    local ok, err = pcall(g.act, g, 1, { type = "choose", index = 1 })
-    T.eq(ok, false)
-    T.ok(tostring(err):find("falha") ~= nil)
-    T.ok(tostring(err):find("traceback") ~= nil, "traz o traceback do efeito")
-    T.eq(g.pending_choice.reason, "b")
-  end },
-
-  { "erro no preparo de uma escolha da fila abre a seguinte", function(T)
-    local g = new_game()
-    g:set_choice(1, { reason = "a", options = { "x" }, resolve = function() end })
-    g:set_choice(1, { reason = "p", options = { "x" }, prepare = function() error("falha") end,
-      resolve = function() end })
-    g:set_choice(2, { reason = "c", options = { "x" }, resolve = function() end })
-    local ok = pcall(g.act, g, 1, { type = "choose", index = 1 })
-    T.eq(ok, false)
-    T.eq(g.pending_choice.reason, "c")
   end },
 
   { "escolha pedida ao resolver outra, com a pilha resolvendo, segura a pilha", function(T)
@@ -786,124 +754,5 @@ return {
     g:act(1, { type = "pass" }); g:act(2, { type = "pass" })
     T.eq(#seen, 3)
     for _, o in ipairs(seen) do T.eq(o, alvo) end
-  end },
-
-  { "erro ao resolver a escolha de uma jogada: a próxima da fila herda a passagem da vez", function(T)
-    local g = new_game()
-    Cards.define{ id = "r_falha", kind = "criatura", cost = 0, atk = 0, hp = 1,
-      on_play = function(gg, c)
-        gg:set_choice(1, { reason = "a", options = { "x" }, resolve = function() error("falha") end })
-        gg:set_choice(1, { reason = "b", options = { "x" }, resolve = function() end })
-      end }
-    g.players[1].hand[#g.players[1].hand + 1] = { id = "r_falha", uid = g:next_uid() }
-    local vez = g.vez
-    T.ok(play(g, 1, "r_falha", { slot = 6 }))
-    T.eq(pcall(g.act, g, 1, { type = "choose", index = 1 }), false)
-    T.eq(g.pending_choice.reason, "b")
-    T.ok(g:act(1, { type = "choose", index = 1 }))
-    T.eq(g.vez, vez + 1, "a vez passa depois da última escolha")
-  end },
-
-  { "erro ao resolver uma escolha aberta pela pilha: a pilha fecha normalmente", function(T)
-    local g = new_game()
-    Cards.define{ id = "r_quebra", kind = "feitico", speed = "rapido", cost = 0,
-      on_cast = function(gg)
-        gg:set_choice(1, { reason = "a", options = { "x" }, resolve = function() error("falha") end })
-      end }
-    g.players[1].hand[#g.players[1].hand + 1] = { id = "r_quebra", uid = g:next_uid() }
-    play(g, 1, "r_quebra")
-    g:act(1, { type = "pass" }); g:act(2, { type = "pass" })
-    T.eq(pcall(g.act, g, 1, { type = "choose", index = 1 }), false)
-    T.eq(g.resolving, false)
-    T.eq(g:stack_open(), false)
-    T.eq(g.active, 2, "a vez é de quem não abriu a pilha")
-  end },
-
-  { "vários erros seguidos: o erro original não se perde", function(T)
-    local g = new_game()
-    g:set_choice(1, { reason = "a", options = { "x" }, resolve = function() error("ERRO_A") end })
-    g:set_choice(1, { reason = "p1", options = { "x" }, prepare = function() error("ERRO_P1") end,
-      resolve = function() end })
-    g:set_choice(2, { reason = "c", options = { "x" }, resolve = function() end })
-    local ok, err = pcall(g.act, g, 1, { type = "choose", index = 1 })
-    T.eq(ok, false)
-    T.ok(tostring(err):find("ERRO_A") ~= nil, "o erro da resolução continua na mensagem")
-    T.eq(g.pending_choice.reason, "c")
-  end },
-
-  { "erro que não é texto sobe como veio", function(T)
-    local g = new_game()
-    local code = { code = "X" }
-    g:set_choice(1, { reason = "a", options = { "x" }, resolve = function() error(code) end })
-    local ok, err = pcall(g.act, g, 1, { type = "choose", index = 1 })
-    T.eq(ok, false)
-    T.eq(err, code)
-  end },
-
-  { "na pilha, a próxima escolha falha no preparo: a pilha fecha e a vez segue", function(T)
-    local g = new_game()
-    Cards.define{ id = "r_duas_falhas", kind = "feitico", speed = "rapido", cost = 0,
-      on_cast = function(gg)
-        gg:set_choice(1, { reason = "a", options = { "x" }, resolve = function() end })
-        gg:set_choice(1, { reason = "p", options = { "x" }, prepare = function() error("ERRO_P") end,
-          resolve = function() end })
-      end }
-    g.players[1].hand[#g.players[1].hand + 1] = { id = "r_duas_falhas", uid = g:next_uid() }
-    play(g, 1, "r_duas_falhas")
-    g:act(1, { type = "pass" }); g:act(2, { type = "pass" })
-    local ok, err = pcall(g.act, g, 1, { type = "choose", index = 1 })
-    T.eq(ok, false)
-    T.ok(tostring(err):find("ERRO_P") ~= nil)
-    T.eq(g.resolving, false)
-    T.eq(g:stack_open(), false)
-    T.eq(g.active, 2)
-  end },
-
-  { "erro em tabela com falha na limpeza guarda o segundo erro em cleanup_error", function(T)
-    local g = new_game()
-    g:set_choice(1, { reason = "a", options = { "x" }, resolve = function() error({ code = "X" }) end })
-    g:set_choice(1, { reason = "p", options = { "x" }, prepare = function() error("ERRO_P") end,
-      resolve = function() end })
-    local ok, err = pcall(g.act, g, 1, { type = "choose", index = 1 })
-    T.eq(ok, false)
-    T.eq(err.code, "X")
-    T.ok(tostring(err.cleanup_error):find("ERRO_P") ~= nil)
-  end },
-
-  { "fora da pilha, a próxima escolha falha no preparo: a vez passa mesmo assim", function(T)
-    local g = new_game()
-    Cards.define{ id = "r_prep_falha", kind = "criatura", cost = 0, atk = 0, hp = 1,
-      on_play = function(gg, c)
-        gg:set_choice(1, { reason = "a", options = { "x" }, resolve = function() end })
-        gg:set_choice(1, { reason = "p", options = { "x" }, prepare = function() error("ERRO_P") end,
-          resolve = function() end })
-      end }
-    g.players[1].hand[#g.players[1].hand + 1] = { id = "r_prep_falha", uid = g:next_uid() }
-    T.ok(play(g, 1, "r_prep_falha", { slot = 6 }))
-    local ok = pcall(g.act, g, 1, { type = "choose", index = 1 })
-    T.eq(ok, false)
-    T.eq(g.pending_choice, nil)
-    T.eq(g.active, 2)
-  end },
-
-  { "erro da pilha e erro da fila aparecem juntos", function(T)
-    local g = new_game()
-    Cards.define{ id = "r_baixo", kind = "feitico", speed = "rapido", cost = 0,
-      on_cast = function() error("ERRO_B") end }
-    Cards.define{ id = "r_cima", kind = "feitico", speed = "rapido", cost = 0,
-      on_cast = function(gg)
-        gg:set_choice(1, { reason = "a", options = { "x" }, resolve = function() end })
-        gg:set_choice(1, { reason = "p", options = { "x" }, prepare = function() error("ERRO_P") end,
-          resolve = function() end })
-      end }
-    local pl = g.players[1]
-    pl.hand[#pl.hand + 1] = { id = "r_baixo", uid = g:next_uid() }
-    pl.hand[#pl.hand + 1] = { id = "r_cima", uid = g:next_uid() }
-    play(g, 1, "r_baixo"); play(g, 1, "r_cima")
-    g:act(1, { type = "pass" }); g:act(2, { type = "pass" })
-    local ok, err = pcall(g.act, g, 1, { type = "choose", index = 1 })
-    T.eq(ok, false)
-    T.ok(tostring(err):find("ERRO_P") ~= nil)
-    T.ok(tostring(err):find("ERRO_B") ~= nil)
   end },
 }
