@@ -447,4 +447,27 @@ return {
     T.eq(leave.t, "leave"); T.eq(leave.card_uid, card.uid)
     T.eq(to_hand.t, "to_hand"); T.eq(to_hand.card_uid, card.uid); T.eq(to_hand.private, true)
   end },
+
+  { "com a fogueira em zero, só cartas que não gastam fogueira podem ser jogadas", function(T)
+    local g = new_game()
+    Cards.define{ id = "r_turf", kind = "criatura", cost = 0, atk = 0, hp = 1, no_fogueira = true }
+    local pl = g.players[1]
+    pl.hand[#pl.hand + 1] = { id = "r_turf", uid = g:next_uid() }
+    g:light_fogueira()
+    g.fogueira[1] = 0
+    T.eq(play(g, 1, "r_bicho", { slot = 1 }), false, "carta comum")
+    T.ok(play(g, 1, "r_turf", { slot = 2 }))
+    T.eq(g.fogueira[1], 0)
+  end },
+
+  { "zona cheia: o dono pode não substituir nenhuma e a ficha não entra", function(T)
+    local g = new_game()
+    g:put_structure(1, { id = "r_casa", uid = g:next_uid() }, 1)
+    g:put_structure(1, { id = "r_casa", uid = g:next_uid() }, 2)
+    g:create_token(1, "r_torre")
+    T.ok(g:act(1, { type = "choose", index = 0 }))
+    T.eq(g:structure_at(1, 1).def.id, "r_casa")
+    T.eq(g:structure_at(1, 2).def.id, "r_casa")
+    T.eq(g.events[#g.events].t, "vanish")
+  end },
 }
