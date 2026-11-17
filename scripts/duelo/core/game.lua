@@ -146,6 +146,18 @@ function Game:shuffle_deck(p)
   end
 end
 
+-- Modificador do limite de mão: fn(game, p) -> número a somar (ex.: Mochila).
+-- Devolve uma função que remove o modificador (ex.: ao desequipar).
+function Game:add_hand_limit_mod(fn)
+  local mods = self.hand_limit_mods
+  mods[#mods + 1] = fn
+  return function()
+    for i = #mods, 1, -1 do
+      if mods[i] == fn then table.remove(mods, i) end
+    end
+  end
+end
+
 -- Limite de mão do jogador, com os modificadores ativos.
 function Game:hand_limit(p)
   local n = Game.HAND_LIMIT
