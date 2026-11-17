@@ -118,4 +118,20 @@ return {
     T.eq(g:heal_player(2, 10), 0)
     T.eq(g.players[2].life, -5)
   end },
+
+  { "quantidade inválida de dano é erro da carta", function(T)
+    local g = new_game()
+    local c = put(g, 1, "k_muro", 1)
+    for _, n in ipairs({ 0 / 0, 0.5, 1 / 0 }) do
+      T.eq(pcall(g.damage_creature, g, c, n), false)
+      T.eq(pcall(g.damage_player, g, 1, n), false)
+    end
+    T.eq(c.damage, 0)
+    T.eq(g.players[1].life, Game.START_LIFE)
+  end },
+
+  { "Rival precisa ser o nome de um tipo", function(T)
+    T.eq(pcall(Cards.define, { id = "k_rival_ruim", kind = "criatura", atk = 1, hp = 1, kw = { rival = true } }), false)
+    T.ok(pcall(Cards.define, { id = "k_rival_bom", kind = "criatura", atk = 1, hp = 1, kw = { rival = "porco" } }))
+  end },
 }
