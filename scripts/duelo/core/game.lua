@@ -373,5 +373,6 @@ end
 
 require("duelo/core/jogar")(Game)
 require("duelo/core/estruturas")(Game)
+require("duelo/core/equipamentos")(Game)
 
 return Game
