@@ -117,4 +117,58 @@ return {
     T.eq(g.phase, "playing")
     T.eq(g:act(1, { type = "pass" }), true)
   end },
+
+  { "feitiço que mata uma criatura e depois falha aponta o feitiço", function(T)
+    local g = new_game()
+    Cards.define{ id = "e_morre_ok", kind = "criatura", cost = 0, atk = 0, hp = 1,
+      on_death = function() end }
+    Cards.define{ id = "e_feit_bug", kind = "feitico", speed = "instantaneo", cost = 0,
+      on_cast = function(gg)
+        gg:kill(gg:creature_at(2, 1), "teste")
+        error("BUG_DO_FEITICO")
+      end }
+    g:place_creature(2, { id = "e_morre_ok", uid = g:next_uid() }, 1)
+    g.players[1].hand[#g.players[1].hand + 1] = { id = "e_feit_bug", uid = g:next_uid() }
+    T.eq(play(g, "e_feit_bug"), false)
+    T.eq(g.error.context.id, "e_feit_bug")
+  end },
+
+  { "erro num modificador de limite de mão aponta a carta dona", function(T)
+    local g = new_game()
+    g:add_hand_limit_mod(function() error("BUG_NA_MOCHILA") end, "e_mochila")
+    g:act(1, { type = "pass" })
+    T.eq(g:act(2, { type = "pass" }), false)
+    T.eq(g.error.context.kind, "limite_mao")
+    T.eq(g.error.context.id, "e_mochila")
+  end },
+
+  { "erro em tabela: mensagem estável e traceback guardado", function(T)
+    local g = new_game()
+    g:set_choice(1, { reason = "x", options = { "a" }, resolve = function() error({ code = "X" }) end })
+    g:act(1, { type = "choose", index = 1 })
+    T.eq(g.error.message, "erro do tipo table")
+    T.ok(g.error.traceback ~= nil)
+    local ev = last_event(g, "engine_error")
+    T.eq(ev.message, "erro do tipo table")
+  end },
+
+  { "falha ao emitir o evento de erro não escapa do act", function(T)
+    local g = new_game({ "e_bug" })
+    g.emit = function(self, ev)
+      if ev.t == "engine_error" then error("emit quebrou") end
+      Game.emit(self, ev)
+    end
+    local ok = play(g, "e_bug")
+    T.eq(ok, false)
+    T.eq(g.phase, "error")
+    T.ok(g.error ~= nil and g.error.message:find("BUG_NO_FEITICO") ~= nil)
+  end },
+
+  { "start devolve true quando dá certo", function(T)
+    define_test_cards()
+    local d = {}
+    for i = 1, 20 do d[i] = { id = "e_bicho" } end
+    local g = Game.new{ decks = { d, d }, first = 1, mulligan = false, rng = function(n) return n end }
+    T.eq(g:start(), true)
+  end },
 }
