@@ -51,7 +51,7 @@ return function(Game)
   -- nada fica pela metade.
   function Game:break_structure(p, slot, reason)
     local st = remove_structure(self, p, slot, reason)
-    if st and st.def.on_break then self:as_one_effect(st.def.on_break, self, st) end
+    if st and st.def.on_break then self:effect("quebrar", st.def.id, st.def.on_break, self, st) end
   end
 
   Game.first_free_structure = first_free
@@ -76,9 +76,9 @@ return function(Game)
     }
     self.players[p].structures[slot] = st
     self:emit{ t = "structure", p = p, slot = slot, uid = st.uid, card_uid = st.card_uid, id = def.id }
-    if old and old.def.on_break then self:as_one_effect(old.def.on_break, self, old) end
+    if old and old.def.on_break then self:effect("quebrar", old.def.id, old.def.on_break, self, old) end
     -- Se o efeito da substituída tirou a nova de campo, a entrada dela não dispara.
-    if def.on_play and self.players[p].structures[slot] == st then self:as_one_effect(def.on_play, self, st) end
+    if def.on_play and self.players[p].structures[slot] == st then self:effect("entrar", def.id, def.on_play, self, st) end
     return st
   end
 
@@ -155,43 +155,31 @@ return function(Game)
   -- escolha não é mais necessária (prepare já resolveu tudo) e a próxima da fila abre.
   -- Regra única de ordem: uma escolha pedida enquanto outra está aberta, sendo
   -- preparada ou sendo resolvida entra no fim da fila, atrás das que já esperavam.
-  -- Roda fn(a, b) com essa marca ligada e a restaura mesmo se fn lançar erro. Em
-  -- erro, on_error roda antes de relançar (para a fila não parar), e o erro sai com
-  -- o traceback original do código da carta.
-  local function while_choosing(g, fn, on_error, a, b)
+  -- Roda fn(a, b) com essa marca ligada. Se fn lançar erro, a partida termina com
+  -- estado de erro (Game:guarded), então não há o que restaurar.
+  local function while_choosing(g, fn, a, b)
     local prev = g.opening_choice
     g.opening_choice = true
     local res
-    local ok, err = xpcall(function() res = fn(a, b) end, function(e)
-      -- Erros que não são texto (ex.: tabela com código) sobem como vieram; texto
-      -- que já traz traceback não ganha outro.
-      if type(e) ~= "string" or e:find("stack traceback", 1, true) then return e end
-      return debug.traceback(e, 2)
-    end)
+    local ok, err = xpcall(function() res = fn(a, b) end, Game.capture_error)
+    -- A marca volta sempre; num erro de carta a partida termina de qualquer jeito.
     g.opening_choice = prev
-    -- Partida decidida por um efeito aninhado: o sinal sobe intacto.
-    if not ok and err == Game.DECIDED then error(err, 0) end
-    if not ok then
-      if on_error then
-        -- Um erro durante a limpeza não esconde o erro original: é anexado a ele.
-        local ok2, err2 = xpcall(on_error, function(e) return debug.traceback(tostring(e), 2) end)
-        if not ok2 then
-          if type(err) == "string" then
-            err = err .. "\n(depois, ao continuar a fila: " .. err2 .. ")"
-          elseif type(err) == "table" then
-            err.cleanup_error = err2
-          end
-        end
-      end
-      error(err, 0)
-    end
+    if not ok then error(err, 0) end
     return res
   end
 
   local function open_choice(g, spec)
-    -- Se o preparo falhar, a escolha é descartada e a próxima da fila abre.
-    local function skip() g:next_choice() end
-    if spec.prepare and while_choosing(g, spec.prepare, skip, g, spec) == false then return false end
+    if spec.prepare then
+      local ran, keep = false, nil
+      g:effect("preparar_escolha", spec.reason, function()
+        ran = true
+        keep = while_choosing(g, spec.prepare, g, spec)
+      end)
+      -- Preparo pulado (partida sendo decidida) ou recusado: a escolha não abre.
+      if not ran or keep == false then
+        return false
+      end
+    end
     g.pending_choice = spec
     g:emit{ t = "choice", p = spec.player, reason = spec.reason, count = #(spec.options or {}) }
     return true
@@ -221,59 +209,36 @@ return function(Game)
     end
   end
 
-  -- Junta um erro novo ao primeiro sem escondê-lo.
-  local function combine(err, e2)
-    if err == nil then return e2 end
-    if type(err) == "string" then return err .. "\n(depois: " .. tostring(e2) .. ")" end
-    if type(err) == "table" and err ~= Game.DECIDED and err.cleanup_error == nil then err.cleanup_error = e2 end
-    return err
-  end
-
-  local function traceback(e)
-    if type(e) ~= "string" or e:find("stack traceback", 1, true) then return e end
-    return debug.traceback(e, 2)
-  end
-
+  -- O que vem depois de uma escolha: abrir a próxima da fila (que herda a decisão
+  -- de passar a vez), retomar a pilha em resolução e as continuações suspensas.
+  -- Devolve se a vez deve passar agora.
   local function run_continuations(g)
     local conts = g.choice_continuations
     if conts and #conts > 0 then
       g.choice_continuations = {}
-      for _, fn in ipairs(conts) do fn(g) end
+      for _, c in ipairs(conts) do
+        local ctx = c.context or {}
+        g:effect(ctx.kind or "continuar", ctx.id, c.fn, g)
+      end
       return true
     end
     return false
   end
 
-  -- O que vem depois de uma escolha: abrir a próxima da fila (que herda a decisão
-  -- de passar a vez), retomar a pilha em resolução e as continuações suspensas.
-  -- Cada passo roda protegido: um erro não impede os seguintes. Devolve se a vez
-  -- deve passar e o erro acumulado (ou nil).
   local function after_choose(g, ch)
-    local err
-    local function step(fn)
-      local ok, e = xpcall(fn, traceback)
-      if not ok then err = combine(err, e) end
-      return ok
-    end
-    if g.pending_choice == nil then step(function() g:next_choice() end) end
-    local passes = false
+    if g.pending_choice == nil then g:next_choice() end
     if g.pending_choice then
       if g.pending_choice.passes_turn == nil then g.pending_choice.passes_turn = ch.passes_turn end
-    elseif g.resolving then
-      -- A pilha retoma; ao fechar, ela mesma passa a vez para quem não a abriu.
-      step(function() g:resolve_stack() end)
-      if not g:choices_waiting() then step(function() run_continuations(g) end) end
-    else
-      local ran = false
-      step(function() ran = run_continuations(g) end)
-      if not ran then passes = ch.passes_turn == true end
+      return false
     end
-    return passes, err
-  end
-
-  -- Passa a vez quando a escolha manda e nada mais segura a jogada.
-  local function finish_choice(g, passes)
-    if passes and not g:stack_open() and g.winner == nil then g:advance_vez() end
+    if g.resolving then
+      -- A pilha retoma; ao fechar, ela mesma passa a vez para quem não a abriu.
+      g:resolve_stack()
+      if not g:choices_waiting() then run_continuations(g) end
+      return false
+    end
+    if run_continuations(g) then return false end
+    return ch.passes_turn == true
   end
 
   -- action = { type = "choose", index = n } ; index nil ou 0 = nenhuma (se permitido)
@@ -286,21 +251,9 @@ return function(Game)
     if idx == nil and not ch.allow_none then return false, "é preciso escolher uma opção" end
     if idx ~= nil and (ch.options == nil or ch.options[idx] == nil) then return false, "opção inválida" end
     g.pending_choice = nil
-    -- Se a resolução falhar, o resto do trabalho da escolha acontece antes de o
-    -- erro subir: a fila anda, a pilha retoma e a vez passa se for o caso.
     -- A resolução de uma escolha é um efeito próprio.
-    while_choosing(g, function(gg, i) gg:as_one_effect(ch.resolve, gg, i) end, function()
-      local passes, err = after_choose(g, ch)
-      finish_choice(g, passes)
-      if err ~= nil then error(err, 0) end
-    end, g, idx)
-    local passes, err = after_choose(g, ch)
-    if err ~= nil then
-      -- A vez passa antes de o erro subir, como no caminho de erro da resolução.
-      finish_choice(g, passes)
-      error(err, 0)
-    end
-    return true, nil, passes
+    g:run_card("escolher", ch.reason, while_choosing, g, function(gg, i) gg:as_one_effect(ch.resolve, gg, i) end, g, idx)
+    return true, nil, after_choose(g, ch)
   end
 
   ----------------------------------------------------------------------------
@@ -334,6 +287,9 @@ return function(Game)
     if src == nil then return false, err end
     local def = src.def
     if def.activate == nil then return false, "essa carta não tem efeito ativado" end
+    -- Contexto da ação inteira (o act zera o contexto a cada jogada); os trechos
+    -- de carta lá dentro marcam o próprio contexto com run_card.
+    g.context = { kind = "ativar", id = def.id }
     local spec = def.activation
     local ok, why = g:can_use_speed(spec.speed)
     if not ok then return false, why end
@@ -346,11 +302,11 @@ return function(Game)
     local period_key = g.round .. ":" .. tostring(g:period())
     if spec.once_per_period and card.used_period == period_key then return false, "já ativada neste período" end
     if def.targets then
-      local valid, why = def.targets(g, p, action, g:target_objects(action))
+      local valid, why = g:run_card("ativar", def.id, def.targets, g, p, action, g:target_objects(action))
       if not valid then return false, why or "alvo inválido" end
     end
     if def.can_activate then
-      local can, reason = def.can_activate(g, p, src, action)
+      local can, reason = g:run_card("ativar", def.id, def.can_activate, g, p, src, action)
       if not can then return false, reason or "condição do efeito não atendida" end
     end
     card.used_round = g.round
