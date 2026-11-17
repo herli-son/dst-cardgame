@@ -6,8 +6,8 @@
 --     ataque abre a pilha, como um Lento, e o combate resolve por último.
 --   * Criaturas que entraram nesta rodada podem atacar.
 --   * O defensor declara todos os bloqueios só na primeira resposta ao ataque,
---     uma criatura para cada atacante. Declarar bloqueios conta como pôr algo na
---     pilha: o "pass" seguinte é pronto e a vez volta para o atacante.
+--     uma criatura para cada atacante. Declarar ao menos um bloqueio conta como
+--     pôr algo na pilha: o "pass" seguinte é pronto e a vez volta para o atacante.
 --   * Atacante sem bloqueio causa ao jogador dano igual ao seu ataque. Se o
 --     bloqueador sair de campo antes, o atacante continua bloqueado e não causa
 --     dano. O dano que sobra num bloqueio não passa para o jogador.
@@ -102,7 +102,9 @@ return function(Game)
       blocks = {},            -- blocks[atacante] = bloqueador
       blocked = {},           -- blocked[atacante] = true se foi bloqueado
       blocks_declared = false,
-      defender_windows = 0,   -- quantas vezes o defensor recebeu a vez neste ataque
+      -- Passagens de vez já feitas na pilha: a primeira resposta do defensor é a
+      -- próxima passagem.
+      handover_at = g.handover_count or 0,
     }
     local uids = {}
     for i, c in ipairs(attackers) do uids[i] = c.uid end
@@ -116,17 +118,10 @@ return function(Game)
   ----------------------------------------------------------------------------
 
   -- A janela de bloqueio é a primeira vez que o defensor recebe a vez no ataque.
-  local base_hand_over = Game.hand_over
-  function Game:hand_over()
-    base_hand_over(self)
-    local cb = self.combat
-    if cb and self.active == cb.defender then cb.defender_windows = cb.defender_windows + 1 end
-  end
-
   function Game:can_declare_blocks(p)
     local cb = self.combat
     return cb ~= nil and p == cb.defender and self.active == p
-      and not cb.blocks_declared and cb.defender_windows == 1
+      and not cb.blocks_declared and (self.handover_count or 0) - cb.handover_at == 1
   end
 
   local function in_combat(cb, a)
@@ -135,7 +130,7 @@ return function(Game)
   end
 
   -- action = { type = "block", blocks = { { attacker = espaço, blocker = espaço }, ... } }
-  -- Uma lista vazia declara que não há bloqueios.
+  -- Uma lista vazia declara que não há bloqueios e não conta como pôr algo na pilha.
   Game.actions.block = function(g, p, action)
     local cb = g.combat
     if not g:can_declare_blocks(p) then
@@ -163,7 +158,7 @@ return function(Game)
     end
     cb.blocks_declared = true
     -- Bloquear é a resposta ao ataque: conta como pôr algo na pilha.
-    g.stack_added = true
+    if #chosen > 0 then g.stack_added = true end
     local list = {}
     for _, pr in ipairs(chosen) do list[#list + 1] = { attacker = pr[1].uid, blocker = pr[2].uid } end
     g:emit{ t = "block", p = p, blocks = list }
