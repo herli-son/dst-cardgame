@@ -28,7 +28,7 @@ local function run_file(name)
   end
 end
 
-local files = { "test_rodada", "test_periodo", "test_fogueira", "test_mana_mao" }
+local files = { "test_rodada", "test_periodo", "test_fogueira", "test_mana_mao", "test_criaturas" }
 for _, f in ipairs(files) do run_file(f) end
 
 for _, f in ipairs(T.failures) do print("FALHOU  " .. f) end
