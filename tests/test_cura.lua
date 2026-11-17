@@ -50,16 +50,46 @@ return {
     T.eq(count(g, "creature_heal"), 0)
   end },
 
-  { "cura no mesmo efeito salva a criatura de dano letal", function(T)
+  { "cura invalida quem causou um dano letal pendente", function(T)
+    local g = new_game()
+    local k = put(g, 2, "k_muro", 1)
+    local c = put(g, 1, "k_muro", 1)
+    g:set_choice(1, { reason = "x", options = { "a" }, resolve = function() end })
+    g:damage_creature(c, 5, k, "combate")
+    g:check_lethal({ [c] = k }, "combate")
+    T.eq(g.players[1].field[1], c, "com escolha aberta, a morte espera")
+    g:heal_creature(c, 1)
+    g:damage_creature(c, 1, nil, "teste")
+    T.ok(g:act(1, { type = "choose", index = 1 }))
+    T.eq(g.players[1].field[1], nil)
+    local death
+    for _, ev in ipairs(g.events) do if ev.t == "death" then death = ev end end
+    T.eq(death.killer_uid, nil, "a morte não é de quem causou o dano curado")
+    T.eq(death.reason, "dano")
+  end },
+
+  { "cura que deixa o dano ainda letal não salva a criatura", function(T)
     local g = new_game()
     local c = put(g, 1, "k_muro", 1)
     g:as_one_effect(function()
-      g:damage_creature(c, 5, nil, "teste")
-      g:heal_creature(c, 2)
+      g:damage_creature(c, 7, nil, "teste")
+      T.eq(g:heal_creature(c, 2), 2)
     end)
     g:settle()
-    T.eq(g.players[1].field[1], c)
-    T.eq(c.damage, 3)
+    T.eq(g.players[1].field[1], nil)
+  end },
+
+  { "quantidade inválida de cura é erro da carta", function(T)
+    local g = new_game()
+    local c = put(g, 1, "k_muro", 1)
+    g:damage_creature(c, 2, nil, "teste")
+    for _, n in ipairs({ 0 / 0, 0.5, 1 / 0 }) do
+      T.eq(pcall(g.heal_creature, g, c, n), false)
+      T.eq(pcall(g.heal_player, g, 1, n), false)
+    end
+    T.eq(pcall(g.heal_player, g, 1, nil), false)
+    T.eq(c.damage, 2)
+    T.eq(g.players[1].life, Game.MAX_LIFE)
   end },
 
   { "vida do jogador não passa de 20", function(T)
