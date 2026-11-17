@@ -191,7 +191,7 @@ return function(Game)
   -- os relativos (delta), depois os fixos (set; o último vale). Resultado de 0 a 3.
   function Game:speed(c, role)
     local v
-    if c.def.speed_fn then v = c.def.speed_fn(self, c, role) end
+    if c.def.speed_fn then v = self:run_card("velocidade", c.def.id, c.def.speed_fn, self, c, role) end
     if v == nil and role == "block" then v = c.def.block_speed end
     if v == nil then v = c.def.speed or 1 end
     local set

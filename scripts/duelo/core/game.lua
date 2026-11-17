@@ -73,13 +73,35 @@ local function pack(...)
   return { n = select("#", ...), ... }
 end
 
+-- Sinal interno: a partida foi decidida por um efeito aninhado, e o resto do
+-- efeito de fora não acontece. É capturado pelo efeito mais externo.
+local DECIDED = {}
+Game.DECIDED = DECIDED
+
+-- Erro capturado: guarda o valor original e o traceback do ponto onde ele
+-- nasceu, uma vez só; quem relança uma captura pronta não a embrulha de novo.
+local CAPTURED = {}
+local function capture(e)
+  if e == DECIDED then return e end
+  if type(e) == "table" and getmetatable(e) == CAPTURED then return e end
+  return setmetatable({ value = e, traceback = debug.traceback("", 2) }, CAPTURED)
+end
+Game.capture_error = capture
+
 -- Roda código de carta marcando qual carta ou efeito está rodando, para o
--- registro de erro apontar a carta certa. O contexto anterior volta no fim; se
--- fn lançar erro, fica o contexto mais interno, o que de fato falhou.
+-- registro de erro apontar a carta certa. O contexto anterior volta no fim e
+-- também quando a partida é decidida no meio; num erro, fica o contexto mais
+-- interno, o que de fato falhou.
 function Game:run_card(kind, id, fn, ...)
   local prev = self.context
   self.context = { kind = kind, id = id }
-  local r = pack(fn(...))
+  local args = pack(...)
+  local r
+  local ok, err = xpcall(function() r = pack(fn(unpack(args, 1, args.n))) end, capture)
+  if not ok then
+    if err == DECIDED then self.context = prev end
+    error(err, 0)
+  end
   self.context = prev
   return unpack(r, 1, r.n)
 end
@@ -332,7 +354,7 @@ function Game:update_period()
     self:settle()
     -- Se uma morte abrir uma escolha, os ganchos do período esperam por ela.
     self:after_choices(function(g)
-      for _, hook in ipairs(Game.period_hooks) do g:run_card("regra", per, hook, g, per) end
+      for _, hook in ipairs(Game.period_hooks) do g:effect("regra", per, hook, g, per) end
       g:run_hooks("period", per)
     end)
   end
@@ -401,17 +423,6 @@ end
 -- separadamente: um efeito que começa quando algum jogador já está com zero ou
 -- menos (a partida está decidida) não acontece. Efeitos aninhados (a morte
 -- causada por um feitiço) são efeitos próprios e decidem no fim deles.
-local function effect_traceback(e)
-  if type(e) ~= "string" then return e end
-  -- Um erro que já passou por outro efeito já traz o traceback.
-  if e:find("stack traceback", 1, true) then return e end
-  return debug.traceback(e, 2)
-end
-
--- Sinal interno: a partida foi decidida por um efeito aninhado, e o resto do
--- efeito de fora não acontece. É capturado pelo efeito mais externo.
-local DECIDED = {}
-Game.DECIDED = DECIDED
 
 -- Enquanto um efeito roda, um jogador com zero ou menos de vida (ainda que por um
 -- instante) faz os efeitos aninhados que começarem nesse intervalo não
@@ -421,13 +432,10 @@ function Game:as_one_effect(fn, ...)
   if self.players[1].life <= 0 or self.players[2].life <= 0 then return end
   local args = { n = select("#", ...), ... }
   self.effect_depth = (self.effect_depth or 0) + 1
-  local ok, err = xpcall(function() fn(unpack(args, 1, args.n)) end, effect_traceback)
+  local ok, err = xpcall(function() fn(unpack(args, 1, args.n)) end, capture)
   self.effect_depth = self.effect_depth - 1
-  if not ok and err ~= DECIDED then
-    -- Mesmo com erro, o dano que o efeito já causou decide a partida.
-    self:check_winner()
-    error(err, 0)
-  end
+  -- Erro de carta: a partida termina com estado de erro, sem vencedor.
+  if not ok and err ~= DECIDED then error(err, 0) end
   if ok then self:check_winner() end
   -- Partida decidida: o efeito de fora, se houver, para aqui.
   if self.winner ~= nil and self.effect_depth > 0 then error(DECIDED, 0) end
@@ -615,10 +623,6 @@ Game.allowed_with_stack = { play = true, activate = true, choose = true, block =
 -- funções (create_token, kill, set_choice...) são usadas pelas cartas, sempre
 -- dentro de uma dessas entradas protegidas.
 
--- Guarda o traceback de qualquer erro, em texto ou não, num campo próprio.
-local function capture(e)
-  return { value = e, traceback = debug.traceback("", 2) }
-end
 
 local function error_message(err)
   if type(err) == "string" then return err end

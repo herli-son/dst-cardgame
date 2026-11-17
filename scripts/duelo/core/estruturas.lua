@@ -160,14 +160,21 @@ return function(Game)
   local function while_choosing(g, fn, a, b)
     local prev = g.opening_choice
     g.opening_choice = true
-    local res = fn(a, b)
+    local res
+    local ok, err = xpcall(function() res = fn(a, b) end, Game.capture_error)
+    -- A marca volta sempre; num erro de carta a partida termina de qualquer jeito.
     g.opening_choice = prev
+    if not ok then error(err, 0) end
     return res
   end
 
   local function open_choice(g, spec)
     if spec.prepare then
-      if g:run_card("preparar_escolha", spec.reason, while_choosing, g, spec.prepare, g, spec) == false then
+      local keep
+      g:effect("preparar_escolha", spec.reason, function()
+        keep = while_choosing(g, spec.prepare, g, spec)
+      end)
+      if keep == false then
         return false
       end
     end
@@ -209,7 +216,7 @@ return function(Game)
       g.choice_continuations = {}
       for _, c in ipairs(conts) do
         local ctx = c.context or {}
-        g:run_card(ctx.kind or "continuar", ctx.id, c.fn, g)
+        g:effect(ctx.kind or "continuar", ctx.id, c.fn, g)
       end
       return true
     end
