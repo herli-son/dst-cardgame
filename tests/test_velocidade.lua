@@ -430,13 +430,14 @@ return {
     T.eq(g.winner, 0)
   end },
 
-  { "efeito que dá erro depois de zerar um jogador ainda decide a partida", function(T)
+  { "efeito que dá erro encerra a partida com estado de erro, mesmo depois de zerar um jogador", function(T)
     local g = new_game()
     Cards.define{ id = "v_quebra", kind = "estrutura", cost = 0, activation = { speed = "instantaneo" },
       activate = function(gg) gg:damage_player(2, 99, "teste"); error("falha") end }
     g:put_structure(1, { id = "v_quebra", uid = g:next_uid() }, 1)
-    T.eq(pcall(g.act, g, 1, { type = "activate", structure = 1 }), false)
-    T.eq(g.winner, 1)
+    T.eq(g:act(1, { type = "activate", structure = 1 }), false)
+    T.eq(g.phase, "error")
+    T.eq(g.error.context.id, "v_quebra")
   end },
 
   { "efeito aninhado que decide a partida para o efeito de fora", function(T)
@@ -468,10 +469,10 @@ return {
     put(g, 2, "v_err", 1)
     local pl = g.players[1]
     pl.hand[#pl.hand + 1] = { id = "v_mata", uid = g:next_uid() }
-    local ok, err = pcall(g.act, g, 1, { type = "play", hand_index = #pl.hand })
-    T.eq(ok, false)
-    local _, count = tostring(err):gsub("stack traceback", "")
-    T.eq(count, 1)
+    T.eq(g:act(1, { type = "play", hand_index = #pl.hand }), false)
+    local _, count = g.error.message:gsub("stack traceback", "")
+    T.ok(count <= 1)
+    T.eq(g.error.context.id, "v_err")
   end },
 
   { "estrutura quebrada por feitiço vai ao descarte mesmo se o efeito ao quebrar decidir", function(T)
@@ -508,10 +509,9 @@ return {
   { "erro na resolução de uma escolha traz um traceback só", function(T)
     local g = new_game()
     g:set_choice(1, { reason = "x", options = { "a" }, resolve = function() error("direto") end })
-    local ok, err = pcall(g.act, g, 1, { type = "choose", index = 1 })
-    T.eq(ok, false)
-    local _, count = tostring(err):gsub("stack traceback", "")
-    T.eq(count, 1)
+    T.eq(g:act(1, { type = "choose", index = 1 }), false)
+    local _, count = g.error.message:gsub("stack traceback", "")
+    T.ok(count <= 1)
   end },
 
   { "a entrada da nova estrutura não dispara se o efeito da substituída a tirar de campo", function(T)

@@ -221,11 +221,11 @@ return function(Game)
   function Game:fire_strike_effects(c, target)
     -- Cada efeito de Golpear (o da criatura e o de cada equipamento) é um efeito
     -- próprio para a vitória.
-    if c.def.on_strike then self:as_one_effect(c.def.on_strike, self, c, target) end
+    if c.def.on_strike then self:effect("golpear", c.def.id, c.def.on_strike, self, c, target) end
     for _, slot in ipairs(Game.EQUIP_ORDER) do
       if self.winner ~= nil then return end
       local e = c.equips[slot]
-      if e and e.def.on_strike then self:as_one_effect(e.def.on_strike, self, c, target, e) end
+      if e and e.def.on_strike then self:effect("golpear", e.def.id, e.def.on_strike, self, c, target, e) end
     end
   end
 

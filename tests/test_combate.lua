@@ -472,15 +472,15 @@ return {
     T.eq(seen, nil, "a rodada nova já não vê a criatura morta")
   end },
 
-  { "erro numa entrada pública ainda estabiliza o estado", function(T)
+  { "erro numa entrada pública encerra a partida com estado de erro", function(T)
     local g = new_game()
     local c = put(g, 1, "c_rato", 1)
     g:set_choice(1, { reason = "x", options = { "a" }, resolve = function(gg)
       gg:damage_creature(c, 5, nil, "teste")
       error("falha")
     end })
-    local ok = pcall(g.act, g, 1, { type = "choose", index = 1 })
-    T.eq(ok, false)
-    T.eq(g:creature_at(1, 1), nil)
+    T.eq(g:act(1, { type = "choose", index = 1 }), false)
+    T.eq(g.phase, "error")
+    T.eq(g.effect_depth, 0)
   end },
 }
