@@ -389,12 +389,18 @@ function Game:check_winner()
   end
 end
 
-function Game:damage_player(p, n, source)
+-- source: motivo do dano ("combate", "fogueira", ...). opts.from: a criatura que
+-- causou o dano, quando houver (para efeitos que interceptam dano de criatura,
+-- como o Porco guarda). opts.no_check adia a verificação de vitória, para danos
+-- simultâneos poderem terminar em empate.
+function Game:damage_player(p, n, source, opts)
   if n <= 0 then return end
+  opts = opts or {}
   local pl = self.players[p]
   pl.life = pl.life - n
-  self:emit{ t = "player_damage", p = p, amount = n, source = source, life = pl.life }
-  self:check_winner()
+  self:emit{ t = "player_damage", p = p, amount = n, source = source, life = pl.life,
+    from_uid = opts.from and opts.from.uid or nil }
+  if not opts.no_check then self:check_winner() end
 end
 
 ----------------------------------------------------------------------------
