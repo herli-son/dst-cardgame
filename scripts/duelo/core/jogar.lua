@@ -186,6 +186,10 @@ return function(Game)
   end
 
   -- Cada alvo travado precisa continuar em campo, onde quer que esteja agora.
+  -- A busca é pelo uid, não pelo espaço, porque no futuro haverá cartas que trocam
+  -- criaturas de posição e o alvo deve continuar o mesmo. Atenção: def.targets, que
+  -- algumas cartas usam para reconferir o alvo ao resolver, olha o espaço; quando
+  -- existir troca de posição, essa reconferência precisa usar o objeto travado.
   function Game:targets_still_valid(locks)
     for _, l in ipairs(locks) do
       if l.uid == nil then return false end

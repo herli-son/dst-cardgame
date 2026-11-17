@@ -45,8 +45,12 @@ return function(Game)
         -- Zona cheia: o dono escolhe qual estrutura a ficha substitui.
         local options = {}
         for s = 1, Game.STRUCTURE_SLOTS do options[s] = s end
-        self:set_choice(p, { reason = "substituir_estrutura", options = options,
-          resolve = function(g, idx) g:put_structure(p, card, idx, { ficha = true }) end })
+        -- Escolher nenhuma: a ficha não entra em jogo e deixa de existir.
+        self:set_choice(p, { reason = "substituir_estrutura", options = options, allow_none = true,
+          resolve = function(g, idx)
+            if idx == nil then return g:vanish(p, card, "nao_substituiu") end
+            g:put_structure(p, card, idx, { ficha = true })
+          end })
         return nil, "pendente"
       end
       return self:put_structure(p, card, slot, { ficha = true })

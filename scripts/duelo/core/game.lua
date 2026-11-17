@@ -312,7 +312,9 @@ Game.FOGUEIRA_DAMAGE = 2
 
 -- Ações que continuam permitidas com a fogueira em zero: passar, atacar e ativar efeitos.
 -- Bloquear faz parte de responder a um ataque e escolher completa um efeito já pago.
-Game.allowed_at_zero_fogueira = { pass = true, attack = true, activate = true, choose = true, block = true }
+-- "play" passa por aqui e a jogada confere a carta: só as que não gastam fogueira
+-- (Turfs, Gosma) podem ser jogadas com o contador em zero.
+Game.allowed_at_zero_fogueira = { pass = true, attack = true, activate = true, choose = true, block = true, play = true }
 
 -- Acende quando a noite começa, com o valor inicial mais os bônus guardados na rodada.
 function Game:light_fogueira()
