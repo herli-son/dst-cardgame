@@ -130,7 +130,8 @@ return function(Game)
   ----------------------------------------------------------------------------
 
   -- Alvos são escritos como { p = jogador, slot = espaço, zone = "criatura" | "estrutura" }
-  -- (zone padrão: "criatura"), em action.target ou na lista action.targets.
+  -- (zone padrão: "criatura"), ou { p = jogador, zone = "jogador" } para mirar o
+  -- próprio jogador, em action.target ou na lista action.targets.
   -- O formato é conferido antes de qualquer gasto. Na jogada, o motor trava o uid de
   -- cada alvo; ao resolver, o alvo só vale se aquele mesmo objeto continuar em campo.
   local ZONE_SLOTS = { criatura = "FIELD_SLOTS", estrutura = "STRUCTURE_SLOTS" }
@@ -144,7 +145,9 @@ return function(Game)
   end
 
   local function object_at(g, t)
-    if (t.zone or "criatura") == "estrutura" then return g:structure_at(t.p, t.slot) end
+    local zone = t.zone or "criatura"
+    if zone == "jogador" then return g.players[t.p] end
+    if zone == "estrutura" then return g:structure_at(t.p, t.slot) end
     return g:creature_at(t.p, t.slot)
   end
 
@@ -154,6 +157,10 @@ return function(Game)
       if err then return end
       if type(t) ~= "table" then err = "alvo inválido"; return end
       local zone = t.zone or "criatura"
+      if zone == "jogador" then
+        if t.p ~= 1 and t.p ~= 2 then err = "jogador do alvo inválido" end
+        return
+      end
       local max = ZONE_SLOTS[zone] and Game[ZONE_SLOTS[zone]]
       if max == nil then err = "zona de alvo inválida"; return end
       if t.p ~= 1 and t.p ~= 2 then err = "jogador do alvo inválido"; return end
@@ -173,8 +180,14 @@ return function(Game)
   function Game:lock_targets(action)
     local locks = {}
     each_target(action, function(t)
-      local o = object_at(self, t)
-      locks[#locks + 1] = { zone = t.zone or "criatura", uid = o and o.uid or nil }
+      local zone = t.zone or "criatura"
+      if zone == "jogador" then
+        -- Jogadores não saem de jogo: o alvo sempre vale.
+        locks[#locks + 1] = { zone = zone, p = t.p }
+      else
+        local o = object_at(self, t)
+        locks[#locks + 1] = { zone = zone, uid = o and o.uid or nil }
+      end
     end)
     return locks
   end
@@ -195,10 +208,12 @@ return function(Game)
   -- existir troca de posição, essa reconferência precisa usar o objeto travado.
   function Game:targets_still_valid(locks)
     for _, l in ipairs(locks) do
-      if l.uid == nil then return false end
-      local found
-      if l.zone == "estrutura" then found = self:find_structure(l.uid) else found = self:find_creature(l.uid) end
-      if found == nil then return false end
+      if l.zone ~= "jogador" then
+        if l.uid == nil then return false end
+        local found
+        if l.zone == "estrutura" then found = self:find_structure(l.uid) else found = self:find_creature(l.uid) end
+        if found == nil then return false end
+      end
     end
     return true
   end
