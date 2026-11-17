@@ -170,11 +170,13 @@ return function(Game)
 
   local function open_choice(g, spec)
     if spec.prepare then
-      local keep
+      local ran, keep = false, nil
       g:effect("preparar_escolha", spec.reason, function()
+        ran = true
         keep = while_choosing(g, spec.prepare, g, spec)
       end)
-      if keep == false then
+      -- Preparo pulado (partida sendo decidida) ou recusado: a escolha não abre.
+      if not ran or keep == false then
         return false
       end
     end
