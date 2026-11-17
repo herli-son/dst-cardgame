@@ -60,4 +60,45 @@ return {
     T.eq(g.round, 2)
     T.eq(opened_at, false)
   end },
+
+  { "mortes causadas pela escolha acontecem antes da fase seguinte do combate", function(T)
+    local g = new_game()
+    Cards.define{ id = "e_rap", kind = "criatura", cost = 0, atk = 2, hp = 9, speed = 2 }
+    Cards.define{ id = "e_v", kind = "criatura", cost = 0, atk = 0, hp = 9 }
+    local w
+    Cards.define{ id = "e_z2", kind = "criatura", cost = 0, atk = 0, hp = 3,
+      on_death = function(gg) if gg:creature_at(2, 2) == w then gg:damage_creature(w, 5, nil, "teste") end end }
+    Cards.define{ id = "e_y2", kind = "criatura", cost = 0, atk = 0, hp = 2,
+      on_death = function(gg, c)
+        gg:set_choice(c.owner, { reason = "dano", options = { "z" }, resolve = function(g2)
+          g2:damage_creature(g2:creature_at(1, 3), 3, nil, "teste") end })
+      end }
+    put(g, 1, "e_rap", 1); local v = put(g, 1, "e_v", 2); put(g, 1, "e_z2", 3)
+    put(g, 2, "e_y2", 1); w = put(g, 2, "e_w", 2)
+    T.ok(g:act(1, { type = "attack", attackers = { 1, 2 } })); g:act(1, { type = "pass" })
+    T.ok(g:act(2, { type = "block", blocks = { { attacker = 1, blocker = 1 }, { attacker = 2, blocker = 2 } } }))
+    g:act(2, { type = "pass" }); g:act(1, { type = "pass" })
+    T.ok(g:act(2, { type = "choose", index = 1 }))
+    T.eq(g:creature_at(2, 2), nil, "W morreu antes da fase normal")
+    T.eq(v.damage, 0, "W não golpeou")
+  end },
+
+  { "mortes causadas pela escolha acontecem antes da rodada nova", function(T)
+    local g = new_game()
+    Cards.define{ id = "e_x", kind = "criatura", cost = 0, atk = 0, hp = 1 }
+    local x
+    Cards.define{ id = "e_y3", kind = "criatura", cost = 0, atk = 0, hp = 1,
+      on_death = function(gg, c)
+        gg:set_choice(c.owner, { reason = "ao morrer", options = { "a" },
+          resolve = function(g2) g2:damage_creature(x, 1, nil, "teste") end })
+      end }
+    local y = put(g, 2, "e_y3", 1); x = put(g, 1, "e_x", 1)
+    g:on("round_end", function(gg) gg:damage_creature(y, 1, nil, "teste") end)
+    local x_seen
+    g:on("round_start", function(gg) x_seen = gg:creature_at(1, 1) == x end)
+    g:act(1, { type = "pass" }); g:act(2, { type = "pass" })
+    T.ok(g:act(2, { type = "choose", index = 1 }))
+    T.eq(g.round, 2)
+    T.eq(x_seen, false, "o início da rodada 2 já não vê X")
+  end },
 }
