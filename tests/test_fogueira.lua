@@ -7,9 +7,9 @@ local function deck(n)
 end
 
 -- Ação de teste que imita jogar uma carta: gasta fogueira à noite.
-local saved = {}
+-- As ações reais de ativar e atacar são substituídas aqui; o runner restaura o
+-- estado global do motor depois de cada caso.
 local function register_test_actions()
-  saved.attack, saved.activate = Game.actions.attack, Game.actions.activate
   Game.actions.carta = function(g, p)
     if not g:can_pay_fogueira(p) then return false, "sem fogueira" end
     g:spend_fogueira(p)
@@ -22,7 +22,6 @@ end
 
 local function clear_test_actions()
   Game.actions.carta, Game.actions.ativar = nil, nil
-  Game.actions.attack, Game.actions.activate = saved.attack, saved.activate
 end
 
 local function new_game()

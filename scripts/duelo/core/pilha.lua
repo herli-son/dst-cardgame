@@ -68,7 +68,7 @@ return function(Game)
       local entry = table.remove(self.stack)
       self:emit{ t = "stack_resolve", p = entry.owner, label = entry.label }
       entry.resolve(self)
-      if self.pending_choice then return end
+      if self:choices_waiting() then return end
     end
     self:close_stack()
   end
@@ -83,6 +83,7 @@ return function(Game)
     self:emit{ t = "stack_closed" }
     if self.winner ~= nil then return end
     -- A vez de quem abriu conta agora e passa para quem não abriu.
+    if opener == nil then return end
     self.active = opener
     self:advance_vez()
   end
