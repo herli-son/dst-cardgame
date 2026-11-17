@@ -38,6 +38,9 @@ function Cards.define(def)
       "carta " .. def.id .. ": equipamento precisa de slot mao, peito ou cabeca")
   end
   def.kw = def.kw or {}
+  -- Rival guarda o nome do tipo (ex.: rival = "porco"), não true.
+  assert(def.kw.rival == nil or type(def.kw.rival) == "string",
+    "carta " .. def.id .. ": kw.rival precisa ser o nome de um tipo")
   def.types = def.types or {}
   def.cost = def.cost or 0
   registry[def.id] = def
