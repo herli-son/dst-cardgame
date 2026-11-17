@@ -44,11 +44,20 @@ function Game:off(event, fn)
   end
 end
 
+local function has_hook(list, fn)
+  for _, f in ipairs(list) do if f == fn then return true end end
+  return false
+end
+
 function Game:run_hooks(event, ...)
-  -- Copia a lista: um gancho pode se remover enquanto roda.
+  -- Percorre uma cópia, porque um gancho pode adicionar ou remover outros; um
+  -- gancho removido durante a passada não roda mais.
+  local live = self.hooks[event]
   local list = {}
-  for i, fn in ipairs(self.hooks[event]) do list[i] = fn end
-  for _, fn in ipairs(list) do fn(self, ...) end
+  for i, fn in ipairs(live) do list[i] = fn end
+  for _, fn in ipairs(list) do
+    if has_hook(live, fn) then fn(self, ...) end
+  end
 end
 
 local function other(p)
@@ -79,13 +88,19 @@ local function new_player(deck)
   }
 end
 
--- Copia o baralho recebido: a partida nunca altera as tabelas de quem a criou e
--- cada carta ganha um identificador próprio desta partida.
+-- Cópia profunda: a partida nunca altera as tabelas de quem a criou.
+local function deep_copy(v)
+  if type(v) ~= "table" then return v end
+  local c = {}
+  for k, x in pairs(v) do c[k] = deep_copy(x) end
+  return c
+end
+
+-- Copia o baralho recebido e dá a cada carta um identificador próprio desta partida.
 local function copy_deck(g, deck)
   local copy = {}
   for i, card in ipairs(deck or {}) do
-    local c = {}
-    for k, v in pairs(card) do c[k] = v end
+    local c = deep_copy(card)
     c.uid = g:next_uid()
     copy[i] = c
   end
