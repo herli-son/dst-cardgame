@@ -839,4 +839,34 @@ return {
     T.eq(ok, false)
     T.eq(err, code)
   end },
+
+  { "na pilha, a próxima escolha falha no preparo: a pilha fecha e a vez segue", function(T)
+    local g = new_game()
+    Cards.define{ id = "r_duas_falhas", kind = "feitico", speed = "rapido", cost = 0,
+      on_cast = function(gg)
+        gg:set_choice(1, { reason = "a", options = { "x" }, resolve = function() end })
+        gg:set_choice(1, { reason = "p", options = { "x" }, prepare = function() error("ERRO_P") end,
+          resolve = function() end })
+      end }
+    g.players[1].hand[#g.players[1].hand + 1] = { id = "r_duas_falhas", uid = g:next_uid() }
+    play(g, 1, "r_duas_falhas")
+    g:act(1, { type = "pass" }); g:act(2, { type = "pass" })
+    local ok, err = pcall(g.act, g, 1, { type = "choose", index = 1 })
+    T.eq(ok, false)
+    T.ok(tostring(err):find("ERRO_P") ~= nil)
+    T.eq(g.resolving, false)
+    T.eq(g:stack_open(), false)
+    T.eq(g.active, 2)
+  end },
+
+  { "erro em tabela com falha na limpeza guarda o segundo erro em cleanup_error", function(T)
+    local g = new_game()
+    g:set_choice(1, { reason = "a", options = { "x" }, resolve = function() error({ code = "X" }) end })
+    g:set_choice(1, { reason = "p", options = { "x" }, prepare = function() error("ERRO_P") end,
+      resolve = function() end })
+    local ok, err = pcall(g.act, g, 1, { type = "choose", index = 1 })
+    T.eq(ok, false)
+    T.eq(err.code, "X")
+    T.ok(tostring(err.cleanup_error):find("ERRO_P") ~= nil)
+  end },
 }
