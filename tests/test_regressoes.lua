@@ -631,4 +631,58 @@ return {
     T.eq(log[1], "gosma")
     T.eq(g.fogueira[1], 0)
   end },
+
+  { "escolha pedida pela estrutura que ocupou a vaga entra no fim da fila", function(T)
+    local g = new_game()
+    Cards.define{ id = "r_torre2", kind = "estrutura", cost = 0,
+      on_play = function(gg, st)
+        gg:set_choice(1, { reason = "torre", options = { "x" }, resolve = function() log[#log + 1] = "torre" end })
+      end }
+    g:put_structure(1, { id = "r_casa", uid = g:next_uid() }, 1)
+    g:put_structure(1, { id = "r_casa", uid = g:next_uid() }, 2)
+    g:set_choice(1, { reason = "a", options = { "x" },
+      resolve = function(gg) gg:break_structure(1, 2, "teste") end })
+    g:create_token(1, "r_torre2")
+    g:set_choice(2, { reason = "c", options = { "x" }, resolve = function() log[#log + 1] = "c" end })
+    T.ok(g:act(1, { type = "choose", index = 1 }))     -- A: a vaga abre e a torre entra
+    T.eq(g:structure_at(1, 2).def.id, "r_torre2")
+    T.eq(g.pending_choice.reason, "c", "C já esperava na fila")
+    T.ok(g:act(2, { type = "choose", index = 1 }))
+    T.eq(g.pending_choice.reason, "torre", "a escolha da torre não se perdeu")
+    T.ok(g:act(1, { type = "choose", index = 1 }))
+    T.eq(log[1], "c"); T.eq(log[2], "torre")
+  end },
+
+  { "conferência de alvos recebe os objetos na jogada e ao resolver", function(T)
+    local g = new_game()
+    local calls = 0
+    Cards.define{ id = "r_mira", kind = "feitico", speed = "rapido", cost = 0,
+      targets = function(gg, p, a, objects)
+        calls = calls + 1
+        return objects[1] ~= nil and objects[1].def ~= nil
+      end,
+      on_cast = function() log[#log + 1] = "mira" end }
+    g:place_creature(2, { id = "r_bicho", uid = g:next_uid() }, 2)
+    g.players[1].hand[#g.players[1].hand + 1] = { id = "r_mira", uid = g:next_uid() }
+    T.ok(play(g, 1, "r_mira", { target = { p = 2, slot = 2 } }))
+    g:act(1, { type = "pass" }); g:act(2, { type = "pass" })
+    T.eq(calls, 2)
+    T.eq(log[1], "mira")
+  end },
+
+  { "espaço de estrutura fora da zona é ignorado", function(T)
+    local g = new_game()
+    local st = g:create_token(1, "r_casa", { slot = 7 })
+    T.eq(st.slot, 1)
+    T.eq(g.players[1].structures[7], nil)
+  end },
+
+  { "o executor restaura tabelas aninhadas do motor (parte 1: altera)", function(T)
+    Game.play_rules.feitico.validate = function() return false, "alterado" end
+  end },
+
+  { "o executor restaura tabelas aninhadas do motor (parte 2: confere)", function(T)
+    local g = new_game({ "r_raio" })
+    T.ok(play(g, 1, "r_raio"), "a regra de jogada de feitiço voltou ao original")
+  end },
 }
