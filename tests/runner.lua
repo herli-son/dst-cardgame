@@ -15,8 +15,9 @@ function T.ok(cond, msg)
   if not cond then error(msg or "condição falsa", 2) end
 end
 
--- Cada caso roda isolado: o estado global do motor (ações, ganchos de período e
--- registro de cartas) é salvo antes e restaurado depois, mesmo quando o caso falha.
+-- Cada caso roda isolado: todo o estado global do motor é salvo antes e
+-- restaurado depois, mesmo quando o caso falha. Isso inclui o módulo Game inteiro
+-- (constantes, métodos e tabelas, em qualquer profundidade) e o registro de cartas.
 local Game = require("duelo/core/game")
 local Cards = require("duelo/core/cards")
 
@@ -26,26 +27,29 @@ local function shallow(t)
   return c
 end
 
--- Todo o módulo Game é salvo: chaves de qualquer tipo (constantes, métodos e
--- tabelas) e uma cópia rasa de cada tabela, para desfazer alterações dentro delas.
+-- Guarda uma cópia rasa de cada tabela alcançável a partir de Game, indexada pela
+-- própria tabela. Restaurar devolve o conteúdo de cada uma no lugar, então as
+-- referências guardadas pelos módulos continuam válidas.
 local function snapshot()
-  local snap = { keys = {}, tables = {}, cards = Cards.snapshot() }
-  for k, v in pairs(Game) do
-    snap.keys[k] = v
-    if type(v) == "table" and k ~= "__index" then snap.tables[k] = shallow(v) end
+  local contents = {}
+  local function walk(t)
+    if contents[t] then return end
+    contents[t] = shallow(t)
+    for k, v in pairs(t) do
+      if type(k) == "table" then walk(k) end
+      if type(v) == "table" then walk(v) end
+    end
   end
-  return snap
+  walk(Game)
+  return { contents = contents, cards = Cards.snapshot() }
 end
 
 local function restore(snap)
-  for k in pairs(Game) do
-    if snap.keys[k] == nil then Game[k] = nil end
-  end
-  for k, v in pairs(snap.keys) do Game[k] = v end
-  for k, copy in pairs(snap.tables) do
-    local t = Game[k]
-    for x in pairs(t) do t[x] = nil end
-    for x, y in pairs(copy) do t[x] = y end
+  for t, copy in pairs(snap.contents) do
+    for k in pairs(t) do
+      if copy[k] == nil then t[k] = nil end
+    end
+    for k, v in pairs(copy) do t[k] = v end
   end
   Cards.restore(snap.cards)
 end
