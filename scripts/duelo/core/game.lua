@@ -219,7 +219,7 @@ function Game:draw(p, n)
   end
 end
 
-function Game:start()
+local function start_core(self)
   for p = 1, 2 do
     self:shuffle_deck(p)
     self:draw(p, Game.START_HAND)
@@ -237,7 +237,7 @@ end
 -- Troca inicial: cada jogador escolhe quais cartas da mão inicial devolver
 -- (lista de índices, pode ser vazia). As devolvidas voltam ao baralho, que é
 -- embaralhado, e o jogador compra a mesma quantidade. Uma vez por jogador.
-function Game:mulligan(p, indices)
+local function mulligan_core(self, p, indices)
   if p ~= 1 and p ~= 2 then return false, "jogador inválido" end
   if self.phase ~= "mulligan" then return false, "fora da fase de troca" end
   local pl = self.players[p]
@@ -304,8 +304,14 @@ function Game:update_period()
   if per ~= self.current_period then
     self.current_period = per
     self:emit{ t = "period", period = per, round = self.round }
-    for _, hook in ipairs(Game.period_hooks) do hook(self, per) end
-    self:run_hooks("period", per)
+    -- A vida pode mudar com o período (atributos que dependem dele): o estado
+    -- estabiliza antes dos ganchos do novo período.
+    self:settle()
+    -- Se uma morte abrir uma escolha, os ganchos do período esperam por ela.
+    self:after_choices(function(g)
+      for _, hook in ipairs(Game.period_hooks) do hook(g, per) end
+      g:run_hooks("period", per)
+    end)
   end
 end
 
@@ -383,12 +389,18 @@ function Game:check_winner()
   end
 end
 
-function Game:damage_player(p, n, source)
+-- source: motivo do dano ("combate", "fogueira", ...). opts.from: a criatura que
+-- causou o dano, quando houver (para efeitos que interceptam dano de criatura,
+-- como o Porco guarda). opts.no_check adia a verificação de vitória, para danos
+-- simultâneos poderem terminar em empate.
+function Game:damage_player(p, n, source, opts)
   if n <= 0 then return end
+  opts = opts or {}
   local pl = self.players[p]
   pl.life = pl.life - n
-  self:emit{ t = "player_damage", p = p, amount = n, source = source, life = pl.life }
-  self:check_winner()
+  self:emit{ t = "player_damage", p = p, amount = n, source = source, life = pl.life,
+    from_uid = opts.from and opts.from.uid or nil }
+  if not opts.no_check then self:check_winner() end
 end
 
 ----------------------------------------------------------------------------
@@ -439,6 +451,8 @@ function Game:finish_round()
   end
   self:emit{ t = "round_end", round = self.round }
   if self.winner == nil then
+    -- A rodada nova começa com o estado estável.
+    self:settle()
     self:begin_round()
   end
 end
@@ -457,8 +471,8 @@ function Game:advance_vez()
   self:update_period()
 end
 
--- Ponto único de entrada das jogadas.
-function Game:act(p, action)
+-- Jogada sem a verificação final de estado; use Game:act.
+local function act_core(self, p, action)
   if self.winner ~= nil then return false, "partida encerrada" end
   if self.phase ~= "playing" then return false, "a partida ainda não começou" end
   if type(action) ~= "table" or action.type == nil then return false, "ação inválida" end
@@ -519,5 +533,32 @@ require("duelo/core/estruturas")(Game)
 require("duelo/core/equipamentos")(Game)
 require("duelo/core/fichas")(Game)
 require("duelo/core/combate")(Game)
+
+-- Entradas públicas: depois de cada uma, o motor chega a um estado estável
+-- (Game:settle). Se a entrada levantar erro, o estado é estabilizado antes de o
+-- erro subir.
+local function pack(...)
+  return { n = select("#", ...), ... }
+end
+
+local function settled(self, core, ...)
+  local r = pack(pcall(core, self, ...))
+  self:settle()
+  if not r[1] then error(r[2], 0) end
+  return unpack(r, 2, r.n)
+end
+
+function Game:start()
+  return settled(self, start_core)
+end
+
+function Game:mulligan(p, indices)
+  return settled(self, mulligan_core, p, indices)
+end
+
+-- Ponto único de entrada das jogadas.
+function Game:act(p, action)
+  return settled(self, act_core, p, action)
+end
 
 return Game

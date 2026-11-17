@@ -54,6 +54,9 @@ return function(Game)
 
   -- "Pronto": a vez vai para o outro sem contar para o período.
   function Game:hand_over()
+    -- Conta as passagens de vez dentro da pilha (o combate usa para saber qual é a
+    -- primeira resposta do defensor).
+    self.handover_count = (self.handover_count or 0) + 1
     self.stack_added = false
     self.active = Game.other(self.active)
     self:emit{ t = "ready", active = self.active, size = #self.stack }
@@ -68,6 +71,7 @@ return function(Game)
       local entry = table.remove(self.stack)
       self:emit{ t = "stack_resolve", p = entry.owner, label = entry.label }
       entry.resolve(self)
+      self:settle()
       if self:choices_waiting() then return end
     end
     self:close_stack()
@@ -80,6 +84,8 @@ return function(Game)
     self.stack_added = false
     self.resolving = false
     self.passes = 0
+    -- Um combate que não chegou a resolver (partida vencida no meio da pilha) acaba aqui.
+    self.combat = nil
     self:emit{ t = "stack_closed" }
     if self.winner ~= nil then return end
     -- A vez de quem abriu conta agora e passa para quem não abriu.
