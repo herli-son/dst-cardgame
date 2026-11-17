@@ -91,6 +91,29 @@ return function(Game)
     self:kill_many({ { c, killer } }, reason)
   end
 
+  -- Abate toda criatura com dano maior ou igual à vida. Repete enquanto houver
+  -- mortes, porque um efeito "ao morrer" pode deixar outra criatura com dano
+  -- letal; para se a partida for decidida ou se um efeito abrir uma escolha.
+  function Game:check_lethal(killers, reason)
+    killers = killers or {}
+    while self.winner == nil and not self:choices_waiting() do
+      local dead = {}
+      for _, c in ipairs(self:all_creatures()) do
+        if c.damage >= self:hp(c) then dead[#dead + 1] = { c, killers[c] } end
+      end
+      if #dead == 0 then return end
+      self:kill_many(dead, reason or "dano")
+      killers, reason = {}, "dano"
+    end
+  end
+
+  -- Estado estável: depois de cada ação, de cada efeito resolvido e de cada troca
+  -- de vez, período ou rodada, abate as criaturas com dano letal. Não roda com
+  -- escolhas esperando; roda de novo quando a última for feita.
+  function Game:settle()
+    if self.winner == nil and not self:choices_waiting() then self:check_lethal() end
+  end
+
   -- Mortes simultâneas (ex.: golpes da mesma fase do combate): todas saem de campo
   -- antes de qualquer efeito "ao morrer" disparar. killer pode já estar fora de
   -- campo, inclusive por ter morrido junto; os efeitos devem conferir isso.
