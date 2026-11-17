@@ -163,11 +163,25 @@ return function(Game)
 
   local function kw(c, k) return c.def.kw[k] end
 
+  -- Fora do combate para as obrigações: quem saiu de campo, mudou de lado ou tem
+  -- dano letal esperando ser verificado (o mesmo critério dos golpes).
+  local function in_play(g, c, side)
+    return c.owner == side and g.players[side].field[c.slot] == c and c.damage < g:hp(c)
+  end
+
   -- Quem pode bloquear: as criaturas do defensor que bloqueiam.
   local function blockers_of(g, p)
     local list = {}
     for _, d in ipairs(g:creatures(p)) do
-      if not d.def.no_block then list[#list + 1] = d end
+      if not d.def.no_block and in_play(g, d, p) then list[#list + 1] = d end
+    end
+    return list
+  end
+
+  local function attackers_of(g, cb)
+    local list = {}
+    for _, a in ipairs(cb.attackers) do
+      if in_play(g, a, cb.attacker) then list[#list + 1] = a end
     end
     return list
   end
@@ -192,33 +206,80 @@ return function(Game)
     end
   end
 
-  -- d está "gasto" no nível k se bloqueia um atacante cujo nível <= k é atendido por d.
-  local function spent(blocking, tiers, d, k)
-    local a = blocking[d]
-    if a == nil then return false end
-    local i = tiers[a]
-    return i ~= nil and i <= k and TIERS[i].fits(a, d)
+  -- Pontuação de um conjunto de pares: quantos obrigatórios de cada nível ficam
+  -- atendidos. Compara primeiro o nível 1 (Rival), depois o 2 (Frágil).
+  local function better(x, y)
+    for k = 1, #TIERS do
+      if x[k] ~= y[k] then return x[k] > y[k] end
+    end
+    return false
   end
 
-  -- Confere os pares contra as regras. pairs = { { atacante, bloqueador }, ... }.
-  function Game:check_forced_blocks(cb, pairs)
-    local defenders = blockers_of(self, cb.defender)
-    local block_of, blocking = {}, {}
-    for _, pr in ipairs(pairs) do block_of[pr[1]], blocking[pr[2]] = pr[2], pr[1] end
-    local tiers = {}
-    for _, a in ipairs(cb.attackers) do tiers[a] = tier_of(a, defenders) end
-    for _, a in ipairs(cb.attackers) do
+  -- Melhor emparelhamento dos obrigatórios: atende o máximo de Rivais e, entre
+  -- esses, o máximo de Frágeis. Busca completa (no máximo 6 contra 6); no empate
+  -- fica o primeiro achado, pela ordem dos atacantes e dos espaços.
+  local function best_forced(obligated, tiers, defenders)
+    local best_score, best_pairs = nil, nil
+    local used, cur, score = {}, {}, {}
+    for k = 1, #TIERS do score[k] = 0 end
+    local function go(i)
+      if i > #obligated then
+        if best_score == nil or better(score, best_score) then
+          best_score, best_pairs = {}, {}
+          for k = 1, #TIERS do best_score[k] = score[k] end
+          for n, pr in ipairs(cur) do best_pairs[n] = pr end
+        end
+        return
+      end
+      local a = obligated[i]
       local k = tiers[a]
-      if k and not (block_of[a] and TIERS[k].fits(a, block_of[a])) then
-        for _, d in ipairs(defenders) do
-          if TIERS[k].fits(a, d) and not spent(blocking, tiers, d, k) then
-            return false, k == 1 and "atacante Rival deve ser bloqueado por uma criatura do tipo dele"
-              or "atacante Frágil deve ser bloqueado por uma criatura Agressiva"
-          end
+      for _, d in ipairs(defenders) do
+        if not used[d] and TIERS[k].fits(a, d) then
+          used[d] = true; cur[#cur + 1] = { a, d }; score[k] = score[k] + 1
+          go(i + 1)
+          used[d] = nil; cur[#cur] = nil; score[k] = score[k] - 1
         end
       end
+      go(i + 1)
     end
-    for _, a in ipairs(cb.attackers) do
+    go(1)
+    return best_score, best_pairs
+  end
+
+  local function obligations(g, cb)
+    local defenders = blockers_of(g, cb.defender)
+    local attackers = attackers_of(g, cb)
+    local obligated, tiers = {}, {}
+    for _, a in ipairs(attackers) do
+      tiers[a] = tier_of(a, defenders)
+      if tiers[a] then obligated[#obligated + 1] = a end
+    end
+    return attackers, defenders, obligated, tiers
+  end
+
+  local TIER_MESSAGES = {
+    "atacante Rival deve ser bloqueado por uma criatura do tipo dele",
+    "atacante Frágil deve ser bloqueado por uma criatura Agressiva",
+  }
+
+  -- Confere os pares contra as regras. pairs = { { atacante, bloqueador }, ... }.
+  -- Recusa se os pares atendem menos obrigatórios do que seria possível.
+  function Game:check_forced_blocks(cb, pairs)
+    local attackers, defenders, obligated, tiers = obligations(self, cb)
+    local block_of, blocking = {}, {}
+    for _, pr in ipairs(pairs) do block_of[pr[1]], blocking[pr[2]] = pr[2], pr[1] end
+    local declared = {}
+    for k = 1, #TIERS do declared[k] = 0 end
+    for _, a in ipairs(obligated) do
+      local k = tiers[a]
+      if block_of[a] and TIERS[k].fits(a, block_of[a]) then declared[k] = declared[k] + 1 end
+    end
+    local best = best_forced(obligated, tiers, defenders)
+    for k = 1, #TIERS do
+      if declared[k] < best[k] then return false, TIER_MESSAGES[k] end
+      if declared[k] > best[k] then break end
+    end
+    for _, a in ipairs(attackers) do
       if kw(a, "agressivo") and not block_of[a] then
         for _, d in ipairs(defenders) do
           if kw(d, "fragil") and not blocking[d] then
@@ -230,34 +291,24 @@ return function(Game)
     return true
   end
 
-  -- Completa os pares obrigatórios, nível por nível, quando o defensor não declarou.
+  -- Completa os pares obrigatórios quando o defensor não declarou: o melhor
+  -- emparelhamento de Rival e Frágil, depois as Frágeis livres nos Agressivos.
   local function auto_blocks(g, cb)
-    local defenders = blockers_of(g, cb.defender)
-    local attackers = {}
-    for _, a in ipairs(cb.attackers) do
-      if a.owner == cb.attacker and g.players[cb.attacker].field[a.slot] == a then
-        attackers[#attackers + 1] = a
-      end
-    end
+    local attackers, defenders, obligated, tiers = obligations(g, cb)
     local used, pairs = {}, {}
-    local function assign(a, ok)
-      if cb.blocked[a] then return end
-      for _, d in ipairs(defenders) do
-        if not used[d] and ok(d) then
-          used[d] = true
-          cb.blocks[a], cb.blocked[a] = d, true
-          pairs[#pairs + 1] = { attacker = a.uid, blocker = d.uid }
-          return
+    local function set(a, d)
+      used[d] = true
+      cb.blocks[a], cb.blocked[a] = d, true
+      pairs[#pairs + 1] = { attacker = a.uid, blocker = d.uid }
+    end
+    local _, best = best_forced(obligated, tiers, defenders)
+    for _, pr in ipairs(best) do set(pr[1], pr[2]) end
+    for _, a in ipairs(attackers) do
+      if kw(a, "agressivo") and not cb.blocked[a] then
+        for _, d in ipairs(defenders) do
+          if not used[d] and kw(d, "fragil") then set(a, d); break end
         end
       end
-    end
-    for k, t in ipairs(TIERS) do
-      for _, a in ipairs(attackers) do
-        if tier_of(a, defenders) == k then assign(a, function(d) return t.fits(a, d) end) end
-      end
-    end
-    for _, a in ipairs(attackers) do
-      if kw(a, "agressivo") then assign(a, function(d) return kw(d, "fragil") == true end) end
     end
     if #pairs > 0 then g:emit{ t = "block", p = cb.defender, blocks = pairs, auto = true } end
   end
