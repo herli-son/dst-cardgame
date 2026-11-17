@@ -141,18 +141,27 @@ return function(Game)
   -- escolha não é mais necessária (prepare já resolveu tudo) e a próxima da fila abre.
   -- Regra única de ordem: uma escolha pedida enquanto outra está aberta, sendo
   -- preparada ou sendo resolvida entra no fim da fila, atrás das que já esperavam.
-  -- Roda fn com essa marca ligada e a restaura mesmo se fn lançar erro.
-  local function while_choosing(g, fn, ...)
+  -- Roda fn(a, b) com essa marca ligada e a restaura mesmo se fn lançar erro. Em
+  -- erro, on_error roda antes de relançar (para a fila não parar), e o erro sai com
+  -- o traceback original do código da carta.
+  local function while_choosing(g, fn, on_error, a, b)
     local prev = g.opening_choice
     g.opening_choice = true
-    local ok, res = pcall(fn, ...)
+    local res
+    local ok, err = xpcall(function() res = fn(a, b) end,
+      function(e) return debug.traceback(tostring(e), 2) end)
     g.opening_choice = prev
-    if not ok then error(res, 0) end
+    if not ok then
+      if on_error then on_error() end
+      error(err, 0)
+    end
     return res
   end
 
   local function open_choice(g, spec)
-    if spec.prepare and while_choosing(g, spec.prepare, g, spec) == false then return false end
+    -- Se o preparo falhar, a escolha é descartada e a próxima da fila abre.
+    local function skip() g:next_choice() end
+    if spec.prepare and while_choosing(g, spec.prepare, skip, g, spec) == false then return false end
     g.pending_choice = spec
     g:emit{ t = "choice", p = spec.player, reason = spec.reason, count = #(spec.options or {}) }
     return true
@@ -169,6 +178,11 @@ return function(Game)
   end
 
   -- Abre a próxima escolha da fila, se houver.
+  -- Há escolha aberta ou esperando na fila.
+  function Game:choices_waiting()
+    return self.pending_choice ~= nil or (self.choice_queue ~= nil and #self.choice_queue > 0)
+  end
+
   function Game:next_choice()
     local q = self.choice_queue
     while q and #q > 0 do
@@ -187,7 +201,10 @@ return function(Game)
     if idx == nil and not ch.allow_none then return false, "é preciso escolher uma opção" end
     if idx ~= nil and (ch.options == nil or ch.options[idx] == nil) then return false, "opção inválida" end
     g.pending_choice = nil
-    while_choosing(g, ch.resolve, g, idx)
+    -- Se a resolução falhar, a fila continua andando antes de o erro subir.
+    while_choosing(g, ch.resolve, function()
+      if g.pending_choice == nil then g:next_choice() end
+    end, g, idx)
     if g.pending_choice == nil then g:next_choice() end
     if g.pending_choice then
       -- Ainda há escolhas: a vez (se for passar) espera a última.

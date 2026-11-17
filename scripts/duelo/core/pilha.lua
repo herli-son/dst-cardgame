@@ -68,7 +68,7 @@ return function(Game)
       local entry = table.remove(self.stack)
       self:emit{ t = "stack_resolve", p = entry.owner, label = entry.label }
       entry.resolve(self)
-      if self.pending_choice then return end
+      if self:choices_waiting() then return end
     end
     self:close_stack()
   end

@@ -445,7 +445,7 @@ end
 
 -- Roda fn agora se não houver escolha aberta; senão, quando a última for feita.
 function Game:after_choices(fn)
-  if self.pending_choice == nil then return fn(self) end
+  if not self:choices_waiting() then return fn(self) end
   self.choice_continuations = self.choice_continuations or {}
   table.insert(self.choice_continuations, fn)
 end
