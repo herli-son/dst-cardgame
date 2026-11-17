@@ -3,7 +3,8 @@
 --
 -- Campos da definição de uma estrutura:
 --   activation = { once_per_round = bool, speed = "instantaneo" | "rapido" | "lento" }
---   activate(game, p, estrutura, action)   efeito ativado; pode abrir uma escolha
+--   activate(game, p, fonte, action, objects)   efeito ativado; objects são os alvos
+--                                               travados; pode abrir uma escolha
 --   on_break(game, estrutura)              ao ser quebrada
 
 return function(Game)
@@ -242,7 +243,7 @@ return function(Game)
     local period_key = g.round .. ":" .. tostring(g:period())
     if spec.once_per_period and card.used_period == period_key then return false, "já ativada neste período" end
     if def.targets then
-      local valid, why = def.targets(g, p, action)
+      local valid, why = def.targets(g, p, action, g:target_objects(action))
       if not valid then return false, why or "alvo inválido" end
     end
     if def.can_activate then

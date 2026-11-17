@@ -146,7 +146,7 @@ return function(Game)
 
   local function object_at(g, t)
     local zone = t.zone or "criatura"
-    if zone == "jogador" then return g.players[t.p] end
+    if zone == "jogador" then return { player = t.p } end
     if zone == "estrutura" then return g:structure_at(t.p, t.slot) end
     return g:creature_at(t.p, t.slot)
   end
@@ -173,6 +173,14 @@ return function(Game)
     end)
     if err then return false, err end
     return true
+  end
+
+  -- Objetos atuais dos alvos (criatura, estrutura ou { player = p }), na ordem dos
+  -- alvos. Usado na jogada; ao resolver, a lista vem de targets_still_valid.
+  function Game:target_objects(action)
+    local objects = {}
+    each_target(action, function(t) objects[#objects + 1] = object_at(self, t) end)
+    return objects
   end
 
   -- Devolve as travas { {zone, uid}, ... } dos alvos; ficam com o efeito na pilha,
@@ -284,7 +292,7 @@ return function(Game)
       ok, err = g:check_targets(action)
       if not ok then return false, err end
       if def.targets then
-        local valid, why = def.targets(g, p, action)
+        local valid, why = def.targets(g, p, action, g:target_objects(action))
         if not valid then return false, why or "alvo inválido" end
       end
       return true
