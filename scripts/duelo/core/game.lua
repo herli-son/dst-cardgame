@@ -380,9 +380,18 @@ end
 -- causada por um feitiço) são efeitos próprios e decidem no fim deles.
 local function effect_traceback(e)
   if type(e) ~= "string" then return e end
+  -- Um erro que já passou por outro efeito já traz o traceback.
+  if e:find("stack traceback", 1, true) then return e end
   return debug.traceback(e, 2)
 end
 
+-- Sinal interno: a partida foi decidida por um efeito aninhado, e o resto do
+-- efeito de fora não acontece. É capturado pelo efeito mais externo.
+local DECIDED = {}
+
+-- Enquanto um efeito roda, um jogador com zero ou menos de vida (ainda que por um
+-- instante) faz os efeitos aninhados que começarem nesse intervalo não
+-- acontecerem: a partida está sendo decidida por este efeito.
 function Game:as_one_effect(fn, ...)
   if self.winner ~= nil then return end
   if self.players[1].life <= 0 or self.players[2].life <= 0 then return end
@@ -390,8 +399,14 @@ function Game:as_one_effect(fn, ...)
   self.effect_depth = (self.effect_depth or 0) + 1
   local ok, err = xpcall(function() fn(unpack(args, 1, args.n)) end, effect_traceback)
   self.effect_depth = self.effect_depth - 1
-  if not ok then error(err, 0) end
-  self:check_winner()
+  if not ok and err ~= DECIDED then
+    -- Mesmo com erro, o dano que o efeito já causou decide a partida.
+    self:check_winner()
+    error(err, 0)
+  end
+  if ok then self:check_winner() end
+  -- Partida decidida: o efeito de fora, se houver, para aqui.
+  if self.winner ~= nil and self.effect_depth > 0 then error(DECIDED, 0) end
 end
 
 function Game:check_winner()
@@ -568,8 +583,10 @@ end
 
 local function settled(self, core, ...)
   local r = pack(pcall(core, self, ...))
-  -- A contagem de efeitos abertos nunca sobrevive a uma entrada pública.
+  -- A contagem de efeitos abertos nunca sobrevive a uma entrada pública, e o dano
+  -- de um efeito interrompido por erro ainda decide a partida.
   self.effect_depth = 0
+  self:check_winner()
   self:settle()
   if not r[1] then error(r[2], 0) end
   return unpack(r, 2, r.n)
