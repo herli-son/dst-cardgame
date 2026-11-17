@@ -30,22 +30,23 @@ Game.period_hooks = {}
 --   "period" (g, periodo), "round_start" (g), "round_end" (g), "death" (g, criatura)
 local HOOK_EVENTS = { period = true, round_start = true, round_end = true, death = true }
 
-function Game:on(event, fn)
+-- id: a carta dona do gancho, para o registro de erro.
+function Game:on(event, fn, id)
   assert(HOOK_EVENTS[event], "evento de gancho desconhecido: " .. tostring(event))
   local list = self.hooks[event]
-  list[#list + 1] = fn
+  list[#list + 1] = { fn = fn, id = id }
   return fn
 end
 
 function Game:off(event, fn)
   local list = self.hooks[event]
   for i = #list, 1, -1 do
-    if list[i] == fn then table.remove(list, i) end
+    if list[i].fn == fn then table.remove(list, i) end
   end
 end
 
-local function has_hook(list, fn)
-  for _, f in ipairs(list) do if f == fn then return true end end
+local function has_hook(list, entry)
+  for _, e in ipairs(list) do if e == entry then return true end end
   return false
 end
 
@@ -54,10 +55,10 @@ function Game:run_hooks(event, ...)
   -- gancho removido durante a passada não roda mais.
   local live = self.hooks[event]
   local list = {}
-  for i, fn in ipairs(live) do list[i] = fn end
-  for _, fn in ipairs(list) do
-    if has_hook(live, fn) then
-      self:run_card("gancho", event, fn, self, ...)
+  for i, entry in ipairs(live) do list[i] = entry end
+  for _, entry in ipairs(list) do
+    if has_hook(live, entry) then
+      self:run_card("gancho:" .. event, entry.id, entry.fn, self, ...)
     end
   end
 end
@@ -468,7 +469,9 @@ end
 function Game:after_choices(fn)
   if not self:choices_waiting() then return fn(self) end
   self.choice_continuations = self.choice_continuations or {}
-  table.insert(self.choice_continuations, fn)
+  -- Guarda quem pediu, para o registro de erro apontar a mesma carta quando a
+  -- continuação rodar depois.
+  table.insert(self.choice_continuations, { fn = fn, context = self.context })
 end
 
 function Game:advance_vez()

@@ -93,12 +93,12 @@ return {
     local d = {}
     for i = 1, 20 do d[i] = { id = "e_bicho" } end
     local g = Game.new{ decks = { d, d }, first = 1, mulligan = false, rng = function(n) return n end }
-    g:on("round_start", function() error("BUG_NO_GANCHO") end)
+    g:on("round_start", function() error("BUG_NO_GANCHO") end, "e_gancho")
     local ok = g:start()
     T.eq(ok, false)
     T.eq(g.phase, "error")
-    T.eq(g.error.context.kind, "gancho")
-    T.eq(g.error.context.id, "round_start")
+    T.eq(g.error.context.kind, "gancho:round_start")
+    T.eq(g.error.context.id, "e_gancho")
   end },
 
   { "erro que não é texto fica guardado como veio", function(T)

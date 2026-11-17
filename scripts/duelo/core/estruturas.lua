@@ -197,7 +197,10 @@ return function(Game)
     local conts = g.choice_continuations
     if conts and #conts > 0 then
       g.choice_continuations = {}
-      for _, fn in ipairs(conts) do g:run_card("continuar_rodada", nil, fn, g) end
+      for _, c in ipairs(conts) do
+        local ctx = c.context or {}
+        g:run_card(ctx.kind or "continuar", ctx.id, c.fn, g)
+      end
       return true
     end
     return false
@@ -264,6 +267,9 @@ return function(Game)
     if src == nil then return false, err end
     local def = src.def
     if def.activate == nil then return false, "essa carta não tem efeito ativado" end
+    -- Contexto da ação inteira (o act zera o contexto a cada jogada); os trechos
+    -- de carta lá dentro marcam o próprio contexto com run_card.
+    g.context = { kind = "ativar", id = def.id }
     local spec = def.activation
     local ok, why = g:can_use_speed(spec.speed)
     if not ok then return false, why end

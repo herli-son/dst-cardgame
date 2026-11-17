@@ -249,6 +249,9 @@ return function(Game)
     if card == nil then return false, "carta não está na mão" end
     local def = g:def_of(card)
     if def == nil then return false, "carta desconhecida: " .. tostring(card.id) end
+    -- Contexto da ação inteira (o act zera o contexto a cada jogada); os trechos
+    -- de carta lá dentro marcam o próprio contexto com run_card.
+    g.context = { kind = "jogar", id = def.id }
     local rule = Game.play_rules[def.kind]
     if rule == nil then return false, "tipo de carta ainda não suportado: " .. tostring(def.kind) end
     if g:stack_open() and not (rule.allowed_in_stack and rule.allowed_in_stack(g, def)) then
