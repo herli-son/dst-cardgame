@@ -49,14 +49,20 @@ return function(Game)
     opts = opts or {}
     local pl = self.players[c.owner]
     if pl.field[c.slot] ~= c then return end
+    -- Os equipamentos saem da criatura primeiro (eventos com ela ainda em campo).
+    -- Para o Inventário, eles só vão depois de a criatura chegar ao destino, porque
+    -- a criatura devolvida à mão tem prioridade no limite de mão.
+    local detached
+    if opts.equips == "inventory" then
+      detached = self:detach_equips(c, reason)
+    else
+      self:discard_all_equips(c, reason)
+    end
     pl.field[c.slot] = nil
-    -- Equipamentos para o Inventário só depois de a criatura chegar ao destino
-    -- (a criatura devolvida à mão tem prioridade no limite de mão).
-    if opts.equips ~= "inventory" then self:discard_all_equips(c, reason) end
     self:emit{ t = "leave", p = c.owner, slot = c.slot, uid = c.uid, card_uid = c.card_uid,
       id = c.def.id, dest = dest, reason = reason }
     self:send_card(c, dest, reason)
-    if opts.equips == "inventory" then self:return_all_equips(c, reason) end
+    if detached then self:deposit_equips(c.owner, detached, reason) end
   end
 
   function Game:send_card(c, dest, reason)

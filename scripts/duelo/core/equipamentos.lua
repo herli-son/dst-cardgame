@@ -70,18 +70,32 @@ return function(Game)
   -- Manda todos os equipamentos para o Inventário do dono, com os marcadores
   -- (ex.: Telelocador). Fichas deixam de existir.
   function Game:return_all_equips(c, reason)
+    self:deposit_equips(c.owner, self:detach_equips(c, reason), reason)
+  end
+
+  -- Solta os equipamentos da criatura (com os eventos, enquanto ela ainda está em
+  -- campo) e devolve a lista, para irem ao Inventário depois.
+  function Game:detach_equips(c, reason)
+    local list = {}
     for _, s in ipairs(Game.EQUIP_ORDER) do
       local e = c.equips[s]
       if e then
         c.equips[s] = nil
         self:emit{ t = "unequip", p = c.owner, slot = c.slot, holder_uid = c.uid, equip_slot = s,
           uid = e.uid, card_uid = e.card_uid, id = e.def.id, reason = reason }
-        if e.card.ficha then
-          self:vanish(c.owner, e.card, reason)
-        else
-          e.card.durability = e.durability
-          self:add_to_inventory(c.owner, e.card)
-        end
+        list[#list + 1] = e
+      end
+    end
+    return list
+  end
+
+  function Game:deposit_equips(p, list, reason)
+    for _, e in ipairs(list) do
+      if e.card.ficha then
+        self:vanish(p, e.card, reason)
+      else
+        e.card.durability = e.durability
+        self:add_to_inventory(p, e.card)
       end
     end
   end
