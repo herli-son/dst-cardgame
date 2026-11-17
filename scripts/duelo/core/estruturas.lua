@@ -28,21 +28,31 @@ return function(Game)
     end
   end
 
-  -- Quebrar: a estrutura sai de campo e vai para o descarte; fichas deixam de existir.
-  function Game:break_structure(p, slot, reason)
-    local pl = self.players[p]
+  -- Tira a estrutura de campo e manda a carta ao destino, sem disparar efeitos.
+  local function remove_structure(g, p, slot, reason)
+    local pl = g.players[p]
     local st = pl.structures[slot]
-    if st == nil then return end
+    if st == nil then return nil end
     pl.structures[slot] = nil
-    self:emit{ t = "break", p = p, slot = slot, uid = st.uid, card_uid = st.card_uid, id = st.def.id, reason = reason }
-    if st.def.on_break then
-      self:run_card("quebrar", st.def.id, st.def.on_break, self, st)
-    end
+    -- O efeito "ao quebrar" roda depois de a carta ir ao destino (já zerada): os
+    -- marcadores dela ficam guardados na instância para ele consultar.
+    st.marks = { used_round = st.card.used_round, used_period = st.card.used_period }
+    g:emit{ t = "break", p = p, slot = slot, uid = st.uid, card_uid = st.card_uid, id = st.def.id, reason = reason }
     if st.ficha then
-      self:vanish(p, st.card, reason)
+      g:vanish(p, st.card, reason)
     else
-      self:to_discard(p, st.card)
+      g:to_discard(p, st.card)
     end
+    return st
+  end
+
+  -- Quebrar: a estrutura sai de campo, vai para o descarte (fichas, por enquanto,
+  -- deixam de existir; ver US #94) e dispara o "ao quebrar".
+  -- O estado fica completo antes do efeito "ao quebrar": se ele decidir a partida,
+  -- nada fica pela metade.
+  function Game:break_structure(p, slot, reason)
+    local st = remove_structure(self, p, slot, reason)
+    if st and st.def.on_break then self:effect("quebrar", st.def.id, st.def.on_break, self, st) end
   end
 
   Game.first_free_structure = first_free
@@ -53,7 +63,8 @@ return function(Game)
     opts = opts or {}
     slot = slot or first_free(self, p)
     if slot == nil then return nil, "zona de estruturas cheia: é preciso indicar qual substituir" end
-    if self.players[p].structures[slot] then self:break_structure(p, slot, "substituida") end
+    -- A substituída sai e a nova entra antes de qualquer efeito disparar.
+    local old = remove_structure(self, p, slot, "substituida")
     local def = self:def_of(card)
     local st = {
       uid = self:next_uid(),
@@ -66,9 +77,9 @@ return function(Game)
     }
     self.players[p].structures[slot] = st
     self:emit{ t = "structure", p = p, slot = slot, uid = st.uid, card_uid = st.card_uid, id = def.id }
-    if def.on_play then
-      self:run_card("entrar", def.id, def.on_play, self, st)
-    end
+    if old and old.def.on_break then self:effect("quebrar", old.def.id, old.def.on_break, self, old) end
+    -- Se o efeito da substituída tirou a nova de campo, a entrada dela não dispara.
+    if def.on_play and self.players[p].structures[slot] == st then self:effect("entrar", def.id, def.on_play, self, st) end
     return st
   end
 
@@ -145,19 +156,28 @@ return function(Game)
   -- escolha não é mais necessária (prepare já resolveu tudo) e a próxima da fila abre.
   -- Regra única de ordem: uma escolha pedida enquanto outra está aberta, sendo
   -- preparada ou sendo resolvida entra no fim da fila, atrás das que já esperavam.
-  -- Roda fn(a, b) com essa marca ligada. Se fn lançar erro, a partida termina com
-  -- estado de erro (Game:guarded), então não há o que restaurar.
+  -- Roda fn(a, b) com essa marca ligada. A marca volta ao valor anterior mesmo
+  -- num erro ou quando a partida é decidida no meio.
   local function while_choosing(g, fn, a, b)
     local prev = g.opening_choice
     g.opening_choice = true
-    local res = fn(a, b)
+    local res
+    local ok, err = xpcall(function() res = fn(a, b) end, Game.capture_error)
+    -- A marca volta sempre; num erro de carta a partida termina de qualquer jeito.
     g.opening_choice = prev
+    if not ok then error(err, 0) end
     return res
   end
 
   local function open_choice(g, spec)
     if spec.prepare then
-      if g:run_card("preparar_escolha", spec.reason, while_choosing, g, spec.prepare, g, spec) == false then
+      local ran, keep = false, nil
+      g:effect("preparar_escolha", spec.reason, function()
+        ran = true
+        keep = while_choosing(g, spec.prepare, g, spec)
+      end)
+      -- Preparo pulado (partida sendo decidida) ou recusado: a escolha não abre.
+      if not ran or keep == false then
         return false
       end
     end
@@ -199,7 +219,7 @@ return function(Game)
       g.choice_continuations = {}
       for _, c in ipairs(conts) do
         local ctx = c.context or {}
-        g:run_card(ctx.kind or "continuar", ctx.id, c.fn, g)
+        g:effect(ctx.kind or "continuar", ctx.id, c.fn, g)
       end
       return true
     end
@@ -208,6 +228,13 @@ return function(Game)
 
   local function after_choose(g, ch)
     if g.pending_choice == nil then g:next_choice() end
+    -- Sem mais escolhas, as mortes causadas pela escolha acontecem antes de
+    -- retomar a pilha ou as continuações (próxima fase do combate, rodada nova).
+    -- Um "ao morrer" que abrir outra escolha segura a retomada de novo.
+    if g.pending_choice == nil then
+      g:settle()
+      if g.pending_choice == nil then g:next_choice() end
+    end
     if g.pending_choice then
       if g.pending_choice.passes_turn == nil then g.pending_choice.passes_turn = ch.passes_turn end
       return false
@@ -232,7 +259,8 @@ return function(Game)
     if idx == nil and not ch.allow_none then return false, "é preciso escolher uma opção" end
     if idx ~= nil and (ch.options == nil or ch.options[idx] == nil) then return false, "opção inválida" end
     g.pending_choice = nil
-    g:run_card("escolher", ch.reason, while_choosing, g, ch.resolve, g, idx)
+    -- A resolução de uma escolha é um efeito próprio.
+    g:run_card("escolher", ch.reason, while_choosing, g, function(gg, i) gg:as_one_effect(ch.resolve, gg, i) end, g, idx)
     return true, nil, after_choose(g, ch)
   end
 
@@ -302,7 +330,7 @@ return function(Game)
         gg:emit{ t = "fizzle", p = p, id = def.id }
         return
       end
-      def.activate(gg, p, src, action, objects)
+      gg:as_one_effect(def.activate, gg, p, src, action, objects)
     end)
   end
 end

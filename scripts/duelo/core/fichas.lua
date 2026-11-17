@@ -88,14 +88,67 @@ return function(Game)
   -- (o dela, on_death, e os ganchos "death" da partida). killer é a criatura que
   -- causou a morte, quando houver (Cão vermelho, Cão de gelo).
   function Game:kill(c, reason, killer)
-    local pl = self.players[c.owner]
-    if pl.field[c.slot] ~= c then return end
-    self:emit{ t = "death", p = c.owner, slot = c.slot, uid = c.uid, card_uid = c.card_uid, id = c.def.id,
-      reason = reason, killer_uid = killer and killer.uid or nil }
-    self:remove_creature(c, "discard", reason or "abatida")
-    if c.def.on_death then
-      self:run_card("morrer", c.def.id, c.def.on_death, self, c, killer)
+    self:kill_many({ { c, killer } }, reason)
+  end
+
+  -- Abate toda criatura com dano maior ou igual à vida. Repete enquanto houver
+  -- mortes, porque um efeito "ao morrer" pode deixar outra criatura com dano
+  -- letal; para se a partida for decidida ou se um efeito abrir uma escolha.
+  -- killers[c] = criatura que causou o dano letal em c; reason vale para elas.
+  -- Se a verificação tiver de esperar uma escolha, quem matou e o motivo ficam
+  -- guardados (pending_lethal) e valem quando a verificação rodar.
+  function Game:check_lethal(killers, reason)
+    local pend = self.pending_lethal or {}
+    -- A entrada guarda o dano daquele momento: se o dano mudar depois (cura ou
+    -- outra fonte), ela deixa de valer.
+    for c, k in pairs(killers or {}) do pend[c] = { killer = k, reason = reason, damage = c.damage } end
+    self.pending_lethal = pend
+    while self.winner == nil and not self:choices_waiting() do
+      local dead = {}
+      for _, c in ipairs(self:all_creatures()) do
+        if c.damage >= self:hp(c) then
+          local info = self.pending_lethal[c]
+          if info and info.damage ~= c.damage then info = nil end
+          dead[#dead + 1] = { c, info and info.killer, info and info.reason or "dano" }
+        end
+      end
+      self.pending_lethal = {}
+      if #dead == 0 then return end
+      self:kill_many(dead, "dano")
     end
-    self:run_hooks("death", c, killer)
+  end
+
+  -- Estado estável: depois de cada ação, de cada efeito resolvido e de cada troca
+  -- de vez, período ou rodada, abate as criaturas com dano letal. Não roda com
+  -- escolhas esperando; roda de novo quando a última for feita.
+  function Game:settle()
+    if self.winner == nil and not self:choices_waiting() then self:check_lethal() end
+  end
+
+  -- Mortes simultâneas (ex.: golpes da mesma fase do combate): todas saem de campo
+  -- antes de qualquer efeito "ao morrer" disparar. killer pode já estar fora de
+  -- campo, inclusive por ter morrido junto; os efeitos devem conferir isso.
+  -- list = { { criatura, quem_matou, motivo }, ... }; o motivo de cada item vale
+  -- no lugar de reason.
+  function Game:kill_many(list, reason)
+    local dead, seen = {}, {}
+    for _, item in ipairs(list) do
+      local c, killer = item[1], item[2]
+      if not seen[c] and self.players[c.owner].field[c.slot] == c then
+        seen[c] = true
+        self:emit{ t = "death", p = c.owner, slot = c.slot, uid = c.uid, card_uid = c.card_uid, id = c.def.id,
+          reason = item[3] or reason, killer_uid = killer and killer.uid or nil }
+        dead[#dead + 1] = item
+      end
+    end
+    for _, item in ipairs(dead) do self:remove_creature(item[1], "discard", item[3] or reason or "abatida") end
+    for _, item in ipairs(dead) do
+      -- Partida decidida: os efeitos de morte que faltam não rodam.
+      if self.winner ~= nil then return end
+      local c, killer = item[1], item[2]
+      if c.def.on_death then self:effect("morrer", c.def.id, c.def.on_death, self, c, killer) end
+      if self.winner ~= nil then return end
+      self:run_hooks("death", c, killer)
+    end
   end
 end

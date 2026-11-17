@@ -13,6 +13,8 @@ local Game = {}
 Game.__index = Game
 
 Game.START_LIFE = 20
+-- Recuperar vida nunca passa deste valor.
+Game.MAX_LIFE = 20
 Game.START_HAND = 4
 Game.MAX_MANA = 10
 Game.HAND_LIMIT = 10
@@ -59,7 +61,7 @@ function Game:run_hooks(event, ...)
   for i, entry in ipairs(live) do list[i] = entry end
   for _, entry in ipairs(list) do
     if has_hook(live, entry) then
-      self:run_card("gancho:" .. event, entry.id, entry.fn, self, ...)
+      self:effect("gancho:" .. event, entry.id, entry.fn, self, ...)
     end
   end
 end
@@ -73,13 +75,34 @@ local function pack(...)
   return { n = select("#", ...), ... }
 end
 
+-- Sinal interno: a partida foi decidida por um efeito aninhado, e o resto do
+-- efeito de fora não acontece. É capturado pelo efeito mais externo.
+local DECIDED = {}
+
+-- Erro capturado: guarda o valor original e o traceback do ponto onde ele
+-- nasceu, uma vez só; quem relança uma captura pronta não a embrulha de novo.
+local CAPTURED = {}
+local function capture(e)
+  if e == DECIDED then return e end
+  if type(e) == "table" and getmetatable(e) == CAPTURED then return e end
+  return setmetatable({ value = e, traceback = debug.traceback("", 2) }, CAPTURED)
+end
+Game.capture_error = capture
+
 -- Roda código de carta marcando qual carta ou efeito está rodando, para o
--- registro de erro apontar a carta certa. O contexto anterior volta no fim; se
--- fn lançar erro, fica o contexto mais interno, o que de fato falhou.
+-- registro de erro apontar a carta certa. O contexto anterior volta no fim e
+-- também quando a partida é decidida no meio; num erro, fica o contexto mais
+-- interno, o que de fato falhou.
 function Game:run_card(kind, id, fn, ...)
   local prev = self.context
   self.context = { kind = kind, id = id }
-  local r = pack(fn(...))
+  local args = pack(...)
+  local r
+  local ok, err = xpcall(function() r = pack(fn(unpack(args, 1, args.n))) end, capture)
+  if not ok then
+    if err == DECIDED then self.context = prev end
+    error(err, 0)
+  end
   self.context = prev
   return unpack(r, 1, r.n)
 end
@@ -327,8 +350,14 @@ function Game:update_period()
   if per ~= self.current_period then
     self.current_period = per
     self:emit{ t = "period", period = per, round = self.round }
-    for _, hook in ipairs(Game.period_hooks) do self:run_card("regra", per, hook, self, per) end
-    self:run_hooks("period", per)
+    -- A vida pode mudar com o período (atributos que dependem dele): o estado
+    -- estabiliza antes dos ganchos do novo período.
+    self:settle()
+    -- Se uma morte abrir uma escolha, os ganchos do período esperam por ela.
+    self:after_choices(function(g)
+      for _, hook in ipairs(Game.period_hooks) do g:effect("regra", per, hook, g, per) end
+      g:run_hooks("period", per)
+    end)
   end
 end
 
@@ -389,6 +418,36 @@ end
 -- Vida dos jogadores
 ----------------------------------------------------------------------------
 
+-- Um efeito é uma ação só (doc, "Vitória e empate"): todo dano que ele causa aos
+-- jogadores conta junto, e a vitória é verificada no fim dele. Se o mesmo efeito
+-- deixar os dois jogadores com zero ou menos, é empate. Efeitos diferentes contam
+-- separadamente: um efeito que começa quando algum jogador já está com zero ou
+-- menos (a partida está decidida) não acontece. Efeitos aninhados (a morte
+-- causada por um feitiço) são efeitos próprios e decidem no fim deles.
+
+-- Enquanto um efeito roda, um jogador com zero ou menos de vida (ainda que por um
+-- instante) faz os efeitos aninhados que começarem nesse intervalo não
+-- acontecerem: a partida está sendo decidida por este efeito.
+function Game:as_one_effect(fn, ...)
+  if self.winner ~= nil then return end
+  if self.players[1].life <= 0 or self.players[2].life <= 0 then return end
+  local args = { n = select("#", ...), ... }
+  self.effect_depth = (self.effect_depth or 0) + 1
+  local ok, err = xpcall(function() fn(unpack(args, 1, args.n)) end, capture)
+  self.effect_depth = self.effect_depth - 1
+  -- Erro de carta: a partida termina com estado de erro, sem vencedor.
+  if not ok and err ~= DECIDED then error(err, 0) end
+  if ok then self:check_winner() end
+  -- Partida decidida: o efeito de fora, se houver, para aqui.
+  if self.winner ~= nil and self.effect_depth > 0 then error(DECIDED, 0) end
+end
+
+-- Efeito de carta: marca o contexto (qual carta roda, para o registro de erro) e
+-- trata o efeito como uma ação própria para a vitória.
+function Game:effect(kind, id, fn, ...)
+  return self:run_card(kind, id, Game.as_one_effect, self, fn, ...)
+end
+
 function Game:check_winner()
   if self.winner ~= nil then return end
   local dead1 = self.players[1].life <= 0
@@ -406,12 +465,46 @@ function Game:check_winner()
   end
 end
 
-function Game:damage_player(p, n, source)
-  if n <= 0 then return end
+-- source: motivo do dano ("combate", "fogueira", ...). opts.from: a criatura que
+-- causou o dano, quando houver (para efeitos que interceptam dano de criatura,
+-- como o Porco guarda). opts.no_check adia a verificação de vitória, para danos
+-- simultâneos poderem terminar em empate.
+-- Devolve o dano aplicado (0 se nenhum).
+function Game:damage_player(p, n, source, opts)
+  if Game.check_amount(n) <= 0 then return 0 end
+  opts = opts or {}
   local pl = self.players[p]
   pl.life = pl.life - n
-  self:emit{ t = "player_damage", p = p, amount = n, source = source, life = pl.life }
-  self:check_winner()
+  self:emit{ t = "player_damage", p = p, amount = n, source = source, life = pl.life,
+    from_uid = opts.from and opts.from.uid or nil }
+  -- Dentro de um efeito, a vitória é verificada no fim dele.
+  if not opts.no_check and (self.effect_depth or 0) == 0 then self:check_winner() end
+  return n
+end
+
+-- Quantidade de dano ou de cura: número inteiro. Outro valor é erro da carta que
+-- pediu (vira o estado de erro da partida, em vez de corromper vida ou dano).
+-- Nível 3: a posição do erro é a de quem chamou damage_* ou heal_*; vindo do
+-- combate, é Game:strike, e a carta aparece no traceback e no contexto do erro.
+function Game.check_amount(n)
+  if type(n) ~= "number" or n ~= n or n % 1 ~= 0 then
+    error("quantidade inválida: " .. tostring(n), 3)
+  end
+  return n
+end
+
+-- Recupera vida do jogador, até Game.MAX_LIFE. Devolve o quanto recuperou (0 se
+-- nada). Com a partida decidida, não recupera. Dentro de um efeito, recuperar
+-- depois de um dano letal do mesmo efeito salva o jogador: a vitória é
+-- verificada no fim do efeito.
+function Game:heal_player(p, n, source)
+  if Game.check_amount(n) <= 0 or self.winner ~= nil then return 0 end
+  local pl = self.players[p]
+  local amount = math.min(n, Game.MAX_LIFE - pl.life)
+  if amount <= 0 then return 0 end
+  pl.life = pl.life + amount
+  self:emit{ t = "player_heal", p = p, amount = amount, source = source, life = pl.life }
+  return amount
 end
 
 ----------------------------------------------------------------------------
@@ -462,7 +555,10 @@ function Game:finish_round()
   end
   self:emit{ t = "round_end", round = self.round }
   if self.winner == nil then
-    self:begin_round()
+    -- A rodada nova começa com o estado estável: se uma morte do fim da rodada
+    -- abrir uma escolha, a rodada nova só começa depois dela.
+    self:settle()
+    self:after_choices(function(g) if g.winner == nil then g:begin_round() end end)
   end
 end
 
@@ -554,11 +650,6 @@ Game.allowed_with_stack = { play = true, activate = true, choose = true, block =
 -- funções (create_token, kill, set_choice...) são usadas pelas cartas, sempre
 -- dentro de uma dessas entradas protegidas.
 
--- Guarda o traceback de qualquer erro, em texto ou não, num campo próprio.
-local function capture(e)
-  return { value = e, traceback = debug.traceback("", 2) }
-end
-
 local function error_message(err)
   if type(err) == "string" then return err end
   -- Erro em tabela: usa err.message, se houver; nunca o endereço da tabela, para
@@ -570,6 +661,7 @@ end
 function Game:fail(captured)
   -- self.error é preenchido antes de qualquer coisa que possa falhar.
   self.phase = "error"
+  self.effect_depth = 0
   self.error = {
     value = captured.value,
     message = error_message(captured.value),
@@ -591,17 +683,24 @@ function Game:guarded(fn, ...)
   return unpack(results, 1, results.n)
 end
 
+-- Depois de cada entrada, o motor chega a um estado estável (Game:settle).
+local function settled_call(self, core, ...)
+  local r = pack(core(self, ...))
+  self:settle()
+  return unpack(r, 1, r.n)
+end
+
 function Game:start()
-  return self:guarded(start_impl)
+  return self:guarded(settled_call, start_impl)
 end
 
 function Game:mulligan(p, indices)
-  return self:guarded(mulligan_impl, p, indices)
+  return self:guarded(settled_call, mulligan_impl, p, indices)
 end
 
 -- Ponto único de entrada das jogadas.
 function Game:act(p, action)
-  return self:guarded(act_impl, p, action)
+  return self:guarded(settled_call, act_impl, p, action)
 end
 
 require("duelo/core/pilha")(Game)
@@ -609,5 +708,6 @@ require("duelo/core/jogar")(Game)
 require("duelo/core/estruturas")(Game)
 require("duelo/core/equipamentos")(Game)
 require("duelo/core/fichas")(Game)
+require("duelo/core/combate")(Game)
 
 return Game
