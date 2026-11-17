@@ -165,6 +165,12 @@ return function(Game)
     return true, nil, false
   end
 
+  -- Ponto único onde os bloqueios ficam definitivos, chamado ao resolver o
+  -- combate (inclusive quando o defensor passou sem bloquear). Frágil e
+  -- Agressivo (US #18) entram aqui.
+  function Game:finalize_blocks(cb)
+  end
+
   ----------------------------------------------------------------------------
   -- Resolver
   ----------------------------------------------------------------------------
@@ -194,6 +200,7 @@ return function(Game)
     local cb = self.combat
     if cb == nil then return end
     self.combat = nil
+    self:finalize_blocks(cb)
     self:emit{ t = "combat_start", p = cb.attacker }
     local strikes = {}
     for _, a in ipairs(cb.attackers) do
