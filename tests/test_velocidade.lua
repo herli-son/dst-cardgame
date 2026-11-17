@@ -231,7 +231,7 @@ return {
     T.eq(#log, 0)
   end },
 
-  { "efeitos de Golpear da mesma fase disparam todos antes da vitória", function(T)
+  { "cada efeito de Golpear conta separadamente: o primeiro que decide encerra", function(T)
     local g = new_game()
     Cards.define{ id = "v_fim", kind = "criatura", cost = 0, atk = 1, hp = 5,
       on_strike = function(gg) log[#log + 1] = "fim"; gg:damage_player(2, 99, "teste") end }
@@ -239,8 +239,43 @@ return {
       on_strike = function(gg) log[#log + 1] = "outro"; gg:damage_player(1, 99, "teste") end }
     put(g, 1, "v_fim", 1); put(g, 1, "v_outro", 2)
     fight(g, { 1, 2 })
-    T.eq(#log, 2)
-    T.eq(g.winner, 0, "empate")
+    T.eq(#log, 1)
+    T.eq(g.winner, 1)
+  end },
+
+  { "um efeito de Golpear que deixa os dois jogadores sem vida é empate", function(T)
+    local g = new_game()
+    Cards.define{ id = "v_ambos", kind = "criatura", cost = 0, atk = 1, hp = 5,
+      on_strike = function(gg) gg:damage_player(2, 99, "teste"); gg:damage_player(1, 99, "teste") end }
+    put(g, 1, "v_ambos", 1)
+    fight(g, { 1 })
+    T.eq(g.winner, 0)
+  end },
+
+  { "feitiço que deixa os dois jogadores sem vida é empate", function(T)
+    local g = new_game()
+    Cards.define{ id = "v_explosao", kind = "feitico", speed = "instantaneo", cost = 0,
+      on_cast = function(gg) gg:damage_player(1, 99, "teste"); gg:damage_player(2, 99, "teste") end }
+    local pl = g.players[1]
+    pl.hand[#pl.hand + 1] = { id = "v_explosao", uid = g:next_uid() }
+    g:act(1, { type = "play", hand_index = #pl.hand })
+    T.eq(g.winner, 0)
+  end },
+
+  { "feitiços diferentes contam separadamente", function(T)
+    local g = new_game()
+    Cards.define{ id = "v_mata2", kind = "feitico", speed = "rapido", cost = 0,
+      on_cast = function(gg) gg:damage_player(2, 99, "teste") end }
+    Cards.define{ id = "v_mata1", kind = "feitico", speed = "rapido", cost = 0,
+      on_cast = function(gg) gg:damage_player(1, 99, "teste") end }
+    local pl = g.players[1]
+    pl.hand[#pl.hand + 1] = { id = "v_mata1", uid = g:next_uid() }
+    pl.hand[#pl.hand + 1] = { id = "v_mata2", uid = g:next_uid() }
+    g:act(1, { type = "play", hand_index = #pl.hand - 1 })   -- v_mata1, embaixo
+    g:act(1, { type = "play", hand_index = #pl.hand })       -- v_mata2, em cima
+    g:act(1, { type = "pass" }); g:act(2, { type = "pass" })
+    T.eq(g.winner, 1, "o de cima resolve primeiro e decide")
+    T.ok(g.players[1].life > 0)
   end },
 
   { "modificador de velocidade expira com a rodada", function(T)

@@ -304,7 +304,7 @@ return function(Game)
         local valid, objects = gg:targets_still_valid(locks)
         if valid and def.targets then valid = def.targets(gg, p, action, objects) end
         if valid then
-          def.on_cast(gg, p, action, card, objects)
+          gg:as_one_effect(def.on_cast, gg, p, action, card, objects)
         else
           gg:emit{ t = "fizzle", p = p, id = def.id }
         end

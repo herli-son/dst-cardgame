@@ -348,7 +348,7 @@ return function(Game)
         gg:emit{ t = "fizzle", p = p, id = def.id }
         return
       end
-      def.activate(gg, p, src, action, objects)
+      gg:as_one_effect(def.activate, gg, p, src, action, objects)
     end)
   end
 end

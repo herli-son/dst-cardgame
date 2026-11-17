@@ -238,15 +238,14 @@ return function(Game)
       if not s[2].player then killers[s[2]] = s[1] end
       if n > 0 then hits[#hits + 1] = s end
     end
-    -- Os golpes são simultâneos: todos os efeitos de Golpear disparam, e a vitória
-    -- é verificada uma vez só, no fim.
-    self.defer_winner = true
-    local ok, err = pcall(function()
-      for _, s in ipairs(hits) do self:fire_strike_effects(s[1], s[2]) end
-    end)
-    self.defer_winner = false
-    if not ok then error(err, 0) end
+    -- O dano dos golpes da fase é simultâneo, e a vitória por ele é verificada
+    -- antes dos efeitos. Cada efeito de Golpear conta separadamente: se um decidir
+    -- a partida, os seguintes não acontecem.
     self:check_winner()
+    for _, s in ipairs(hits) do
+      if self.winner ~= nil then return end
+      self:as_one_effect(self.fire_strike_effects, self, s[1], s[2])
+    end
     if self.winner ~= nil then return end
     self:check_lethal(killers, "combate")
   end

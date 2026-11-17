@@ -372,6 +372,18 @@ end
 -- Vida dos jogadores
 ----------------------------------------------------------------------------
 
+-- Um efeito é uma ação só: todo dano que ele causa aos jogadores conta junto, e a
+-- vitória é verificada no fim dele. Se o mesmo efeito deixar os dois jogadores com
+-- zero ou menos, é empate. Efeitos diferentes contam separadamente.
+function Game:as_one_effect(fn, ...)
+  local prev = self.defer_winner
+  self.defer_winner = true
+  local ok, err = pcall(fn, ...)
+  self.defer_winner = prev
+  if not ok then error(err, 0) end
+  if not prev then self:check_winner() end
+end
+
 function Game:check_winner()
   if self.winner ~= nil then return end
   local dead1 = self.players[1].life <= 0
