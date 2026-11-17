@@ -227,6 +227,13 @@ return function(Game)
 
   local function after_choose(g, ch)
     if g.pending_choice == nil then g:next_choice() end
+    -- Sem mais escolhas, as mortes causadas pela escolha acontecem antes de
+    -- retomar a pilha ou as continuações (próxima fase do combate, rodada nova).
+    -- Um "ao morrer" que abrir outra escolha segura a retomada de novo.
+    if g.pending_choice == nil then
+      g:settle()
+      if g.pending_choice == nil then g:next_choice() end
+    end
     if g.pending_choice then
       if g.pending_choice.passes_turn == nil then g.pending_choice.passes_turn = ch.passes_turn end
       return false
