@@ -290,4 +290,161 @@ return {
     local ok = g:mulligan(3, {})
     T.eq(ok, false)
   end },
+
+  { "alvo com formato inválido é recusado antes de qualquer gasto", function(T)
+    local g = new_game({ "r_raio", "r_dardo" })
+    local pl = g.players[1]
+    local hand, mana = #pl.hand, pl.mana
+    for _, bad in ipairs({ 2, { p = 3, slot = 1 }, { p = 1, slot = 9 }, { p = 1, slot = 1.5 },
+      { p = 1, slot = 1, zone = "mar" } }) do
+      local ok = play(g, 1, "r_raio", { target = bad })
+      T.eq(ok, false)
+      ok = play(g, 1, "r_dardo", { targets = { bad } })
+      T.eq(ok, false)
+    end
+    T.eq(#pl.hand, hand); T.eq(pl.mana, mana)
+    local c = g:place_creature(1, { id = "r_sobrev", uid = g:next_uid() }, 1)
+    g:equip(c, { id = "r_tocha", uid = g:next_uid() })
+    T.eq(g:act(1, { type = "activate", creature = 1, equip = "mao", target = 3 }), false)
+    T.eq(g:act(1, { type = "activate", creature = 1, equip = "mao" }), true, "o uso da rodada não foi gasto")
+  end },
+
+  { "alvo de estrutura trocada perde o efeito; criatura no mesmo espaço não interfere", function(T)
+    local g = new_game()
+    Cards.define{ id = "r_marreta", kind = "feitico", speed = "rapido", cost = 0,
+      on_cast = function(gg, p, a) log[#log + 1] = "marreta" end }
+    g:put_structure(2, { id = "r_casa", uid = g:next_uid() }, 1)
+    g:place_creature(2, { id = "r_bicho", uid = g:next_uid() }, 1)
+    g.players[1].hand[#g.players[1].hand + 1] = { id = "r_marreta", uid = g:next_uid() }
+    T.ok(play(g, 1, "r_marreta", { target = { p = 2, slot = 1, zone = "estrutura" } }))
+    g:kill(g:creature_at(2, 1), "teste")       -- a criatura do espaço 1 sai
+    g:act(1, { type = "pass" }); g:act(2, { type = "pass" })
+    T.eq(log[1], "marreta", "o alvo era a estrutura, que continua em campo")
+    g.players[1].hand[#g.players[1].hand + 1] = { id = "r_marreta", uid = g:next_uid() }
+    g.active = 1
+    T.ok(play(g, 1, "r_marreta", { target = { p = 2, slot = 1, zone = "estrutura" } }))
+    g:break_structure(2, 1, "teste")
+    g:put_structure(2, { id = "r_torre", uid = g:next_uid() }, 1)
+    g:act(1, { type = "pass" }); g:act(2, { type = "pass" })
+    T.eq(#log, 1, "estrutura trocada: perde o alvo")
+  end },
+
+  { "duas escolhas seguidas entram em fila", function(T)
+    local g = new_game()
+    g:put_structure(1, { id = "r_casa", uid = g:next_uid() }, 1)
+    g:put_structure(1, { id = "r_casa", uid = g:next_uid() }, 2)
+    local _, why1 = g:create_token(1, "r_torre")
+    local _, why2 = g:create_token(1, "r_torre")
+    T.eq(why1, "pendente"); T.eq(why2, "pendente")
+    T.ok(g:act(1, { type = "choose", index = 1 }))
+    T.ok(g.pending_choice ~= nil, "a segunda escolha abre depois da primeira")
+    T.ok(g:act(1, { type = "choose", index = 2 }))
+    T.eq(g:structure_at(1, 1).def.id, "r_torre")
+    T.eq(g:structure_at(1, 2).def.id, "r_torre")
+  end },
+
+  { "escolha aberta no fim da rodada suspende a rodada", function(T)
+    local g = new_game()
+    g:on("round_end", function(gg)
+      gg:set_choice(1, { reason = "teste", options = { "a" },
+        resolve = function() log[#log + 1] = "fim" end })
+    end)
+    g:act(1, { type = "pass" }); g:act(2, { type = "pass" })
+    T.eq(g.round, 1, "a rodada espera a escolha")
+    T.ok(g:act(1, { type = "choose", index = 1 }))
+    T.eq(log[1], "fim")
+    T.eq(g.round, 2)
+  end },
+
+  { "criatura devolvida à mão cheia tem prioridade sobre os equipamentos", function(T)
+    local g = new_game()
+    local pl = g.players[1]
+    local c = g:place_creature(1, { id = "r_sobrev", uid = g:next_uid() }, 1)
+    g:equip(c, { id = "r_machado", uid = g:next_uid() })
+    while g:hand_count(1) < g:hand_limit(1) - 1 do pl.hand[#pl.hand + 1] = { id = "r_bicho", uid = g:next_uid() } end
+    g:remove_creature(c, "hand", "telelocador", { equips = "inventory" })
+    T.eq(count(pl.hand, "r_sobrev"), 1, "a criatura voltou para a mão")
+    T.eq(count(pl.destroyed, "r_machado"), 1, "sem vaga, o equipamento é destruído")
+  end },
+
+  { "ficha de estrutura com espaço indicado ocupado usa o espaço livre", function(T)
+    local g = new_game()
+    g:put_structure(1, { id = "r_casa", uid = g:next_uid() }, 1)
+    local st = g:create_token(1, "r_torre", { slot = 1 })
+    T.eq(st.slot, 2)
+    T.eq(g:structure_at(1, 1).def.id, "r_casa")
+  end },
+
+  { "colocar estrutura com a zona cheia sem indicar o espaço devolve erro", function(T)
+    local g = new_game()
+    g:put_structure(1, { id = "r_casa", uid = g:next_uid() }, 1)
+    g:put_structure(1, { id = "r_casa", uid = g:next_uid() }, 2)
+    local st, err = g:put_structure(1, { id = "r_torre", uid = g:next_uid() })
+    T.eq(st, nil)
+    T.ok(err ~= nil)
+  end },
+
+  { "abater informa quem matou", function(T)
+    local g = new_game()
+    local killer_seen
+    Cards.define{ id = "r_cao", kind = "criatura", cost = 0, atk = 2, hp = 2,
+      on_death = function(gg, c, killer) killer_seen = killer and killer.def.id end }
+    local cao = g:place_creature(1, { id = "r_cao", uid = g:next_uid() }, 1)
+    local outro = g:place_creature(2, { id = "r_bicho", uid = g:next_uid() }, 1)
+    g:kill(cao, "combate", outro)
+    T.eq(killer_seen, "r_bicho")
+    local death
+    for _, ev in ipairs(g.events) do if ev.t == "death" then death = ev end end
+    T.eq(death.killer_uid, outro.uid)
+  end },
+
+  { "stats que devolve só a vida mantém o ataque impresso", function(T)
+    local g = new_game()
+    Cards.define{ id = "r_vida", kind = "criatura", cost = 0, atk = 3, hp = 1,
+      stats = function() return nil, 5 end }
+    local c = g:place_creature(1, { id = "r_vida", uid = g:next_uid() }, 1)
+    T.eq(g:atk(c), 3)
+    T.eq(g:hp(c), 5)
+  end },
+
+  { "gancho removido durante a passada não roda", function(T)
+    local g = new_game()
+    local ran = {}
+    local b
+    g:on("round_start", function(gg) ran[#ran + 1] = "a"; gg:off("round_start", b) end)
+    b = g:on("round_start", function() ran[#ran + 1] = "b" end)
+    g:act(1, { type = "pass" }); g:act(2, { type = "pass" })
+    T.eq(#ran, 1)
+    T.eq(ran[1], "a")
+  end },
+
+  { "o baralho recebido não muda nem nas tabelas internas", function(T)
+    define_test_cards()
+    local d1 = { { id = "r_bicho", markers = { n = 1 } } }
+    local g = Game.new{ decks = { d1, {} }, first = 1, mulligan = false, rng = function(n) return n end }
+    g.players[1].deck[1].markers.n = 5
+    T.eq(d1[1].markers.n, 1)
+  end },
+
+  { "limite de mão com modificador vale ao comprar e pode ser removido", function(T)
+    local g = new_game()
+    local pl = g.players[1]
+    local remove = g:add_hand_limit_mod(function(gg, p) return p == 1 and 2 or 0 end)
+    while g:hand_count(1) < Game.HAND_LIMIT do pl.hand[#pl.hand + 1] = { id = "r_bicho", uid = g:next_uid() } end
+    T.ok(g:add_to_hand(1, { id = "r_bicho", uid = g:next_uid() }), "cabe a 11ª")
+    remove()
+    T.eq(g:add_to_hand(1, { id = "r_bicho", uid = g:next_uid() }), false, "sem a Mochila, não cabe")
+  end },
+
+  { "eventos de campo trazem uid e card_uid; de zona, card_uid", function(T)
+    local g = new_game()
+    local card = { id = "r_bicho", uid = g:next_uid() }
+    local c = g:place_creature(1, card, 2)
+    local ev = g.events[#g.events]
+    T.eq(ev.t, "summon"); T.eq(ev.uid, c.uid); T.eq(ev.card_uid, card.uid)
+    g:remove_creature(c, "hand", "teste")
+    local leave, to_hand = g.events[#g.events - 1], g.events[#g.events]
+    T.eq(leave.t, "leave"); T.eq(leave.card_uid, card.uid)
+    T.eq(to_hand.t, "to_hand"); T.eq(to_hand.card_uid, card.uid); T.eq(to_hand.private, true)
+  end },
 }
