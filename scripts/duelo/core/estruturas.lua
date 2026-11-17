@@ -28,7 +28,6 @@ return function(Game)
     end
   end
 
-  -- Quebrar: a estrutura sai de campo e vai para o descarte; fichas deixam de existir.
   -- Tira a estrutura de campo e manda a carta ao destino, sem disparar efeitos.
   local function remove_structure(g, p, slot, reason)
     local pl = g.players[p]
@@ -47,6 +46,8 @@ return function(Game)
     return st
   end
 
+  -- Quebrar: a estrutura sai de campo, vai para o descarte (fichas, por enquanto,
+  -- deixam de existir; ver US #94) e dispara o "ao quebrar".
   -- O estado fica completo antes do efeito "ao quebrar": se ele decidir a partida,
   -- nada fica pela metade.
   function Game:break_structure(p, slot, reason)
@@ -155,8 +156,8 @@ return function(Game)
   -- escolha não é mais necessária (prepare já resolveu tudo) e a próxima da fila abre.
   -- Regra única de ordem: uma escolha pedida enquanto outra está aberta, sendo
   -- preparada ou sendo resolvida entra no fim da fila, atrás das que já esperavam.
-  -- Roda fn(a, b) com essa marca ligada. Se fn lançar erro, a partida termina com
-  -- estado de erro (Game:guarded), então não há o que restaurar.
+  -- Roda fn(a, b) com essa marca ligada. A marca volta ao valor anterior mesmo
+  -- num erro ou quando a partida é decidida no meio.
   local function while_choosing(g, fn, a, b)
     local prev = g.opening_choice
     g.opening_choice = true

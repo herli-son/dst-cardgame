@@ -29,9 +29,9 @@
 -- tempo (dano nas criaturas e no jogador), os efeitos de Golpear disparam, a
 -- vitória é verificada e só então as criaturas mortas saem de campo, juntas.
 --
--- Campos da definição de uma criatura usados aqui:
---   no_attack = true   não pode atacar (ex.: Tentáculo)
---   no_block = true    não pode bloquear
+-- Campos da definição usados aqui (referência completa em cards.lua): no_attack,
+-- no_block, speed, block_speed, speed_fn, kw (fragil, agressivo, rival), types e
+-- on_strike (criatura e equipamento).
 
 return function(Game)
   ----------------------------------------------------------------------------
@@ -41,7 +41,7 @@ return function(Game)
   -- O dano fica marcado na criatura (é permanente). Devolve o dano aplicado
   -- (0 se nenhum); redução de dano entra aqui.
   function Game:damage_creature(c, n, source, reason)
-    if n <= 0 then return 0 end
+    if Game.check_amount(n) <= 0 then return 0 end
     if self.players[c.owner].field[c.slot] ~= c then return 0 end
     c.damage = c.damage + n
     self:emit{ t = "creature_damage", p = c.owner, slot = c.slot, uid = c.uid, amount = n,
@@ -67,11 +67,13 @@ return function(Game)
   end
 
   -- Um golpe é um evento próprio, mesmo quando o dano é zero (armaduras perdem
-  -- durabilidade ao serem golpeadas; Golpear dispara a cada golpe).
+  -- durabilidade ao serem golpeadas). O Golpear só dispara quando o dano aplicado
+  -- é maior que zero, e quem dispara é a fase (strike_phase), não esta função.
   -- target é uma criatura ou { player = p }. n é o dano (padrão: o ataque atual).
   -- in_phase = true quando o golpe faz parte de uma fase: a vitória é verificada
-  -- no fim da fase; fora dela, logo depois do golpe. Devolve o dano aplicado de
-  -- fato (o Golpear só dispara se ele for maior que zero).
+  -- no fim da fase. O caminho fora de fase (padrões de n e in_phase) fica para
+  -- cartas que golpeiam fora do combate; ele verifica a vitória logo depois do
+  -- golpe e não dispara Golpear. Devolve o dano aplicado de fato.
   function Game:strike(src, target, n, in_phase)
     n = n or self:atk(src)
     if target.player then
@@ -163,10 +165,12 @@ return function(Game)
 
   local function kw(c, k) return c.def.kw[k] end
 
-  -- Fora do combate para as obrigações: quem saiu de campo, mudou de lado ou tem
-  -- dano letal esperando ser verificado (o mesmo critério dos golpes).
+  -- Critério único de quem está no combate, usado nos bloqueios obrigatórios e
+  -- nos golpes: em campo, do mesmo lado, e sem dano letal esperando uma escolha
+  -- para morrer.
   local function in_play(g, c, side)
-    return c.owner == side and g.players[side].field[c.slot] == c and c.damage < g:hp(c)
+    return c ~= nil and c.owner == side and g.players[side].field[c.slot] == c
+      and c.damage < g:hp(c)
   end
 
   -- Quem pode bloquear: as criaturas do defensor que bloqueiam.
@@ -362,11 +366,6 @@ return function(Game)
   -- Resolver
   ----------------------------------------------------------------------------
 
-  -- A criatura continua no combate se ainda está em campo, do mesmo lado.
-  local function still_in(g, c, side)
-    return c ~= nil and c.owner == side and g.players[side].field[c.slot] == c
-  end
-
   -- Velocidade (doc, "Velocidade"): 0 não golpeia; 1 golpeia normalmente; 2 golpeia
   -- antes das de velocidade 1; 3 golpeia antes e de novo junto com as de velocidade
   -- 1, atacando ou bloqueando, mas contra o jogador golpeia uma vez só.
@@ -401,7 +400,7 @@ return function(Game)
   end
 
   -- Golpear (doc, palavras-chave): a criatura causou dano em combate, atacando ou
-  -- bloqueando; dispara a cada golpe. Efeitos: def.on_strike(game, criatura, alvo)
+  -- bloqueando; dispara a cada golpe com dano > 0. Efeitos: def.on_strike(game, criatura, alvo)
   -- da criatura e dos equipamentos dela (equip.def.on_strike(game, criatura, alvo, equip)).
   -- alvo é a criatura golpeada ou { player = p }.
   function Game:fire_strike_effects(c, target)
@@ -442,13 +441,10 @@ return function(Game)
   -- Monta os golpes de uma fase. phase = "rapida" (velocidade 2 e 3) ou
   -- "normal": quem golpeou na rápida só golpeia de novo se ainda tiver velocidade
   -- 3; quem não golpeou golpeia com velocidade 1 ou mais. Quem já golpeou o jogador
-  -- não golpeia de novo. Criatura com dano letal (esperando uma escolha para
-  -- morrer) não golpeia.
+  -- não golpeia de novo. Quem não está no combate (in_play) não golpeia nem é
+  -- golpeado.
   local function phase_strikes(g, cb, phase, struck, struck_player)
     local strikes = {}
-    -- Criatura com dano letal (esperando uma escolha para morrer) já está fora
-    -- do combate: não golpeia nem é golpeada.
-    local function alive(c) return c.damage < g:hp(c) end
     local function strikes_now(c, role)
       local v = g:speed(c, role)
       if phase == "rapida" then return v >= 2 end
@@ -456,14 +452,14 @@ return function(Game)
       return v >= 1
     end
     for _, a in ipairs(cb.attackers) do
-      if still_in(g, a, cb.attacker) then
+      if in_play(g, a, cb.attacker) then
         if cb.blocked[a] then
           local d = cb.blocks[a]
-          if still_in(g, d, cb.defender) and alive(a) and alive(d) then
+          if in_play(g, d, cb.defender) then
             if strikes_now(a, "attack") then strikes[#strikes + 1] = { a, d } end
             if strikes_now(d, "block") then strikes[#strikes + 1] = { d, a } end
           end
-        elseif not struck_player[a] and alive(a) and strikes_now(a, "attack") then
+        elseif not struck_player[a] and strikes_now(a, "attack") then
           struck_player[a] = true
           strikes[#strikes + 1] = { a, { player = cb.defender } }
         end

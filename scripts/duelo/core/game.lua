@@ -78,7 +78,6 @@ end
 -- Sinal interno: a partida foi decidida por um efeito aninhado, e o resto do
 -- efeito de fora não acontece. É capturado pelo efeito mais externo.
 local DECIDED = {}
-Game.DECIDED = DECIDED
 
 -- Erro capturado: guarda o valor original e o traceback do ponto onde ele
 -- nasceu, uma vez só; quem relança uma captura pronta não a embrulha de novo.
@@ -472,7 +471,7 @@ end
 -- simultâneos poderem terminar em empate.
 -- Devolve o dano aplicado (0 se nenhum).
 function Game:damage_player(p, n, source, opts)
-  if n <= 0 then return 0 end
+  if Game.check_amount(n) <= 0 then return 0 end
   opts = opts or {}
   local pl = self.players[p]
   pl.life = pl.life - n
@@ -483,9 +482,10 @@ function Game:damage_player(p, n, source, opts)
   return n
 end
 
--- Quantidade de cura: número inteiro. Outro valor é erro da carta que pediu
--- (vira o estado de erro da partida, em vez de corromper vida ou dano). Nível 3:
--- a posição do erro é a da carta que chamou heal_creature ou heal_player.
+-- Quantidade de dano ou de cura: número inteiro. Outro valor é erro da carta que
+-- pediu (vira o estado de erro da partida, em vez de corromper vida ou dano).
+-- Nível 3: a posição do erro é a de quem chamou damage_* ou heal_*; vindo do
+-- combate, é Game:strike, e a carta aparece no traceback e no contexto do erro.
 function Game.check_amount(n)
   if type(n) ~= "number" or n ~= n or n % 1 ~= 0 then
     error("quantidade inválida: " .. tostring(n), 3)
@@ -649,7 +649,6 @@ Game.allowed_with_stack = { play = true, activate = true, choose = true, block =
 -- Somente start, mulligan e act são a interface pública do motor. As outras
 -- funções (create_token, kill, set_choice...) são usadas pelas cartas, sempre
 -- dentro de uma dessas entradas protegidas.
-
 
 local function error_message(err)
   if type(err) == "string" then return err end
