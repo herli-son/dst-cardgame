@@ -388,6 +388,7 @@ end
 -- Sinal interno: a partida foi decidida por um efeito aninhado, e o resto do
 -- efeito de fora não acontece. É capturado pelo efeito mais externo.
 local DECIDED = {}
+Game.DECIDED = DECIDED
 
 -- Enquanto um efeito roda, um jogador com zero ou menos de vida (ainda que por um
 -- instante) faz os efeitos aninhados que começarem nesse intervalo não

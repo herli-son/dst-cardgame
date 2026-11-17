@@ -29,18 +29,29 @@ return function(Game)
   end
 
   -- Quebrar: a estrutura sai de campo e vai para o descarte; fichas deixam de existir.
-  function Game:break_structure(p, slot, reason)
-    local pl = self.players[p]
+  -- Tira a estrutura de campo e manda a carta ao destino, sem disparar efeitos.
+  local function remove_structure(g, p, slot, reason)
+    local pl = g.players[p]
     local st = pl.structures[slot]
-    if st == nil then return end
+    if st == nil then return nil end
     pl.structures[slot] = nil
-    self:emit{ t = "break", p = p, slot = slot, uid = st.uid, card_uid = st.card_uid, id = st.def.id, reason = reason }
-    if st.def.on_break then self:as_one_effect(st.def.on_break, self, st) end
+    -- O efeito "ao quebrar" roda depois de a carta ir ao destino (já zerada): os
+    -- marcadores dela ficam guardados na instância para ele consultar.
+    st.marks = { used_round = st.card.used_round, used_period = st.card.used_period }
+    g:emit{ t = "break", p = p, slot = slot, uid = st.uid, card_uid = st.card_uid, id = st.def.id, reason = reason }
     if st.ficha then
-      self:vanish(p, st.card, reason)
+      g:vanish(p, st.card, reason)
     else
-      self:to_discard(p, st.card)
+      g:to_discard(p, st.card)
     end
+    return st
+  end
+
+  -- O estado fica completo antes do efeito "ao quebrar": se ele decidir a partida,
+  -- nada fica pela metade.
+  function Game:break_structure(p, slot, reason)
+    local st = remove_structure(self, p, slot, reason)
+    if st and st.def.on_break then self:as_one_effect(st.def.on_break, self, st) end
   end
 
   Game.first_free_structure = first_free
@@ -51,7 +62,8 @@ return function(Game)
     opts = opts or {}
     slot = slot or first_free(self, p)
     if slot == nil then return nil, "zona de estruturas cheia: é preciso indicar qual substituir" end
-    if self.players[p].structures[slot] then self:break_structure(p, slot, "substituida") end
+    -- A substituída sai e a nova entra antes de qualquer efeito disparar.
+    local old = remove_structure(self, p, slot, "substituida")
     local def = self:def_of(card)
     local st = {
       uid = self:next_uid(),
@@ -64,7 +76,9 @@ return function(Game)
     }
     self.players[p].structures[slot] = st
     self:emit{ t = "structure", p = p, slot = slot, uid = st.uid, card_uid = st.card_uid, id = def.id }
-    if def.on_play then self:as_one_effect(def.on_play, self, st) end
+    if old and old.def.on_break then self:as_one_effect(old.def.on_break, self, old) end
+    -- Se o efeito da substituída tirou a nova de campo, a entrada dela não dispara.
+    if def.on_play and self.players[p].structures[slot] == st then self:as_one_effect(def.on_play, self, st) end
     return st
   end
 
@@ -149,11 +163,14 @@ return function(Game)
     g.opening_choice = true
     local res
     local ok, err = xpcall(function() res = fn(a, b) end, function(e)
-      -- Erros que não são texto (ex.: tabela com código) sobem como vieram.
-      if type(e) ~= "string" then return e end
+      -- Erros que não são texto (ex.: tabela com código) sobem como vieram; texto
+      -- que já traz traceback não ganha outro.
+      if type(e) ~= "string" or e:find("stack traceback", 1, true) then return e end
       return debug.traceback(e, 2)
     end)
     g.opening_choice = prev
+    -- Partida decidida por um efeito aninhado: o sinal sobe intacto.
+    if not ok and err == Game.DECIDED then error(err, 0) end
     if not ok then
       if on_error then
         -- Um erro durante a limpeza não esconde o erro original: é anexado a ele.
@@ -208,12 +225,12 @@ return function(Game)
   local function combine(err, e2)
     if err == nil then return e2 end
     if type(err) == "string" then return err .. "\n(depois: " .. tostring(e2) .. ")" end
-    if type(err) == "table" and err.cleanup_error == nil then err.cleanup_error = e2 end
+    if type(err) == "table" and err ~= Game.DECIDED and err.cleanup_error == nil then err.cleanup_error = e2 end
     return err
   end
 
   local function traceback(e)
-    if type(e) ~= "string" then return e end
+    if type(e) ~= "string" or e:find("stack traceback", 1, true) then return e end
     return debug.traceback(e, 2)
   end
 
