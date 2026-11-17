@@ -91,8 +91,8 @@ Hierarquia: `main` → `develop` → `feature` → `user`.
 
 | Branch | Nome | Sai de | Volta para | Papel |
 |---|---|---|---|---|
-| `main` | `main` | | | Versão estável, que está funcionando |
-| `develop` | `develop` | `main` | `main` | Versão beta: o que ainda não está pronto para a `main` e o que está em teste |
+| `main` | `main` | | | Versão jogável: só recebe versões jogáveis (da `develop` ou de um hotfix) |
+| `develop` | `develop` | `main` | `main` | Versão beta: o que ainda não está pronto para a `main` e o que está em teste; as betas são geradas a partir dela |
 | Feature | `feature/[n° da feature]` | `develop` | `develop` | Desenvolvimento de uma Feature; uma Feature pode ter várias User Stories |
 | User Story | `feature/user/[n° da user story]-[n° da feature]` | a branch da sua Feature | a branch da sua Feature | Onde as Tasks da User Story são desenvolvidas |
 | Hotfix | `hotfix/[n° do bug]` | `main` | `main` | Bug encontrado na `main` |
@@ -110,5 +110,17 @@ Regras:
 - **Hotfix:** sai da `main`. Depois do merge na `main`, delete a branch e faça merge da `main` na `develop`.
 - **Bugfix:** sai da `develop`. Depois do merge na `develop`, delete a branch.
 - Toda integração entre branches é feita por Pull Request.
+
+## Revisão antes do PR
+
+- Antes de abrir qualquer Pull Request, a mudança passa por uma revisão de código.
+- Os achados da revisão são corrigidos antes de abrir o PR.
+- Cada commit da branch precisa passar nos testes sozinho.
+
+## Publicação e fechamento de issues
+
+- Quando uma issue fica pronta na `develop` (pelo merge de uma Feature ou de um bugfix), ela **continua aberta** e recebe a etiqueta `aguardando publicação`.
+- As issues com essa etiqueta só fecham quando o código chega na `main`, ou seja, numa versão jogável: o PR da `develop` para a `main` traz uma linha `Closes #n` para cada uma delas, e o GitHub as fecha no merge.
+- PRs para branches de Feature ou para a `develop` não fecham issues.
 
 Referência: [Conventional Commits](https://www.conventionalcommits.org/pt-br/v1.0.0/)
