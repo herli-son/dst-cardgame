@@ -113,7 +113,7 @@ function Game.new(opts)
   g.rng = opts.rng or default_rng
   g.uid_counter = 0
   g.hooks = { period = {}, round_start = {}, round_end = {}, death = {} }
-  -- Modificadores do limite de mão: fn(game, p) -> número a somar (ex.: Mochila).
+  -- Modificadores do limite de mão; use Game:add_hand_limit_mod.
   g.hand_limit_mods = {}
   g.players = {
     new_player(copy_deck(g, opts.decks and opts.decks[1])),
@@ -148,12 +148,18 @@ end
 
 -- Modificador do limite de mão: fn(game, p) -> número a somar (ex.: Mochila).
 -- Devolve uma função que remove o modificador (ex.: ao desequipar).
+-- Cada chamada cria um registro próprio: duas Mochilas com a mesma função são dois
+-- modificadores, e remover um não tira o outro.
 function Game:add_hand_limit_mod(fn)
   local mods = self.hand_limit_mods
-  mods[#mods + 1] = fn
+  local entry = { fn = fn }
+  mods[#mods + 1] = entry
   return function()
     for i = #mods, 1, -1 do
-      if mods[i] == fn then table.remove(mods, i) end
+      if mods[i] == entry then
+        table.remove(mods, i)
+        return
+      end
     end
   end
 end
@@ -161,7 +167,7 @@ end
 -- Limite de mão do jogador, com os modificadores ativos.
 function Game:hand_limit(p)
   local n = Game.HAND_LIMIT
-  for _, fn in ipairs(self.hand_limit_mods) do n = n + (fn(self, p) or 0) end
+  for _, entry in ipairs(self.hand_limit_mods) do n = n + (entry.fn(self, p) or 0) end
   return n
 end
 

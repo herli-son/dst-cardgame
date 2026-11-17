@@ -202,7 +202,7 @@ return {
 
   { "limite de mão por jogador com modificadores", function(T)
     local g = new_game()
-    g.hand_limit_mods[1] = function(gg, p) return p == 1 and 2 or 0 end
+    g:add_hand_limit_mod(function(gg, p) return p == 1 and 2 or 0 end)
     T.eq(g:hand_limit(1), Game.HAND_LIMIT + 2)
     T.eq(g:hand_limit(2), Game.HAND_LIMIT)
   end },
