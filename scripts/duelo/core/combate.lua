@@ -39,6 +39,23 @@ return function(Game)
     return n
   end
 
+  -- Cura tira marcadores de dano; nunca mais do que o dano que a criatura tem.
+  -- Devolve o quanto curou (0 se nada), para efeitos como o da Curandeira com o
+  -- Webber. source é a carta ou criatura que curou, quando houver.
+  function Game:heal_creature(c, n, source, reason)
+    if Game.check_amount(n) <= 0 then return 0 end
+    if self.players[c.owner].field[c.slot] ~= c then return 0 end
+    local amount = math.min(n, c.damage)
+    if amount <= 0 then return 0 end
+    c.damage = c.damage - amount
+    -- Quem causou um dano letal pendente deixa de valer: se o dano voltar ao
+    -- mesmo valor por outra fonte, a morte não é dele.
+    if self.pending_lethal then self.pending_lethal[c] = nil end
+    self:emit{ t = "creature_heal", p = c.owner, slot = c.slot, uid = c.uid, amount = amount,
+      damage = c.damage, source_uid = source and source.uid or nil, reason = reason }
+    return amount
+  end
+
   -- Um golpe é um evento próprio, mesmo quando o dano é zero (armaduras perdem
   -- durabilidade ao serem golpeadas; Golpear dispara a cada golpe).
   -- target é uma criatura ou { player = p }. n é o dano (padrão: o ataque atual).

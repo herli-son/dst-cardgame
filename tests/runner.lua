@@ -75,7 +75,7 @@ local function run_file(name)
   end
 end
 
-local files = { "test_rodada", "test_periodo", "test_fogueira", "test_mana_mao", "test_criaturas", "test_estruturas", "test_equipamentos", "test_pilha", "test_fichas", "test_regressoes", "test_erros", "test_combate", "test_velocidade" }
+local files = { "test_rodada", "test_periodo", "test_fogueira", "test_mana_mao", "test_criaturas", "test_estruturas", "test_equipamentos", "test_pilha", "test_fichas", "test_regressoes", "test_erros", "test_combate", "test_velocidade", "test_cura" }
 for _, f in ipairs(files) do run_file(f) end
 
 for _, f in ipairs(T.failures) do print("FALHOU  " .. f) end
