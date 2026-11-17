@@ -13,8 +13,9 @@
 --   stats(game, criatura) -> atk, hp   atributos que dependem do estado (ex.: Morcego)
 -- Feitiço:
 --   speed ("instantaneo" | "rapido" | "lento")
---   targets(game, p, action) -> ok, erro   confere os alvos (na jogada e de novo ao resolver)
---   on_cast(game, p, action, card)        o efeito
+--   targets(game, p, action, objects) -> ok, erro   confere os alvos; na jogada objects
+--                                         é nil, ao resolver traz os objetos travados
+--   on_cast(game, p, action, card, objects)  o efeito; use objects, não o espaço da ação
 
 local Cards = {}
 

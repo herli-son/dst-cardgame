@@ -250,11 +250,12 @@ return function(Game)
     local locks = g:lock_targets(action)
     return true, nil, g:use_speed(p, spec.speed, def.id, function(gg)
       -- Alvo perdido: se o alvo saiu de campo até a resolução, o efeito não acontece.
-      if not gg:targets_still_valid(locks) or (def.targets and not def.targets(gg, p, action)) then
+      local valid, objects = gg:targets_still_valid(locks)
+      if not valid or (def.targets and not def.targets(gg, p, action, objects)) then
         gg:emit{ t = "fizzle", p = p, id = def.id }
         return
       end
-      def.activate(gg, p, src, action)
+      def.activate(gg, p, src, action, objects)
     end)
   end
 end

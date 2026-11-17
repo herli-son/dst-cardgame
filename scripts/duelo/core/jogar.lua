@@ -202,20 +202,24 @@ return function(Game)
   end
 
   -- Cada alvo travado precisa continuar em campo, onde quer que esteja agora.
-  -- A busca é pelo uid, não pelo espaço, porque no futuro haverá cartas que trocam
-  -- criaturas de posição e o alvo deve continuar o mesmo. Atenção: def.targets, que
-  -- algumas cartas usam para reconferir o alvo ao resolver, olha o espaço; quando
-  -- existir troca de posição, essa reconferência precisa usar o objeto travado.
+  -- A busca é pelo uid, não pelo espaço, porque haverá cartas que trocam criaturas
+  -- de posição e o alvo deve continuar o mesmo. Devolve ok e a lista de objetos
+  -- (criatura, estrutura ou jogador), na ordem dos alvos. Os efeitos recebem essa
+  -- lista e devem usá-la, não o espaço escrito na ação.
   function Game:targets_still_valid(locks)
-    for _, l in ipairs(locks) do
-      if l.zone ~= "jogador" then
+    local objects = {}
+    for i, l in ipairs(locks) do
+      if l.zone == "jogador" then
+        objects[i] = { player = l.p }
+      else
         if l.uid == nil then return false end
         local found
         if l.zone == "estrutura" then found = self:find_structure(l.uid) else found = self:find_creature(l.uid) end
         if found == nil then return false end
+        objects[i] = found
       end
     end
-    return true
+    return true, objects
   end
 
   ----------------------------------------------------------------------------
@@ -289,10 +293,10 @@ return function(Game)
       local locks = g:lock_targets(action)
       return g:use_speed(p, def.speed, def.id, function(gg)
         -- Alvo perdido: se o alvo saiu de campo até a resolução, o feitiço não acontece.
-        local valid = gg:targets_still_valid(locks)
-        if valid and def.targets then valid = def.targets(gg, p, action) end
+        local valid, objects = gg:targets_still_valid(locks)
+        if valid and def.targets then valid = def.targets(gg, p, action, objects) end
         if valid then
-          def.on_cast(gg, p, action, card)
+          def.on_cast(gg, p, action, card, objects)
         else
           gg:emit{ t = "fizzle", p = p, id = def.id }
         end
