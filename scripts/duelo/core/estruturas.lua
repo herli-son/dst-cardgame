@@ -139,15 +139,20 @@ return function(Game)
   -- spec.prepare(g, spec), se existir, roda quando a escolha abre (e não quando é
   -- pedida): monta as opções com o estado daquele momento. Se devolver false, a
   -- escolha não é mais necessária (prepare já resolveu tudo) e a próxima da fila abre.
+  -- Regra única de ordem: uma escolha pedida enquanto outra está aberta, sendo
+  -- preparada ou sendo resolvida entra no fim da fila, atrás das que já esperavam.
+  -- Roda fn com essa marca ligada e a restaura mesmo se fn lançar erro.
+  local function while_choosing(g, fn, ...)
+    local prev = g.opening_choice
+    g.opening_choice = true
+    local ok, res = pcall(fn, ...)
+    g.opening_choice = prev
+    if not ok then error(res, 0) end
+    return res
+  end
+
   local function open_choice(g, spec)
-    if spec.prepare then
-      -- Escolhas pedidas dentro do prepare (ex.: on_play da estrutura que entrou)
-      -- vão para o fim da fila, atrás das que já esperavam.
-      g.opening_choice = true
-      local keep = spec.prepare(g, spec)
-      g.opening_choice = false
-      if keep == false then return false end
-    end
+    if spec.prepare and while_choosing(g, spec.prepare, g, spec) == false then return false end
     g.pending_choice = spec
     g:emit{ t = "choice", p = spec.player, reason = spec.reason, count = #(spec.options or {}) }
     return true
@@ -182,7 +187,7 @@ return function(Game)
     if idx == nil and not ch.allow_none then return false, "é preciso escolher uma opção" end
     if idx ~= nil and (ch.options == nil or ch.options[idx] == nil) then return false, "opção inválida" end
     g.pending_choice = nil
-    ch.resolve(g, idx)
+    while_choosing(g, ch.resolve, g, idx)
     if g.pending_choice == nil then g:next_choice() end
     if g.pending_choice then
       -- Ainda há escolhas: a vez (se for passar) espera a última.
