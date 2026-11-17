@@ -37,23 +37,7 @@ return function(Game)
       end
       return self:place_creature(p, card, slot, { ficha = true })
     elseif def.kind == "estrutura" then
-      -- Mesma regra da jogada: só substitui com a zona cheia.
-      local free = self.first_free_structure(self, p)
-      local slot = opts.slot
-      if slot == nil or (self.players[p].structures[slot] ~= nil and free ~= nil) then slot = free end
-      if slot == nil then
-        -- Zona cheia: o dono escolhe qual estrutura a ficha substitui.
-        local options = {}
-        for s = 1, Game.STRUCTURE_SLOTS do options[s] = s end
-        -- Escolher nenhuma: a ficha não entra em jogo e deixa de existir.
-        self:set_choice(p, { reason = "substituir_estrutura", options = options, allow_none = true,
-          resolve = function(g, idx)
-            if idx == nil then return g:vanish(p, card, "nao_substituiu") end
-            g:put_structure(p, card, idx, { ficha = true })
-          end })
-        return nil, "pendente"
-      end
-      return self:put_structure(p, card, slot, { ficha = true })
+      return self:enter_structure(p, card, { slot = opts.slot, ficha = true })
     end
     error("ficha de tipo sem lugar em campo: " .. tostring(def.kind))
   end

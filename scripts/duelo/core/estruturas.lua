@@ -67,6 +67,40 @@ return function(Game)
     return st
   end
 
+  -- Estrutura que entra em jogo por efeito (ficha ou carta buscada). Com vaga, entra
+  -- nela (opts.slot só substitui com a zona cheia). Com a zona cheia, o dono escolhe
+  -- qual substituir ou nenhuma; sem substituição, a ficha deixa de existir e a carta
+  -- vai para o descarte. A vaga é conferida de novo quando a escolha abre.
+  -- Retorna a estrutura, ou nil e "pendente".
+  function Game:enter_structure(p, card, opts)
+    opts = opts or {}
+    local free = first_free(self, p)
+    local slot = opts.slot
+    if slot == nil or (self.players[p].structures[slot] ~= nil and free ~= nil) then slot = free end
+    if slot then return self:put_structure(p, card, slot, opts) end
+    local function drop(g, reason)
+      if card.ficha or opts.ficha then g:vanish(p, card, reason) else g:to_discard(p, card) end
+    end
+    self:set_choice(p, {
+      reason = "substituir_estrutura",
+      allow_none = true,
+      prepare = function(g, spec)
+        local vaga = first_free(g, p)
+        if vaga then
+          g:put_structure(p, card, vaga, opts)
+          return false
+        end
+        spec.options = {}
+        for s = 1, Game.STRUCTURE_SLOTS do spec.options[s] = s end
+      end,
+      resolve = function(g, idx)
+        if idx == nil then return drop(g, "nao_substituiu") end
+        g:put_structure(p, card, idx, opts)
+      end,
+    })
+    return nil, "pendente"
+  end
+
   Game.play_rules.estrutura = {
     -- action.slot (opcional): espaço 1 ou 2. Obrigatório quando a zona está cheia,
     -- para o dono escolher qual estrutura será substituída.
@@ -97,6 +131,16 @@ return function(Game)
   -- só a ação "choose" desse jogador é aceita. Escolhas abertas enquanto outra
   -- está pendente entram numa fila e são feitas na ordem.
   -- spec = { reason, options = {...}, allow_none = bool, resolve = function(g, index_ou_nil) }
+  -- spec.prepare(g, spec), se existir, roda quando a escolha abre (e não quando é
+  -- pedida): monta as opções com o estado daquele momento. Se devolver false, a
+  -- escolha não é mais necessária (prepare já resolveu tudo) e a próxima da fila abre.
+  local function open_choice(g, spec)
+    if spec.prepare and spec.prepare(g, spec) == false then return false end
+    g.pending_choice = spec
+    g:emit{ t = "choice", p = spec.player, reason = spec.reason, count = #(spec.options or {}) }
+    return true
+  end
+
   function Game:set_choice(p, spec)
     spec.player = p
     if self.pending_choice then
@@ -104,18 +148,15 @@ return function(Game)
       table.insert(self.choice_queue, spec)
       return
     end
-    self.pending_choice = spec
-    self:emit{ t = "choice", p = p, reason = spec.reason, count = #(spec.options or {}) }
+    if not open_choice(self, spec) then self:next_choice() end
   end
 
   -- Abre a próxima escolha da fila, se houver.
-  local function next_choice(g)
-    local q = g.choice_queue
-    if q and #q > 0 then
+  function Game:next_choice()
+    local q = self.choice_queue
+    while q and #q > 0 do
       local spec = table.remove(q, 1)
-      g.pending_choice = spec
-      g:emit{ t = "choice", p = spec.player, reason = spec.reason, count = #(spec.options or {}) }
-      return spec
+      if open_choice(self, spec) then return spec end
     end
   end
 
@@ -130,7 +171,7 @@ return function(Game)
     if idx ~= nil and (ch.options == nil or ch.options[idx] == nil) then return false, "opção inválida" end
     g.pending_choice = nil
     ch.resolve(g, idx)
-    if g.pending_choice == nil then next_choice(g) end
+    if g.pending_choice == nil then g:next_choice() end
     if g.pending_choice then
       -- Ainda há escolhas: a vez (se for passar) espera a última.
       if g.pending_choice.passes_turn == nil then g.pending_choice.passes_turn = ch.passes_turn end
