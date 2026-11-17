@@ -163,10 +163,12 @@ return function(Game)
 
   local function kw(c, k) return c.def.kw[k] end
 
-  -- Fora do combate para as obrigações: quem saiu de campo, mudou de lado ou tem
-  -- dano letal esperando ser verificado (o mesmo critério dos golpes).
+  -- Critério único de quem está no combate, usado nos bloqueios obrigatórios e
+  -- nos golpes: em campo, do mesmo lado, e sem dano letal esperando uma escolha
+  -- para morrer.
   local function in_play(g, c, side)
-    return c.owner == side and g.players[side].field[c.slot] == c and c.damage < g:hp(c)
+    return c ~= nil and c.owner == side and g.players[side].field[c.slot] == c
+      and c.damage < g:hp(c)
   end
 
   -- Quem pode bloquear: as criaturas do defensor que bloqueiam.
@@ -362,11 +364,6 @@ return function(Game)
   -- Resolver
   ----------------------------------------------------------------------------
 
-  -- A criatura continua no combate se ainda está em campo, do mesmo lado.
-  local function still_in(g, c, side)
-    return c ~= nil and c.owner == side and g.players[side].field[c.slot] == c
-  end
-
   -- Velocidade (doc, "Velocidade"): 0 não golpeia; 1 golpeia normalmente; 2 golpeia
   -- antes das de velocidade 1; 3 golpeia antes e de novo junto com as de velocidade
   -- 1, atacando ou bloqueando, mas contra o jogador golpeia uma vez só.
@@ -446,9 +443,6 @@ return function(Game)
   -- morrer) não golpeia.
   local function phase_strikes(g, cb, phase, struck, struck_player)
     local strikes = {}
-    -- Criatura com dano letal (esperando uma escolha para morrer) já está fora
-    -- do combate: não golpeia nem é golpeada.
-    local function alive(c) return c.damage < g:hp(c) end
     local function strikes_now(c, role)
       local v = g:speed(c, role)
       if phase == "rapida" then return v >= 2 end
@@ -456,14 +450,14 @@ return function(Game)
       return v >= 1
     end
     for _, a in ipairs(cb.attackers) do
-      if still_in(g, a, cb.attacker) then
+      if in_play(g, a, cb.attacker) then
         if cb.blocked[a] then
           local d = cb.blocks[a]
-          if still_in(g, d, cb.defender) and alive(a) and alive(d) then
+          if in_play(g, d, cb.defender) then
             if strikes_now(a, "attack") then strikes[#strikes + 1] = { a, d } end
             if strikes_now(d, "block") then strikes[#strikes + 1] = { d, a } end
           end
-        elseif not struck_player[a] and alive(a) and strikes_now(a, "attack") then
+        elseif not struck_player[a] and strikes_now(a, "attack") then
           struck_player[a] = true
           strikes[#strikes + 1] = { a, { player = cb.defender } }
         end
