@@ -437,6 +437,7 @@ return {
     g:put_structure(1, { id = "v_quebra", uid = g:next_uid() }, 1)
     T.eq(g:act(1, { type = "activate", structure = 1 }), false)
     T.eq(g.phase, "error")
+    T.eq(g.winner, nil, "erro de carta: sem vencedor")
     T.eq(g.error.context.id, "v_quebra")
   end },
 
@@ -462,16 +463,19 @@ return {
 
   { "erro em efeito aninhado traz um traceback só", function(T)
     local g = new_game()
+    local function CARTA_COM_BUG() error("falha") end
     Cards.define{ id = "v_err", kind = "criatura", cost = 0, atk = 0, hp = 1,
-      on_death = function() error("falha") end }
+      on_death = function() CARTA_COM_BUG() end }
     Cards.define{ id = "v_mata", kind = "feitico", speed = "instantaneo", cost = 0,
       on_cast = function(gg) gg:kill(gg:creature_at(2, 1), "teste") end }
     put(g, 2, "v_err", 1)
     local pl = g.players[1]
     pl.hand[#pl.hand + 1] = { id = "v_mata", uid = g:next_uid() }
     T.eq(g:act(1, { type = "play", hand_index = #pl.hand }), false)
-    local _, count = g.error.message:gsub("stack traceback", "")
-    T.ok(count <= 1)
+    T.eq(g.error.message:find("stack traceback", 1, true), nil, "mensagem limpa")
+    T.ok(g.error.traceback:find("CARTA_COM_BUG", 1, true) ~= nil, "o traceback chega à carta")
+    local _, count = g.error.traceback:gsub("stack traceback", "")
+    T.eq(count, 1)
     T.eq(g.error.context.id, "v_err")
   end },
 
@@ -508,10 +512,11 @@ return {
 
   { "erro na resolução de uma escolha traz um traceback só", function(T)
     local g = new_game()
-    g:set_choice(1, { reason = "x", options = { "a" }, resolve = function() error("direto") end })
+    local function ESCOLHA_COM_BUG() error("direto") end
+    g:set_choice(1, { reason = "x", options = { "a" }, resolve = function() ESCOLHA_COM_BUG() end })
     T.eq(g:act(1, { type = "choose", index = 1 }), false)
-    local _, count = g.error.message:gsub("stack traceback", "")
-    T.ok(count <= 1)
+    T.eq(g.error.message:find("stack traceback", 1, true), nil)
+    T.ok(g.error.traceback:find("ESCOLHA_COM_BUG", 1, true) ~= nil)
   end },
 
   { "a entrada da nova estrutura não dispara se o efeito da substituída a tirar de campo", function(T)
@@ -538,5 +543,37 @@ return {
     g:act(1, { type = "activate", structure = 1 })
     g:break_structure(1, 1, "teste")
     T.eq(seen, g.round)
+  end },
+
+  { "erro em tabela guarda o traceback da carta", function(T)
+    local g = new_game()
+    local function CARTA_TABELA() error({ message = "codigo" }) end
+    Cards.define{ id = "v_tab", kind = "criatura", cost = 0, atk = 0, hp = 1,
+      on_death = function() CARTA_TABELA() end }
+    local c = put(g, 1, "v_tab", 1)
+    c.damage = 5
+    g:act(1, { type = "pass" })
+    T.eq(g.phase, "error")
+    T.eq(g.error.message, "codigo")
+    T.ok(g.error.traceback:find("CARTA_TABELA", 1, true) ~= nil)
+  end },
+
+  { "erro na velocidade de uma carta aponta a carta", function(T)
+    local g = new_game()
+    Cards.define{ id = "v_vel_bug", kind = "criatura", cost = 0, atk = 1, hp = 5,
+      speed_fn = function() error("falha") end }
+    put(g, 1, "v_vel_bug", 1)
+    g:act(1, { type = "attack", attackers = { 1 } }); g:act(1, { type = "pass" })
+    g:act(2, { type = "pass" })
+    T.eq(g.phase, "error")
+    T.eq(g.error.context.id, "v_vel_bug")
+  end },
+
+  { "continuação que deixa os dois jogadores sem vida é empate", function(T)
+    local g = new_game()
+    g:set_choice(1, { reason = "x", options = { "a" }, resolve = function() end })
+    g:after_choices(function(gg) gg:damage_player(2, 99, "teste"); gg:damage_player(1, 99, "teste") end)
+    g:act(1, { type = "choose", index = 1 })
+    T.eq(g.winner, 0)
   end },
 }

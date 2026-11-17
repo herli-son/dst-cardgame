@@ -479,8 +479,13 @@ return {
       gg:damage_creature(c, 5, nil, "teste")
       error("falha")
     end })
+    -- Sem passar pela entrada pública, o efeito interrompido devolve a contagem.
+    local depth_inside
+    local ok = pcall(g.as_one_effect, g, function() depth_inside = g.effect_depth; error("x") end)
+    T.eq(ok, false)
+    T.eq(depth_inside, 1)
+    T.eq(g.effect_depth, 0)
     T.eq(g:act(1, { type = "choose", index = 1 }), false)
     T.eq(g.phase, "error")
-    T.eq(g.effect_depth, 0)
   end },
 }
