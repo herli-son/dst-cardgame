@@ -204,41 +204,59 @@ return function(Game)
     end
   end
 
+  -- Junta um erro novo ao primeiro sem escondê-lo.
+  local function combine(err, e2)
+    if err == nil then return e2 end
+    if type(err) == "string" then return err .. "\n(depois: " .. tostring(e2) .. ")" end
+    if type(err) == "table" and err.cleanup_error == nil then err.cleanup_error = e2 end
+    return err
+  end
+
+  local function traceback(e)
+    if type(e) ~= "string" then return e end
+    return debug.traceback(e, 2)
+  end
+
+  local function run_continuations(g)
+    local conts = g.choice_continuations
+    if conts and #conts > 0 then
+      g.choice_continuations = {}
+      for _, fn in ipairs(conts) do fn(g) end
+      return true
+    end
+    return false
+  end
+
   -- O que vem depois de uma escolha: abrir a próxima da fila (que herda a decisão
   -- de passar a vez), retomar a pilha em resolução e as continuações suspensas.
-  -- Devolve se a vez deve passar agora.
+  -- Cada passo roda protegido: um erro não impede os seguintes. Devolve se a vez
+  -- deve passar e o erro acumulado (ou nil).
   local function after_choose(g, ch)
-    -- Se o preparo da próxima escolha falhar, o resto do trabalho continua e o
-    -- erro sobe só no fim.
-    local queue_err
-    if g.pending_choice == nil then
-      local ok, e = pcall(g.next_choice, g)
-      if not ok then queue_err = e end
+    local err
+    local function step(fn)
+      local ok, e = xpcall(fn, traceback)
+      if not ok then err = combine(err, e) end
+      return ok
     end
+    if g.pending_choice == nil then step(function() g:next_choice() end) end
     local passes = false
     if g.pending_choice then
       if g.pending_choice.passes_turn == nil then g.pending_choice.passes_turn = ch.passes_turn end
     elseif g.resolving then
       -- A pilha retoma; ao fechar, ela mesma passa a vez para quem não a abriu.
-      g:resolve_stack()
-      if not g:choices_waiting() then
-        local conts = g.choice_continuations
-        if conts and #conts > 0 then
-          g.choice_continuations = {}
-          for _, fn in ipairs(conts) do fn(g) end
-        end
-      end
+      step(function() g:resolve_stack() end)
+      if not g:choices_waiting() then step(function() run_continuations(g) end) end
     else
-      local conts = g.choice_continuations
-      if conts and #conts > 0 then
-        g.choice_continuations = {}
-        for _, fn in ipairs(conts) do fn(g) end
-      else
-        passes = ch.passes_turn == true
-      end
+      local ran = false
+      step(function() ran = run_continuations(g) end)
+      if not ran then passes = ch.passes_turn == true end
     end
-    if queue_err ~= nil then error(queue_err, 0) end
-    return passes
+    return passes, err
+  end
+
+  -- Passa a vez quando a escolha manda e nada mais segura a jogada.
+  local function finish_choice(g, passes)
+    if passes and not g:stack_open() and g.winner == nil then g:advance_vez() end
   end
 
   -- action = { type = "choose", index = n } ; index nil ou 0 = nenhuma (se permitido)
@@ -254,9 +272,17 @@ return function(Game)
     -- Se a resolução falhar, o resto do trabalho da escolha acontece antes de o
     -- erro subir: a fila anda, a pilha retoma e a vez passa se for o caso.
     while_choosing(g, ch.resolve, function()
-      if after_choose(g, ch) and not g:stack_open() and g.winner == nil then g:advance_vez() end
+      local passes, err = after_choose(g, ch)
+      finish_choice(g, passes)
+      if err ~= nil then error(err, 0) end
     end, g, idx)
-    return true, nil, after_choose(g, ch)
+    local passes, err = after_choose(g, ch)
+    if err ~= nil then
+      -- A vez passa antes de o erro subir, como no caminho de erro da resolução.
+      finish_choice(g, passes)
+      error(err, 0)
+    end
+    return true, nil, passes
   end
 
   ----------------------------------------------------------------------------
