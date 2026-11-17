@@ -473,4 +473,70 @@ return {
     local _, count = tostring(err):gsub("stack traceback", "")
     T.eq(count, 1)
   end },
+
+  { "estrutura quebrada por feitiço vai ao descarte mesmo se o efeito ao quebrar decidir", function(T)
+    local g = new_game()
+    Cards.define{ id = "v_relogio", kind = "estrutura", cost = 0,
+      on_break = function(gg) gg:damage_player(1, 99, "teste") end }
+    Cards.define{ id = "v_marreta", kind = "feitico", speed = "instantaneo", cost = 0,
+      on_cast = function(gg) gg:break_structure(2, 1, "teste") end }
+    g:put_structure(2, { id = "v_relogio", uid = g:next_uid() }, 1)
+    local pl = g.players[1]
+    pl.hand[#pl.hand + 1] = { id = "v_marreta", uid = g:next_uid() }
+    g:act(1, { type = "play", hand_index = #pl.hand })
+    T.eq(g.winner, 2)
+    local d = g.players[2].discard
+    T.eq(d[#d].id, "v_relogio")
+  end },
+
+  { "substituição: a nova estrutura entra mesmo se a antiga decidir ao quebrar", function(T)
+    local g = new_game()
+    Cards.define{ id = "v_relogio2", kind = "estrutura", cost = 0,
+      on_break = function(gg) gg:damage_player(1, 99, "teste") end }
+    Cards.define{ id = "v_nova", kind = "estrutura", cost = 0 }
+    Cards.define{ id = "v_obra", kind = "feitico", speed = "instantaneo", cost = 0,
+      on_cast = function(gg) gg:put_structure(1, { id = "v_nova", uid = gg:next_uid() }, 1) end }
+    g:put_structure(1, { id = "v_relogio2", uid = g:next_uid() }, 1)
+    g:put_structure(1, { id = "v_relogio2", uid = g:next_uid() }, 2)
+    local pl = g.players[1]
+    pl.hand[#pl.hand + 1] = { id = "v_obra", uid = g:next_uid() }
+    g:act(1, { type = "play", hand_index = #pl.hand })
+    T.eq(g.winner, 2)
+    T.eq(g:structure_at(1, 1).def.id, "v_nova")
+  end },
+
+  { "erro na resolução de uma escolha traz um traceback só", function(T)
+    local g = new_game()
+    g:set_choice(1, { reason = "x", options = { "a" }, resolve = function() error("direto") end })
+    local ok, err = pcall(g.act, g, 1, { type = "choose", index = 1 })
+    T.eq(ok, false)
+    local _, count = tostring(err):gsub("stack traceback", "")
+    T.eq(count, 1)
+  end },
+
+  { "a entrada da nova estrutura não dispara se o efeito da substituída a tirar de campo", function(T)
+    local g = new_game()
+    Cards.define{ id = "v_bomba_q", kind = "estrutura", cost = 0,
+      on_break = function(gg, st)
+        for s = 1, 2 do gg:break_structure(st.owner, s, "explosao") end
+      end }
+    Cards.define{ id = "v_nova2", kind = "estrutura", cost = 0,
+      on_play = function() log[#log + 1] = "entrou" end }
+    g:put_structure(1, { id = "v_bomba_q", uid = g:next_uid() }, 1)
+    g:put_structure(1, { id = "v_bomba_q", uid = g:next_uid() }, 2)
+    g:put_structure(1, { id = "v_nova2", uid = g:next_uid() }, 1)
+    T.eq(#log, 0)
+  end },
+
+  { "o efeito ao quebrar vê os marcadores guardados da estrutura", function(T)
+    local g = new_game()
+    local seen
+    Cards.define{ id = "v_usada", kind = "estrutura", cost = 0, activation = { speed = "instantaneo", once_per_round = true },
+      activate = function() end,
+      on_break = function(gg, st) seen = st.marks.used_round end }
+    g:put_structure(1, { id = "v_usada", uid = g:next_uid() }, 1)
+    g:act(1, { type = "activate", structure = 1 })
+    g:break_structure(1, 1, "teste")
+    T.eq(seen, g.round)
+  end },
 }
