@@ -77,6 +77,10 @@ return function(Game)
     opts = opts or {}
     local free = first_free(self, p)
     local slot = opts.slot
+    -- Espaço fora da zona é ignorado.
+    if slot ~= nil and (type(slot) ~= "number" or slot % 1 ~= 0 or slot < 1 or slot > Game.STRUCTURE_SLOTS) then
+      slot = nil
+    end
     if slot == nil or (self.players[p].structures[slot] ~= nil and free ~= nil) then slot = free end
     if slot then return self:put_structure(p, card, slot, opts) end
     local function drop(g, reason)
