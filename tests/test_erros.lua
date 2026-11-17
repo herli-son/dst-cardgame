@@ -192,4 +192,29 @@ return {
     T.eq(g.error.context.kind, "jogar")
     T.eq(g.error.context.id, "e_bug")
   end },
+
+  { "o contexto da jogada termina com ela", function(T)
+    local g = new_game()
+    T.ok(g:act(1, { type = "pass" }))
+    local ok = play(g, "e_bicho", { slot = 9 })
+    T.eq(ok, false)
+    T.eq(g.context, nil)
+  end },
+
+  { "gancho registrado de novo durante a passada só roda na próxima", function(T)
+    local g = new_game()
+    local ran = 0
+    local b = function() ran = ran + 1 end
+    local done = false
+    g:on("round_start", function(gg)
+      if done then return end
+      done = true
+      gg:off("round_start", b); gg:on("round_start", b)
+    end)
+    g:on("round_start", b)
+    g:act(1, { type = "pass" }); g:act(2, { type = "pass" })
+    T.eq(ran, 0)
+    g:act(g.active, { type = "pass" }); g:act(g.active, { type = "pass" })
+    T.eq(ran, 1)
+  end },
 }
