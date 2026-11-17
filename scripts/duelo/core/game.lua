@@ -393,14 +393,16 @@ end
 -- causou o dano, quando houver (para efeitos que interceptam dano de criatura,
 -- como o Porco guarda). opts.no_check adia a verificação de vitória, para danos
 -- simultâneos poderem terminar em empate.
+-- Devolve o dano aplicado (0 se nenhum).
 function Game:damage_player(p, n, source, opts)
-  if n <= 0 then return end
+  if n <= 0 then return 0 end
   opts = opts or {}
   local pl = self.players[p]
   pl.life = pl.life - n
   self:emit{ t = "player_damage", p = p, amount = n, source = source, life = pl.life,
     from_uid = opts.from and opts.from.uid or nil }
-  if not opts.no_check then self:check_winner() end
+  if not opts.no_check and not self.defer_winner then self:check_winner() end
+  return n
 end
 
 ----------------------------------------------------------------------------
@@ -543,6 +545,8 @@ end
 
 local function settled(self, core, ...)
   local r = pack(pcall(core, self, ...))
+  -- Marca de vitória adiada nunca sobrevive a uma entrada pública.
+  self.defer_winner = false
   self:settle()
   if not r[1] then error(r[2], 0) end
   return unpack(r, 2, r.n)
