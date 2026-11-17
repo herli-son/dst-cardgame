@@ -490,7 +490,9 @@ function Game:act(p, action)
   end
   local ok, err, passes_turn = handler(self, p, action)
   if not ok then return false, err end
-  self.passes = 0
+  -- Escolher completa um efeito que já aconteceu; não é uma jogada nova e não
+  -- interrompe dois passes seguidos.
+  if action.type ~= "choose" then self.passes = 0 end
   -- Um efeito que abriu uma escolha segura a vez até ela ser feita.
   if self.pending_choice and self.pending_choice.passes_turn == nil then
     self.pending_choice.passes_turn = passes_turn ~= false
