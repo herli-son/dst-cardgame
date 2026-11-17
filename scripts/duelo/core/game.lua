@@ -472,7 +472,7 @@ end
 -- simultâneos poderem terminar em empate.
 -- Devolve o dano aplicado (0 se nenhum).
 function Game:damage_player(p, n, source, opts)
-  if n <= 0 then return 0 end
+  if Game.check_amount(n) <= 0 then return 0 end
   opts = opts or {}
   local pl = self.players[p]
   pl.life = pl.life - n
@@ -483,9 +483,10 @@ function Game:damage_player(p, n, source, opts)
   return n
 end
 
--- Quantidade de cura: número inteiro. Outro valor é erro da carta que pediu
--- (vira o estado de erro da partida, em vez de corromper vida ou dano). Nível 3:
--- a posição do erro é a da carta que chamou heal_creature ou heal_player.
+-- Quantidade de dano ou de cura: número inteiro. Outro valor é erro da carta que
+-- pediu (vira o estado de erro da partida, em vez de corromper vida ou dano).
+-- Nível 3: a posição do erro é a de quem chamou damage_* ou heal_*; vindo do
+-- combate, é Game:strike, e a carta aparece no traceback e no contexto do erro.
 function Game.check_amount(n)
   if type(n) ~= "number" or n ~= n or n % 1 ~= 0 then
     error("quantidade inválida: " .. tostring(n), 3)

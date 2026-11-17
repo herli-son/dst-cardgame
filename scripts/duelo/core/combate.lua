@@ -41,7 +41,7 @@ return function(Game)
   -- O dano fica marcado na criatura (é permanente). Devolve o dano aplicado
   -- (0 se nenhum); redução de dano entra aqui.
   function Game:damage_creature(c, n, source, reason)
-    if n <= 0 then return 0 end
+    if Game.check_amount(n) <= 0 then return 0 end
     if self.players[c.owner].field[c.slot] ~= c then return 0 end
     c.damage = c.damage + n
     self:emit{ t = "creature_damage", p = c.owner, slot = c.slot, uid = c.uid, amount = n,
