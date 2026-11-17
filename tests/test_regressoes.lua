@@ -321,7 +321,8 @@ return {
     g:act(1, { type = "pass" }); g:act(2, { type = "pass" })
     T.eq(log[1], "marreta", "o alvo era a estrutura, que continua em campo")
     g.players[1].hand[#g.players[1].hand + 1] = { id = "r_marreta", uid = g:next_uid() }
-    g.active = 1
+    T.eq(g.active, 2, "depois da pilha, a vez é de quem não abriu")
+    g:act(2, { type = "pass" })
     T.ok(play(g, 1, "r_marreta", { target = { p = 2, slot = 1, zone = "estrutura" } }))
     g:break_structure(2, 1, "teste")
     g:put_structure(2, { id = "r_torre", uid = g:next_uid() }, 1)
@@ -469,5 +470,165 @@ return {
     T.eq(g:structure_at(1, 1).def.id, "r_casa")
     T.eq(g:structure_at(1, 2).def.id, "r_casa")
     T.eq(g.events[#g.events].t, "vanish")
+  end },
+
+  { "escolha de estrutura na fila: se abrir vaga antes, a estrutura entra nela sem escolha", function(T)
+    local g = new_game()
+    g:put_structure(1, { id = "r_casa", uid = g:next_uid() }, 1)
+    g:put_structure(1, { id = "r_casa", uid = g:next_uid() }, 2)
+    g:set_choice(1, { reason = "antes", options = { "a" },
+      resolve = function(gg) gg:break_structure(1, 2, "teste") end })
+    local _, why = g:create_token(1, "r_torre")
+    T.eq(why, "pendente")
+    T.ok(g:act(1, { type = "choose", index = 1 }))
+    T.eq(g.pending_choice, nil, "a vaga apareceu: não há mais o que escolher")
+    T.eq(g:structure_at(1, 1).def.id, "r_casa", "a casa do espaço 1 continua")
+    T.eq(g:structure_at(1, 2).def.id, "r_torre")
+  end },
+
+  { "estrutura que não é ficha e não substitui nenhuma vai para o descarte", function(T)
+    local g = new_game()
+    g:put_structure(1, { id = "r_casa", uid = g:next_uid() }, 1)
+    g:put_structure(1, { id = "r_casa", uid = g:next_uid() }, 2)
+    local card = { id = "r_torre", uid = g:next_uid() }
+    local _, why = g:enter_structure(1, card)
+    T.eq(why, "pendente")
+    T.ok(g:act(1, { type = "choose", index = 0 }))
+    T.eq(count(g.players[1].discard, "r_torre"), 1)
+  end },
+
+  { "fazer uma escolha não interrompe dois passes seguidos", function(T)
+    local g = new_game()
+    local round = g.round
+    g:act(1, { type = "pass" })
+    g:set_choice(2, { reason = "teste", options = { "a" }, resolve = function() end })
+    T.ok(g:act(2, { type = "choose", index = 1 }))
+    T.eq(g.passes, 1)
+    g:act(2, { type = "pass" })
+    T.eq(g.round, round + 1)
+  end },
+
+  { "duas Mochilas com a mesma função: remover uma tira só o bônus dela", function(T)
+    local g = new_game()
+    local mochila = function() return 2 end
+    local r1 = g:add_hand_limit_mod(mochila)
+    g:add_hand_limit_mod(mochila)
+    T.eq(g:hand_limit(1), Game.HAND_LIMIT + 4)
+    r1(); r1()
+    T.eq(g:hand_limit(1), Game.HAND_LIMIT + 2)
+  end },
+
+  { "jogador como alvo: aceito e nunca perdido", function(T)
+    local g = new_game()
+    local got
+    Cards.define{ id = "r_gosma", kind = "feitico", speed = "rapido", cost = 0, no_fogueira = true,
+      on_cast = function(gg, p, a, card, objects) got = objects[1].player end }
+    g.players[1].hand[#g.players[1].hand + 1] = { id = "r_gosma", uid = g:next_uid() }
+    T.eq(play(g, 1, "r_gosma", { target = { p = 3, zone = "jogador" } }), false)
+    T.ok(play(g, 1, "r_gosma", { target = { p = 2, zone = "jogador" } }))
+    g:act(1, { type = "pass" }); g:act(2, { type = "pass" })
+    T.eq(got, 2)
+  end },
+
+  { "alvo em espaço vazio é recusado sem gastar a carta", function(T)
+    local g = new_game({ "r_raio" })
+    local pl = g.players[1]
+    local hand, mana = #pl.hand, pl.mana
+    T.eq(play(g, 1, "r_raio", { target = { p = 2, slot = 4 } }), false)
+    T.eq(#pl.hand, hand); T.eq(pl.mana, mana)
+  end },
+
+  { "o efeito recebe o objeto travado, mesmo depois de uma troca de posição", function(T)
+    local g = new_game()
+    local hit
+    Cards.define{ id = "r_flecha", kind = "feitico", speed = "rapido", cost = 0,
+      on_cast = function(gg, p, a, card, objects) hit = objects[1] end }
+    local x = g:place_creature(2, { id = "r_bicho", uid = g:next_uid() }, 1)
+    local y = g:place_creature(2, { id = "r_bicho", uid = g:next_uid() }, 3)
+    g.players[1].hand[#g.players[1].hand + 1] = { id = "r_flecha", uid = g:next_uid() }
+    T.ok(play(g, 1, "r_flecha", { target = { p = 2, slot = 1 } }))
+    -- Troca de posição (ainda não existe no motor): X vai para o 3 e Y para o 1.
+    local f = g.players[2].field
+    f[1], f[3] = y, x
+    x.slot, y.slot = 3, 1
+    g:act(1, { type = "pass" }); g:act(2, { type = "pass" })
+    T.eq(hit, x, "o alvo continua sendo X")
+  end },
+
+  { "devolver criatura: desequipar sai antes de ela deixar o campo", function(T)
+    local g = new_game()
+    local c = g:place_creature(1, { id = "r_sobrev", uid = g:next_uid() }, 1)
+    g:equip(c, { id = "r_machado", uid = g:next_uid() })
+    local start = #g.events
+    g:remove_creature(c, "hand", "telelocador", { equips = "inventory" })
+    local order = {}
+    for i = start + 1, #g.events do order[#order + 1] = g.events[i].t end
+    T.eq(order[1], "unequip")
+    T.eq(order[2], "leave")
+    T.eq(order[3], "to_hand")
+    T.eq(order[4], "inventory")
+  end },
+
+  { "escolha no início da rodada adia a manhã", function(T)
+    local g = new_game()
+    g:on("round_start", function(gg)
+      gg:set_choice(1, { reason = "teste", options = { "a" }, resolve = function() end })
+    end)
+    g:act(1, { type = "pass" }); g:act(2, { type = "pass" })
+    T.eq(g.round, 2)
+    T.eq(g.current_period, nil, "o período só começa depois da escolha")
+    T.ok(g:act(1, { type = "choose", index = 1 }))
+    T.eq(g.current_period, "manha")
+  end },
+
+  { "jogada com duas escolhas na fila: a vez só passa depois da última", function(T)
+    local g = new_game()
+    Cards.define{ id = "r_duas", kind = "criatura", cost = 0, atk = 0, hp = 1,
+      on_play = function(gg, c)
+        for _ = 1, 2 do
+          gg:set_choice(c.owner, { reason = "teste", options = { "a" }, resolve = function() end })
+        end
+      end }
+    g.players[1].hand[#g.players[1].hand + 1] = { id = "r_duas", uid = g:next_uid() }
+    local vez = g.vez
+    T.ok(play(g, 1, "r_duas", { slot = 5 }))
+    T.ok(g:act(1, { type = "choose", index = 1 }))
+    T.eq(g.vez, vez, "ainda falta uma escolha")
+    T.ok(g:act(1, { type = "choose", index = 1 }))
+    T.eq(g.vez, vez + 1)
+    T.eq(g.active, 2)
+  end },
+
+  { "duas escolhas abertas durante a resolução da pilha", function(T)
+    local g = new_game()
+    Cards.define{ id = "r_pergunta2", kind = "feitico", speed = "rapido", cost = 0,
+      on_cast = function(gg, p)
+        gg:set_choice(1, { reason = "a", options = { "x" }, resolve = function() log[#log + 1] = "a" end })
+        gg:set_choice(2, { reason = "b", options = { "x" }, resolve = function() log[#log + 1] = "b" end })
+      end }
+    g.players[1].hand[#g.players[1].hand + 1] = { id = "r_pergunta2", uid = g:next_uid() }
+    play(g, 1, "r_pergunta2")
+    g:act(1, { type = "pass" }); g:act(2, { type = "pass" })
+    T.ok(g:act(1, { type = "choose", index = 1 }))
+    T.ok(g:act(2, { type = "choose", index = 1 }))
+    T.eq(log[1], "a"); T.eq(log[2], "b")
+    T.eq(g:stack_open(), false)
+    T.eq(g.active, 2)
+  end },
+
+  { "fogueira em zero: feitiço sem custo de fogueira entra; recusa não gasta nada", function(T)
+    local g = new_game()
+    Cards.define{ id = "r_gosma2", kind = "feitico", speed = "instantaneo", cost = 0, no_fogueira = true,
+      on_cast = function() log[#log + 1] = "gosma" end }
+    local pl = g.players[1]
+    pl.hand[#pl.hand + 1] = { id = "r_gosma2", uid = g:next_uid() }
+    g:light_fogueira()
+    g.fogueira[1] = 0
+    local hand, mana = #pl.hand, pl.mana
+    T.eq(play(g, 1, "r_bicho", { slot = 1 }), false)
+    T.eq(#pl.hand, hand); T.eq(pl.mana, mana)
+    T.ok(play(g, 1, "r_gosma2"))
+    T.eq(log[1], "gosma")
+    T.eq(g.fogueira[1], 0)
   end },
 }

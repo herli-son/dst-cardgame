@@ -26,30 +26,27 @@ local function shallow(t)
   return c
 end
 
--- Tabelas globais do motor que um teste poderia alterar.
-local GLOBAL_TABLES = { "actions", "period_hooks", "play_rules", "allowed_at_zero_fogueira", "allowed_with_stack" }
-
-local function refill(dst, src)
-  for k in pairs(dst) do dst[k] = nil end
-  for k, v in pairs(src) do dst[k] = v end
-end
-
+-- Todo o módulo Game é salvo: chaves de qualquer tipo (constantes, métodos e
+-- tabelas) e uma cópia rasa de cada tabela, para desfazer alterações dentro delas.
 local function snapshot()
-  local snap = { tables = {}, constants = {}, cards = Cards.snapshot() }
-  for _, name in ipairs(GLOBAL_TABLES) do snap.tables[name] = shallow(Game[name]) end
-  -- Constantes (números e textos) do módulo Game.
+  local snap = { keys = {}, tables = {}, cards = Cards.snapshot() }
   for k, v in pairs(Game) do
-    if type(v) == "number" or type(v) == "string" then snap.constants[k] = v end
+    snap.keys[k] = v
+    if type(v) == "table" and k ~= "__index" then snap.tables[k] = shallow(v) end
   end
   return snap
 end
 
 local function restore(snap)
-  for _, name in ipairs(GLOBAL_TABLES) do refill(Game[name], snap.tables[name]) end
-  for k, v in pairs(Game) do
-    if (type(v) == "number" or type(v) == "string") and snap.constants[k] == nil then Game[k] = nil end
+  for k in pairs(Game) do
+    if snap.keys[k] == nil then Game[k] = nil end
   end
-  for k, v in pairs(snap.constants) do Game[k] = v end
+  for k, v in pairs(snap.keys) do Game[k] = v end
+  for k, copy in pairs(snap.tables) do
+    local t = Game[k]
+    for x in pairs(t) do t[x] = nil end
+    for x, y in pairs(copy) do t[x] = y end
+  end
   Cards.restore(snap.cards)
 end
 
