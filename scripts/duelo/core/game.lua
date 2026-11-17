@@ -342,9 +342,19 @@ end
 function Game:act(p, action)
   if self.winner ~= nil then return false, "partida encerrada" end
   if self.phase ~= "playing" then return false, "a partida ainda não começou" end
-  if p ~= self.active then return false, "não é a sua vez" end
   if type(action) ~= "table" or action.type == nil then return false, "ação inválida" end
-  if self.pending_choice and action.type ~= "choose" then return false, "há uma escolha pendente" end
+  -- Uma escolha aberta só aceita a ação "choose" de quem escolhe, mesmo fora da vez.
+  if self.pending_choice then
+    if action.type ~= "choose" then return false, "há uma escolha pendente" end
+    if p ~= self.pending_choice.player then return false, "a escolha é do outro jogador" end
+  elseif p ~= self.active then
+    return false, "não é a sua vez"
+  end
+
+  if action.type == "pass" and self:stack_open() then
+    self:stack_pass(p)
+    return true
+  end
 
   if action.type == "pass" then
     self.passes = self.passes + 1
@@ -362,15 +372,22 @@ function Game:act(p, action)
   if self:is_night_lit() and self.fogueira[p] <= 0 and not Game.allowed_at_zero_fogueira[action.type] then
     return false, "fogueira apagada: só é possível passar, atacar ou ativar efeitos"
   end
+  if self:stack_open() and not Game.allowed_with_stack[action.type] then
+    return false, "com a pilha aberta, só Rápidos e Instantâneos"
+  end
   local ok, err, passes_turn = handler(self, p, action)
   if not ok then return false, err end
   self.passes = 0
-  if passes_turn ~= false and self.winner == nil then
+  if passes_turn ~= false and self.winner == nil and not self:stack_open() then
     self:advance_vez()
   end
   return true
 end
 
+-- Ações aceitas com a pilha aberta; cada uma confere o tipo do efeito.
+Game.allowed_with_stack = { play = true, activate = true, choose = true, block = true }
+
+require("duelo/core/pilha")(Game)
 require("duelo/core/jogar")(Game)
 require("duelo/core/estruturas")(Game)
 require("duelo/core/equipamentos")(Game)
