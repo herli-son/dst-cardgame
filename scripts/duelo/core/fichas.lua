@@ -94,8 +94,7 @@ return function(Game)
       reason = reason, killer_uid = killer and killer.uid or nil }
     self:remove_creature(c, "discard", reason or "abatida")
     if c.def.on_death then
-      self:set_context("morrer", c.def.id)
-      c.def.on_death(self, c, killer)
+      self:run_card("morrer", c.def.id, c.def.on_death, self, c, killer)
     end
     self:run_hooks("death", c, killer)
   end

@@ -45,8 +45,7 @@ return function(Game)
   function Game:use_speed(p, speed, label, resolve)
     if speed == "instantaneo" then
       self:emit{ t = "instant", p = p, label = label }
-      self:set_context("resolver", label)
-      resolve(self)
+      self:run_card("resolver", label, resolve, self)
     else
       self:push_stack(p, { label = label, resolve = resolve })
     end
@@ -68,8 +67,7 @@ return function(Game)
       if self.winner ~= nil then break end
       local entry = table.remove(self.stack)
       self:emit{ t = "stack_resolve", p = entry.owner, label = entry.label }
-      self:set_context("resolver", entry.label)
-      entry.resolve(self)
+      self:run_card("resolver", entry.label, entry.resolve, self)
       if self:choices_waiting() then return end
     end
     self:close_stack()

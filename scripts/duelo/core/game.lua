@@ -57,8 +57,7 @@ function Game:run_hooks(event, ...)
   for i, fn in ipairs(live) do list[i] = fn end
   for _, fn in ipairs(list) do
     if has_hook(live, fn) then
-      self:set_context("gancho", event)
-      fn(self, ...)
+      self:run_card("gancho", event, fn, self, ...)
     end
   end
 end
@@ -67,6 +66,21 @@ local function other(p)
   return p == 1 and 2 or 1
 end
 Game.other = other
+
+local function pack(...)
+  return { n = select("#", ...), ... }
+end
+
+-- Roda código de carta marcando qual carta ou efeito está rodando, para o
+-- registro de erro apontar a carta certa. O contexto anterior volta no fim; se
+-- fn lançar erro, fica o contexto mais interno, o que de fato falhou.
+function Game:run_card(kind, id, fn, ...)
+  local prev = self.context
+  self.context = { kind = kind, id = id }
+  local r = pack(fn(...))
+  self.context = prev
+  return unpack(r, 1, r.n)
+end
 
 -- rng(n) deve devolver um inteiro entre 1 e n. O padrão usa math.random.
 local function default_rng(n)
@@ -124,7 +138,7 @@ function Game.new(opts)
   }
   g.first = opts.first or g.rng(2)
   g.use_mulligan = opts.mulligan ~= false
-  g.phase = "setup" -- "setup" | "mulligan" | "playing" | "over"
+  g.phase = "setup" -- "setup" | "mulligan" | "playing" | "over" | "error"
   g.round = 0
   g.attacker = nil -- jogador com o token de ataque nesta rodada
   g.active = nil   -- jogador que tem a vez
@@ -153,9 +167,10 @@ end
 -- Devolve uma função que remove o modificador (ex.: ao desequipar).
 -- Cada chamada cria um registro próprio: duas Mochilas com a mesma função são dois
 -- modificadores, e remover um não tira o outro.
-function Game:add_hand_limit_mod(fn)
+-- id: a carta dona do modificador, para o registro de erro.
+function Game:add_hand_limit_mod(fn, id)
   local mods = self.hand_limit_mods
-  local entry = { fn = fn }
+  local entry = { fn = fn, id = id }
   mods[#mods + 1] = entry
   return function()
     for i = #mods, 1, -1 do
@@ -170,7 +185,9 @@ end
 -- Limite de mão do jogador, com os modificadores ativos.
 function Game:hand_limit(p)
   local n = Game.HAND_LIMIT
-  for _, entry in ipairs(self.hand_limit_mods) do n = n + (entry.fn(self, p) or 0) end
+  for _, entry in ipairs(self.hand_limit_mods) do
+    n = n + (self:run_card("limite_mao", entry.id, entry.fn, self, p) or 0)
+  end
   return n
 end
 
@@ -235,6 +252,7 @@ local function start_impl(self)
     self.phase = "playing"
     self:begin_round()
   end
+  return true
 end
 
 -- Troca inicial: cada jogador escolhe quais cartas da mão inicial devolver
@@ -307,7 +325,7 @@ function Game:update_period()
   if per ~= self.current_period then
     self.current_period = per
     self:emit{ t = "period", period = per, round = self.round }
-    for _, hook in ipairs(Game.period_hooks) do hook(self, per) end
+    for _, hook in ipairs(Game.period_hooks) do self:run_card("regra", per, hook, self, per) end
     self:run_hooks("period", per)
   end
 end
@@ -525,37 +543,42 @@ Game.allowed_with_stack = { play = true, activate = true, choose = true, block =
 -- partida, o motor a encerra com estado de erro: guarda a mensagem, o traceback
 -- e o contexto (qual carta ou efeito rodava) e não aceita mais nenhuma ação.
 
-local function pack(...)
-  return { n = select("#", ...), ... }
+-- Somente start, mulligan e act são a interface pública do motor. As outras
+-- funções (create_token, kill, set_choice...) são usadas pelas cartas, sempre
+-- dentro de uma dessas entradas protegidas.
+
+-- Guarda o traceback de qualquer erro, em texto ou não, num campo próprio.
+local function capture(e)
+  return { value = e, traceback = debug.traceback("", 2) }
 end
 
-local function with_traceback(e)
-  if type(e) ~= "string" then return e end
-  return debug.traceback(e, 2)
+local function error_message(err)
+  if type(err) == "string" then return err end
+  -- Erro em tabela: usa err.message, se houver; nunca o endereço da tabela, para
+  -- o log de eventos continuar igual entre execuções.
+  if type(err) == "table" and type(err.message) == "string" then return err.message end
+  return "erro do tipo " .. type(err)
 end
 
--- Marca o que está rodando agora, para o registro de erro dizer qual carta falhou.
-function Game:set_context(kind, id)
-  self.context = { kind = kind, id = id }
-end
-
-function Game:fail(err)
+function Game:fail(captured)
+  -- self.error é preenchido antes de qualquer coisa que possa falhar.
   self.phase = "error"
   self.error = {
-    message = type(err) == "string" and err or tostring(err),
-    value = err,
+    value = captured.value,
+    message = error_message(captured.value),
+    traceback = captured.traceback,
     context = self.context,
   }
-  self:emit{ t = "engine_error", context = self.context, message = self.error.message }
+  pcall(self.emit, self, { t = "engine_error", context = self.context, message = self.error.message })
 end
 
 function Game:guarded(fn, ...)
   if self.phase == "error" then return false, "partida encerrada por erro" end
   local args = pack(...)
   local results
-  local ok, err = xpcall(function() results = pack(fn(self, unpack(args, 1, args.n))) end, with_traceback)
+  local ok, captured = xpcall(function() results = pack(fn(self, unpack(args, 1, args.n))) end, capture)
   if not ok then
-    self:fail(err)
+    self:fail(captured)
     return false, "erro no motor: partida encerrada"
   end
   return unpack(results, 1, results.n)

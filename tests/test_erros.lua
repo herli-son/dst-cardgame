@@ -46,7 +46,7 @@ return {
     T.ok(err ~= nil)
     T.eq(g.phase, "error")
     T.ok(g.error.message:find("BUG_NO_FEITICO") ~= nil)
-    T.ok(g.error.message:find("traceback") ~= nil, "guarda o traceback")
+    T.ok(g.error.traceback:find("traceback") ~= nil, "guarda o traceback")
     T.eq(g.error.context.id, "e_bug")
     local ev = last_event(g, "engine_error")
     T.ok(ev ~= nil)

@@ -69,7 +69,7 @@ return function(Game)
   function Game:atk(c)
     local base = c.def.atk or 0
     if c.def.stats then
-      local a = c.def.stats(self, c)
+      local a = self:run_card("atributos", c.def.id, c.def.stats, self, c)
       if a ~= nil then base = a end
     end
     local v = base + (c.atk_bonus or 0) + (self.equip_bonus and self:equip_bonus(c, "atk_bonus") or 0)
@@ -80,7 +80,7 @@ return function(Game)
   function Game:hp(c)
     local base = c.def.hp or 0
     if c.def.stats then
-      local _, h = c.def.stats(self, c)
+      local _, h = self:run_card("atributos", c.def.id, c.def.stats, self, c)
       if h ~= nil then base = h end
     end
     return base + (c.hp_bonus or 0) + (self.equip_bonus and self:equip_bonus(c, "hp_bonus") or 0)
@@ -108,13 +108,11 @@ return function(Game)
     self.players[p].field[slot] = c
     self:emit{ t = "summon", p = p, slot = slot, uid = c.uid, card_uid = c.card_uid, id = def.id, ficha = c.ficha }
     if def.on_play then
-      self:set_context("entrar", def.id)
-      def.on_play(self, c)
+      self:run_card("entrar", def.id, def.on_play, self, c)
     end
     for _, other in ipairs(self:all_creatures()) do
       if other ~= c and other.def.on_any_enter and self.players[other.owner].field[other.slot] == other then
-        self:set_context("reagir", other.def.id)
-        other.def.on_any_enter(self, other, c)
+        self:run_card("reagir", other.def.id, other.def.on_any_enter, self, other, c)
       end
     end
     return c
@@ -251,7 +249,6 @@ return function(Game)
     if card == nil then return false, "carta não está na mão" end
     local def = g:def_of(card)
     if def == nil then return false, "carta desconhecida: " .. tostring(card.id) end
-    g:set_context("jogar", def.id)
     local rule = Game.play_rules[def.kind]
     if rule == nil then return false, "tipo de carta ainda não suportado: " .. tostring(def.kind) end
     if g:stack_open() and not (rule.allowed_in_stack and rule.allowed_in_stack(g, def)) then
@@ -262,7 +259,7 @@ return function(Game)
     if not g:can_pay_mana(p, cost) then return false, "mana insuficiente" end
     local uses_fogueira = not def.no_fogueira
     if uses_fogueira and not g:can_pay_fogueira(p) then return false, "fogueira apagada" end
-    local ok, err = rule.validate(g, p, card, def, action)
+    local ok, err = g:run_card("jogar", def.id, rule.validate, g, p, card, def, action)
     if not ok then return false, err end
 
     table.remove(zone, action.hand_index)
@@ -271,7 +268,7 @@ return function(Game)
     g:spend_mana(p, cost)
     if uses_fogueira then g:spend_fogueira(p) end
     g:emit{ t = "play", p = p, card_uid = card.uid, id = def.id, cost = cost }
-    local passes = rule.resolve(g, p, card, def, action)
+    local passes = g:run_card("jogar", def.id, rule.resolve, g, p, card, def, action)
     if passes == nil then passes = not def.keeps_turn end
     return true, nil, passes
   end

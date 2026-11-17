@@ -36,8 +36,7 @@ return function(Game)
     pl.structures[slot] = nil
     self:emit{ t = "break", p = p, slot = slot, uid = st.uid, card_uid = st.card_uid, id = st.def.id, reason = reason }
     if st.def.on_break then
-      self:set_context("quebrar", st.def.id)
-      st.def.on_break(self, st)
+      self:run_card("quebrar", st.def.id, st.def.on_break, self, st)
     end
     if st.ficha then
       self:vanish(p, st.card, reason)
@@ -68,8 +67,7 @@ return function(Game)
     self.players[p].structures[slot] = st
     self:emit{ t = "structure", p = p, slot = slot, uid = st.uid, card_uid = st.card_uid, id = def.id }
     if def.on_play then
-      self:set_context("entrar", def.id)
-      def.on_play(self, st)
+      self:run_card("entrar", def.id, def.on_play, self, st)
     end
     return st
   end
@@ -159,8 +157,9 @@ return function(Game)
 
   local function open_choice(g, spec)
     if spec.prepare then
-      g:set_context("preparar_escolha", spec.reason)
-      if while_choosing(g, spec.prepare, g, spec) == false then return false end
+      if g:run_card("preparar_escolha", spec.reason, while_choosing, g, spec.prepare, g, spec) == false then
+        return false
+      end
     end
     g.pending_choice = spec
     g:emit{ t = "choice", p = spec.player, reason = spec.reason, count = #(spec.options or {}) }
@@ -198,7 +197,7 @@ return function(Game)
     local conts = g.choice_continuations
     if conts and #conts > 0 then
       g.choice_continuations = {}
-      for _, fn in ipairs(conts) do fn(g) end
+      for _, fn in ipairs(conts) do g:run_card("continuar_rodada", nil, fn, g) end
       return true
     end
     return false
@@ -230,8 +229,7 @@ return function(Game)
     if idx == nil and not ch.allow_none then return false, "é preciso escolher uma opção" end
     if idx ~= nil and (ch.options == nil or ch.options[idx] == nil) then return false, "opção inválida" end
     g.pending_choice = nil
-    g:set_context("escolher", ch.reason)
-    while_choosing(g, ch.resolve, g, idx)
+    g:run_card("escolher", ch.reason, while_choosing, g, ch.resolve, g, idx)
     return true, nil, after_choose(g, ch)
   end
 
@@ -266,7 +264,6 @@ return function(Game)
     if src == nil then return false, err end
     local def = src.def
     if def.activate == nil then return false, "essa carta não tem efeito ativado" end
-    g:set_context("ativar", def.id)
     local spec = def.activation
     local ok, why = g:can_use_speed(spec.speed)
     if not ok then return false, why end
@@ -279,11 +276,11 @@ return function(Game)
     local period_key = g.round .. ":" .. tostring(g:period())
     if spec.once_per_period and card.used_period == period_key then return false, "já ativada neste período" end
     if def.targets then
-      local valid, why = def.targets(g, p, action, g:target_objects(action))
+      local valid, why = g:run_card("ativar", def.id, def.targets, g, p, action, g:target_objects(action))
       if not valid then return false, why or "alvo inválido" end
     end
     if def.can_activate then
-      local can, reason = def.can_activate(g, p, src, action)
+      local can, reason = g:run_card("ativar", def.id, def.can_activate, g, p, src, action)
       if not can then return false, reason or "condição do efeito não atendida" end
     end
     card.used_round = g.round
