@@ -68,7 +68,10 @@ return function(Game)
   -- definem stats(game, criatura). Bônus de equipamentos e efeitos somam por cima.
   function Game:atk(c)
     local base = c.def.atk or 0
-    if c.def.stats then base = (c.def.stats(self, c)) end
+    if c.def.stats then
+      local a = c.def.stats(self, c)
+      if a ~= nil then base = a end
+    end
     local v = base + (c.atk_bonus or 0) + (self.equip_bonus and self:equip_bonus(c, "atk_bonus") or 0)
     if v < 0 then v = 0 end
     return v
@@ -126,32 +129,71 @@ return function(Game)
   -- Alvos
   ----------------------------------------------------------------------------
 
-  -- Alvos de criatura são escritos como { p = jogador, slot = espaço }, em
-  -- action.target ou na lista action.targets. Na jogada, o motor guarda o uid de
-  -- cada criatura escolhida; ao resolver, o alvo só vale se for a mesma criatura.
+  -- Alvos são escritos como { p = jogador, slot = espaço, zone = "criatura" | "estrutura" }
+  -- (zone padrão: "criatura"), em action.target ou na lista action.targets.
+  -- O formato é conferido antes de qualquer gasto. Na jogada, o motor trava o uid de
+  -- cada alvo; ao resolver, o alvo só vale se aquele mesmo objeto continuar em campo.
+  local ZONE_SLOTS = { criatura = "FIELD_SLOTS", estrutura = "STRUCTURE_SLOTS" }
+
   local function each_target(action, fn)
-    if action.target then fn(action.target) end
-    for _, t in ipairs(action.targets or {}) do fn(t) end
+    if action.target ~= nil then fn(action.target) end
+    if action.targets ~= nil then
+      if type(action.targets) ~= "table" then return fn(action.targets) end
+      for _, t in ipairs(action.targets) do fn(t) end
+    end
   end
 
+  function Game:check_targets(action)
+    local err
+    each_target(action, function(t)
+      if err then return end
+      if type(t) ~= "table" then err = "alvo inválido"; return end
+      local zone = t.zone or "criatura"
+      local max = ZONE_SLOTS[zone] and Game[ZONE_SLOTS[zone]]
+      if max == nil then err = "zona de alvo inválida"; return end
+      if t.p ~= 1 and t.p ~= 2 then err = "jogador do alvo inválido"; return end
+      if type(t.slot) ~= "number" or t.slot % 1 ~= 0 or t.slot < 1 or t.slot > max then
+        err = "espaço do alvo inválido"
+      end
+    end)
+    if err then return false, err end
+    return true
+  end
+
+  local function object_at(g, t)
+    if (t.zone or "criatura") == "estrutura" then return g:structure_at(t.p, t.slot) end
+    return g:creature_at(t.p, t.slot)
+  end
+
+  -- Devolve as travas { {zone, uid}, ... } dos alvos; ficam com o efeito na pilha,
+  -- não na ação enviada pelo jogador.
   function Game:lock_targets(action)
+    local locks = {}
     each_target(action, function(t)
-      if t.slot then
-        local c = self:creature_at(t.p, t.slot)
-        t.uid = c and c.uid or nil
-      end
+      local o = object_at(self, t)
+      locks[#locks + 1] = { zone = t.zone or "criatura", uid = o and o.uid or nil }
     end)
+    return locks
   end
 
-  function Game:targets_still_valid(action)
-    local ok = true
-    each_target(action, function(t)
-      if t.uid then
-        local c = self:creature_at(t.p, t.slot)
-        if c == nil or c.uid ~= t.uid then ok = false end
+  function Game:find_structure(uid)
+    for p = 1, 2 do
+      for s = 1, Game.STRUCTURE_SLOTS do
+        local st = self.players[p].structures[s]
+        if st and st.uid == uid then return st end
       end
-    end)
-    return ok
+    end
+  end
+
+  -- Cada alvo travado precisa continuar em campo, onde quer que esteja agora.
+  function Game:targets_still_valid(locks)
+    for _, l in ipairs(locks) do
+      if l.uid == nil then return false end
+      local found
+      if l.zone == "estrutura" then found = self:find_structure(l.uid) else found = self:find_creature(l.uid) end
+      if found == nil then return false end
+    end
+    return true
   end
 
   ----------------------------------------------------------------------------
@@ -213,6 +255,8 @@ return function(Game)
     validate = function(g, p, card, def, action)
       local ok, err = g:can_use_speed(def.speed)
       if not ok then return false, err end
+      ok, err = g:check_targets(action)
+      if not ok then return false, err end
       if def.targets then
         local valid, why = def.targets(g, p, action)
         if not valid then return false, why or "alvo inválido" end
@@ -220,11 +264,10 @@ return function(Game)
       return true
     end,
     resolve = function(g, p, card, def, action)
-      g:lock_targets(action)
+      local locks = g:lock_targets(action)
       return g:use_speed(p, def.speed, def.id, function(gg)
-        -- Alvo perdido: se o alvo saiu de campo (ou foi trocado) até a resolução,
-        -- o feitiço não acontece.
-        local valid = gg:targets_still_valid(action)
+        -- Alvo perdido: se o alvo saiu de campo até a resolução, o feitiço não acontece.
+        local valid = gg:targets_still_valid(locks)
         if valid and def.targets then valid = def.targets(gg, p, action) end
         if valid then
           def.on_cast(gg, p, action, card)

@@ -155,7 +155,10 @@ return function(Game)
     local spec = def.activation
     local ok, why = g:can_use_speed(spec.speed)
     if not ok then return false, why end
-    -- Os usos ficam na carta, não na instância: reequipar ou rejogar não zera o limite.
+    ok, why = g:check_targets(action)
+    if not ok then return false, why end
+    -- Os usos ficam na carta, não na instância: reequipar não zera o limite.
+    -- Passar pelo descarte zera (reset_card), porque a carta volta como nova.
     local card = src.card
     if spec.once_per_round and card.used_round == g.round then return false, "já ativada nesta rodada" end
     local period_key = g.round .. ":" .. tostring(g:period())
@@ -173,11 +176,10 @@ return function(Game)
     g:emit{ t = "activate", p = p, id = def.id, speed = spec.speed }
     -- Equipamentos com efeito de uso perdem 1 de durabilidade ao usar o efeito.
     if src.holder and src.durability then g:wear(src.holder, def.slot, 1) end
-    g:lock_targets(action)
+    local locks = g:lock_targets(action)
     return true, nil, g:use_speed(p, spec.speed, def.id, function(gg)
-      -- Alvo perdido: se o alvo saiu de campo (ou foi trocado) até a resolução,
-      -- o efeito não acontece.
-      if not gg:targets_still_valid(action) or (def.targets and not def.targets(gg, p, action)) then
+      -- Alvo perdido: se o alvo saiu de campo até a resolução, o efeito não acontece.
+      if not gg:targets_still_valid(locks) or (def.targets and not def.targets(gg, p, action)) then
         gg:emit{ t = "fizzle", p = p, id = def.id }
         return
       end
