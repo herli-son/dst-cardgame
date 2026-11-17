@@ -135,7 +135,14 @@ return function(Game)
   -- pedida): monta as opções com o estado daquele momento. Se devolver false, a
   -- escolha não é mais necessária (prepare já resolveu tudo) e a próxima da fila abre.
   local function open_choice(g, spec)
-    if spec.prepare and spec.prepare(g, spec) == false then return false end
+    if spec.prepare then
+      -- Escolhas pedidas dentro do prepare (ex.: on_play da estrutura que entrou)
+      -- vão para o fim da fila, atrás das que já esperavam.
+      g.opening_choice = true
+      local keep = spec.prepare(g, spec)
+      g.opening_choice = false
+      if keep == false then return false end
+    end
     g.pending_choice = spec
     g:emit{ t = "choice", p = spec.player, reason = spec.reason, count = #(spec.options or {}) }
     return true
@@ -143,7 +150,7 @@ return function(Game)
 
   function Game:set_choice(p, spec)
     spec.player = p
-    if self.pending_choice then
+    if self.pending_choice or self.opening_choice then
       self.choice_queue = self.choice_queue or {}
       table.insert(self.choice_queue, spec)
       return
