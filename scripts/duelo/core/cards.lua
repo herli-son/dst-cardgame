@@ -7,7 +7,13 @@
 --   id, name, kind ("criatura" | "feitico" | "estrutura" | "equipamento" | "turf" | "evento"), cost
 -- Criatura:
 --   atk, hp, speed (padrão 1), kw = { agressivo = true, fragil = true, ... },
+--   kw.rival = "tipo"                  Rival guarda o nome do tipo (ex.: "porco")
 --   types = { aranha = true, ... }, sobrevivente (boolean)
+--   no_attack = true / no_block = true não pode atacar / não pode bloquear
+--   block_speed                        velocidade ao bloquear (ex.: Tentáculo)
+--   speed_fn(game, criatura, role)     velocidade que depende do estado; role =
+--                                      "attack" | "block"
+--   on_strike(game, criatura, alvo)    Golpear: depois de um golpe com dano > 0
 --   on_play(game, criatura)            efeito ao entrar em campo
 --   on_any_enter(game, criatura, nova) reage a qualquer criatura que entrar
 --   stats(game, criatura) -> atk, hp   atributos que dependem do estado (ex.: Morcego)
@@ -16,6 +22,8 @@
 --   targets(game, p, action, objects) -> ok, erro   confere os alvos; objects traz os
 --                                         objetos dos alvos, na jogada e ao resolver
 --   on_cast(game, p, action, card, objects)  o efeito; use objects, não o espaço da ação
+-- Equipamento:
+--   on_strike(game, portador, alvo, equip)  Golpear do equipamento
 
 local Cards = {}
 
