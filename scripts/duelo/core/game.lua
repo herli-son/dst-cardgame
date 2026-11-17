@@ -483,12 +483,22 @@ function Game:damage_player(p, n, source, opts)
   return n
 end
 
+-- Quantidade de cura: número inteiro. Outro valor é erro da carta que pediu
+-- (vira o estado de erro da partida, em vez de corromper vida ou dano). Nível 3:
+-- a posição do erro é a da carta que chamou heal_creature ou heal_player.
+function Game.check_amount(n)
+  if type(n) ~= "number" or n ~= n or n % 1 ~= 0 then
+    error("quantidade inválida: " .. tostring(n), 3)
+  end
+  return n
+end
+
 -- Recupera vida do jogador, até Game.MAX_LIFE. Devolve o quanto recuperou (0 se
 -- nada). Com a partida decidida, não recupera. Dentro de um efeito, recuperar
 -- depois de um dano letal do mesmo efeito salva o jogador: a vitória é
 -- verificada no fim do efeito.
 function Game:heal_player(p, n, source)
-  if self.winner ~= nil or n <= 0 then return 0 end
+  if Game.check_amount(n) <= 0 or self.winner ~= nil then return 0 end
   local pl = self.players[p]
   local amount = math.min(n, Game.MAX_LIFE - pl.life)
   if amount <= 0 then return 0 end
