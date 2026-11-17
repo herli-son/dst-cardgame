@@ -13,6 +13,16 @@
 --     dano. O dano que sobra num bloqueio não passa para o jogador.
 --   * Uma criatura que sai do lado em que estava (morre, volta para a mão ou muda
 --     de dono) sai do combate.
+--   * Bloqueios obrigatórios (doc, "Palavras-chave"), em ordem de prioridade:
+--     1. Rival (tipo): o atacante Rival deve ser bloqueado por uma criatura desse
+--        tipo, se o defensor tiver;
+--     2. Frágil: o atacante Frágil deve ser bloqueado por uma Agressiva, se o
+--        defensor tiver;
+--     3. Agressivo: o atacante Agressivo sem bloqueio é bloqueado por uma Frágil
+--        do defensor que esteja livre (sem bloquear ninguém).
+--     O defensor declara os pares e o motor confere; se ele passar sem declarar,
+--     o motor completa os obrigatórios pela ordem declarada dos atacantes e pela
+--     ordem dos espaços dos bloqueadores.
 --
 -- Resolução em duas fases, pela Velocidade: a fase rápida (velocidade 2 e 3) e a
 -- fase normal (velocidade 1 e 3). Em cada fase, todos os golpes acontecem ao mesmo
@@ -147,6 +157,111 @@ return function(Game)
     return false
   end
 
+  ----------------------------------------------------------------------------
+  -- Bloqueios obrigatórios: Rival, Frágil e Agressivo
+  ----------------------------------------------------------------------------
+
+  local function kw(c, k) return c.def.kw[k] end
+
+  -- Quem pode bloquear: as criaturas do defensor que bloqueiam.
+  local function blockers_of(g, p)
+    local list = {}
+    for _, d in ipairs(g:creatures(p)) do
+      if not d.def.no_block then list[#list + 1] = d end
+    end
+    return list
+  end
+
+  -- Cada nível diz se o atacante a está sujeito a ele e se d o atende.
+  local TIERS = {
+    { applies = function(a) return kw(a, "rival") ~= nil end,
+      fits = function(a, d) return d.def.types[kw(a, "rival")] == true end },
+    { applies = function(a) return kw(a, "fragil") == true end,
+      fits = function(a, d) return kw(d, "agressivo") == true end },
+  }
+
+  -- O nível que vale para o atacante: o primeiro a que ele está sujeito e que o
+  -- defensor pode atender com alguma criatura (Rival tem prioridade sobre Frágil).
+  local function tier_of(a, defenders)
+    for i, t in ipairs(TIERS) do
+      if t.applies(a) then
+        for _, d in ipairs(defenders) do
+          if t.fits(a, d) then return i end
+        end
+      end
+    end
+  end
+
+  -- d está "gasto" no nível k se bloqueia um atacante cujo nível <= k é atendido por d.
+  local function spent(blocking, tiers, d, k)
+    local a = blocking[d]
+    if a == nil then return false end
+    local i = tiers[a]
+    return i ~= nil and i <= k and TIERS[i].fits(a, d)
+  end
+
+  -- Confere os pares contra as regras. pairs = { { atacante, bloqueador }, ... }.
+  function Game:check_forced_blocks(cb, pairs)
+    local defenders = blockers_of(self, cb.defender)
+    local block_of, blocking = {}, {}
+    for _, pr in ipairs(pairs) do block_of[pr[1]], blocking[pr[2]] = pr[2], pr[1] end
+    local tiers = {}
+    for _, a in ipairs(cb.attackers) do tiers[a] = tier_of(a, defenders) end
+    for _, a in ipairs(cb.attackers) do
+      local k = tiers[a]
+      if k and not (block_of[a] and TIERS[k].fits(a, block_of[a])) then
+        for _, d in ipairs(defenders) do
+          if TIERS[k].fits(a, d) and not spent(blocking, tiers, d, k) then
+            return false, k == 1 and "atacante Rival deve ser bloqueado por uma criatura do tipo dele"
+              or "atacante Frágil deve ser bloqueado por uma criatura Agressiva"
+          end
+        end
+      end
+    end
+    for _, a in ipairs(cb.attackers) do
+      if kw(a, "agressivo") and not block_of[a] then
+        for _, d in ipairs(defenders) do
+          if kw(d, "fragil") and not blocking[d] then
+            return false, "atacante Agressivo sem bloqueio deve ser bloqueado por uma Frágil livre"
+          end
+        end
+      end
+    end
+    return true
+  end
+
+  -- Completa os pares obrigatórios, nível por nível, quando o defensor não declarou.
+  local function auto_blocks(g, cb)
+    local defenders = blockers_of(g, cb.defender)
+    local attackers = {}
+    for _, a in ipairs(cb.attackers) do
+      if a.owner == cb.attacker and g.players[cb.attacker].field[a.slot] == a then
+        attackers[#attackers + 1] = a
+      end
+    end
+    local used, pairs = {}, {}
+    local function assign(a, ok)
+      if cb.blocked[a] then return end
+      for _, d in ipairs(defenders) do
+        if not used[d] and ok(d) then
+          used[d] = true
+          cb.blocks[a], cb.blocked[a] = d, true
+          pairs[#pairs + 1] = { attacker = a.uid, blocker = d.uid }
+          return
+        end
+      end
+    end
+    for k, t in ipairs(TIERS) do
+      for _, a in ipairs(attackers) do
+        if tier_of(a, defenders) == k then assign(a, function(d) return t.fits(a, d) end) end
+      end
+    end
+    for _, a in ipairs(attackers) do
+      if kw(a, "agressivo") then assign(a, function(d) return kw(d, "fragil") == true end) end
+    end
+    if #pairs > 0 then g:emit{ t = "block", p = cb.defender, blocks = pairs, auto = true } end
+  end
+
   -- action = { type = "block", blocks = { { attacker = espaço, blocker = espaço }, ... } }
   -- Uma lista vazia declara que não há bloqueios e não conta como pôr algo na pilha.
   Game.actions.block = function(g, p, action)
@@ -170,6 +285,8 @@ return function(Game)
       atk_used[a], blk_used[d] = true, true
       chosen[#chosen + 1] = { a, d }
     end
+    local ok, why = g:check_forced_blocks(cb, chosen)
+    if not ok then return false, why end
     for _, pr in ipairs(chosen) do
       cb.blocks[pr[1]] = pr[2]
       cb.blocked[pr[1]] = true
@@ -184,9 +301,10 @@ return function(Game)
   end
 
   -- Ponto único onde os bloqueios ficam definitivos, chamado ao resolver o
-  -- combate (inclusive quando o defensor passou sem bloquear). Frágil e
-  -- Agressivo (US #18) entram aqui.
+  -- combate. Se o defensor passou sem declarar, os bloqueios obrigatórios são
+  -- completados aqui, com quem está em campo agora.
   function Game:finalize_blocks(cb)
+    if not cb.blocks_declared then auto_blocks(self, cb) end
   end
 
   ----------------------------------------------------------------------------
