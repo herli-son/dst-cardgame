@@ -83,6 +83,7 @@ return function(Game)
     self:emit{ t = "stack_closed" }
     if self.winner ~= nil then return end
     -- A vez de quem abriu conta agora e passa para quem não abriu.
+    if opener == nil then return end
     self.active = opener
     self:advance_vez()
   end

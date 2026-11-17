@@ -156,10 +156,14 @@ return function(Game)
     g.opening_choice = prev
     if not ok then
       if on_error then
-        -- Um erro durante a limpeza não esconde o erro original.
-        local ok2, err2 = pcall(on_error)
-        if not ok2 and type(err) == "string" then
-          err = err .. "\n(depois, ao continuar a fila: " .. tostring(err2) .. ")"
+        -- Um erro durante a limpeza não esconde o erro original: é anexado a ele.
+        local ok2, err2 = xpcall(on_error, function(e) return debug.traceback(tostring(e), 2) end)
+        if not ok2 then
+          if type(err) == "string" then
+            err = err .. "\n(depois, ao continuar a fila: " .. err2 .. ")"
+          elseif type(err) == "table" then
+            err.cleanup_error = err2
+          end
         end
       end
       error(err, 0)
@@ -204,26 +208,37 @@ return function(Game)
   -- de passar a vez), retomar a pilha em resolução e as continuações suspensas.
   -- Devolve se a vez deve passar agora.
   local function after_choose(g, ch)
-    if g.pending_choice == nil then g:next_choice() end
+    -- Se o preparo da próxima escolha falhar, o resto do trabalho continua e o
+    -- erro sobe só no fim.
+    local queue_err
+    if g.pending_choice == nil then
+      local ok, e = pcall(g.next_choice, g)
+      if not ok then queue_err = e end
+    end
+    local passes = false
     if g.pending_choice then
       if g.pending_choice.passes_turn == nil then g.pending_choice.passes_turn = ch.passes_turn end
-      return false
-    end
-    local resumed = false
-    if g.resolving then
+    elseif g.resolving then
       -- A pilha retoma; ao fechar, ela mesma passa a vez para quem não a abriu.
       g:resolve_stack()
-      if g:choices_waiting() then return false end
-      resumed = true
+      if not g:choices_waiting() then
+        local conts = g.choice_continuations
+        if conts and #conts > 0 then
+          g.choice_continuations = {}
+          for _, fn in ipairs(conts) do fn(g) end
+        end
+      end
+    else
+      local conts = g.choice_continuations
+      if conts and #conts > 0 then
+        g.choice_continuations = {}
+        for _, fn in ipairs(conts) do fn(g) end
+      else
+        passes = ch.passes_turn == true
+      end
     end
-    local conts = g.choice_continuations
-    if conts and #conts > 0 then
-      g.choice_continuations = {}
-      for _, fn in ipairs(conts) do fn(g) end
-      return false
-    end
-    if resumed then return false end
-    return ch.passes_turn == true
+    if queue_err ~= nil then error(queue_err, 0) end
+    return passes
   end
 
   -- action = { type = "choose", index = n } ; index nil ou 0 = nenhuma (se permitido)
