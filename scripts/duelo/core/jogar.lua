@@ -107,10 +107,10 @@ return function(Game)
     }
     self.players[p].field[slot] = c
     self:emit{ t = "summon", p = p, slot = slot, uid = c.uid, card_uid = c.card_uid, id = def.id, ficha = c.ficha }
-    if def.on_play then def.on_play(self, c) end
+    if def.on_play then self:as_one_effect(def.on_play, self, c) end
     for _, other in ipairs(self:all_creatures()) do
       if other ~= c and other.def.on_any_enter and self.players[other.owner].field[other.slot] == other then
-        other.def.on_any_enter(self, other, c)
+        self:as_one_effect(other.def.on_any_enter, self, other, c)
       end
     end
     return c

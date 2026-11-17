@@ -49,7 +49,7 @@ return function(Game)
     c.equips[def.slot] = e
     self:emit{ t = "equip", p = c.owner, slot = c.slot, holder_uid = c.uid, equip_slot = def.slot,
       uid = e.uid, card_uid = e.card_uid, id = def.id }
-    if def.on_equip then def.on_equip(self, c, e) end
+    if def.on_equip then self:as_one_effect(def.on_equip, self, c, e) end
     return e
   end
 

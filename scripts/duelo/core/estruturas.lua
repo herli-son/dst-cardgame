@@ -35,7 +35,7 @@ return function(Game)
     if st == nil then return end
     pl.structures[slot] = nil
     self:emit{ t = "break", p = p, slot = slot, uid = st.uid, card_uid = st.card_uid, id = st.def.id, reason = reason }
-    if st.def.on_break then st.def.on_break(self, st) end
+    if st.def.on_break then self:as_one_effect(st.def.on_break, self, st) end
     if st.ficha then
       self:vanish(p, st.card, reason)
     else
@@ -64,7 +64,7 @@ return function(Game)
     }
     self.players[p].structures[slot] = st
     self:emit{ t = "structure", p = p, slot = slot, uid = st.uid, card_uid = st.card_uid, id = def.id }
-    if def.on_play then def.on_play(self, st) end
+    if def.on_play then self:as_one_effect(def.on_play, self, st) end
     return st
   end
 
@@ -271,7 +271,8 @@ return function(Game)
     g.pending_choice = nil
     -- Se a resolução falhar, o resto do trabalho da escolha acontece antes de o
     -- erro subir: a fila anda, a pilha retoma e a vez passa se for o caso.
-    while_choosing(g, ch.resolve, function()
+    -- A resolução de uma escolha é um efeito próprio.
+    while_choosing(g, function(gg, i) gg:as_one_effect(ch.resolve, gg, i) end, function()
       local passes, err = after_choose(g, ch)
       finish_choice(g, passes)
       if err ~= nil then error(err, 0) end
