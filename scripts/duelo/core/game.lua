@@ -56,7 +56,10 @@ function Game:run_hooks(event, ...)
   local list = {}
   for i, fn in ipairs(live) do list[i] = fn end
   for _, fn in ipairs(list) do
-    if has_hook(live, fn) then fn(self, ...) end
+    if has_hook(live, fn) then
+      self:set_context("gancho", event)
+      fn(self, ...)
+    end
   end
 end
 
@@ -219,7 +222,7 @@ function Game:draw(p, n)
   end
 end
 
-function Game:start()
+local function start_impl(self)
   for p = 1, 2 do
     self:shuffle_deck(p)
     self:draw(p, Game.START_HAND)
@@ -237,7 +240,7 @@ end
 -- Troca inicial: cada jogador escolhe quais cartas da mão inicial devolver
 -- (lista de índices, pode ser vazia). As devolvidas voltam ao baralho, que é
 -- embaralhado, e o jogador compra a mesma quantidade. Uma vez por jogador.
-function Game:mulligan(p, indices)
+local function mulligan_impl(self, p, indices)
   if p ~= 1 and p ~= 2 then return false, "jogador inválido" end
   if self.phase ~= "mulligan" then return false, "fora da fase de troca" end
   local pl = self.players[p]
@@ -457,8 +460,9 @@ function Game:advance_vez()
   self:update_period()
 end
 
--- Ponto único de entrada das jogadas.
-function Game:act(p, action)
+-- Jogada sem proteção; use Game:act.
+local function act_impl(self, p, action)
+  self.context = nil
   if self.winner ~= nil then return false, "partida encerrada" end
   if self.phase ~= "playing" then return false, "a partida ainda não começou" end
   if type(action) ~= "table" or action.type == nil then return false, "ação inválida" end
@@ -512,6 +516,63 @@ end
 
 -- Ações aceitas com a pilha aberta; cada uma confere o tipo do efeito.
 Game.allowed_with_stack = { play = true, activate = true, choose = true, block = true }
+
+----------------------------------------------------------------------------
+-- Entradas protegidas
+----------------------------------------------------------------------------
+
+-- Erro no código de uma carta é bug da carta. Em vez de tentar recuperar a
+-- partida, o motor a encerra com estado de erro: guarda a mensagem, o traceback
+-- e o contexto (qual carta ou efeito rodava) e não aceita mais nenhuma ação.
+
+local function pack(...)
+  return { n = select("#", ...), ... }
+end
+
+local function with_traceback(e)
+  if type(e) ~= "string" then return e end
+  return debug.traceback(e, 2)
+end
+
+-- Marca o que está rodando agora, para o registro de erro dizer qual carta falhou.
+function Game:set_context(kind, id)
+  self.context = { kind = kind, id = id }
+end
+
+function Game:fail(err)
+  self.phase = "error"
+  self.error = {
+    message = type(err) == "string" and err or tostring(err),
+    value = err,
+    context = self.context,
+  }
+  self:emit{ t = "engine_error", context = self.context, message = self.error.message }
+end
+
+function Game:guarded(fn, ...)
+  if self.phase == "error" then return false, "partida encerrada por erro" end
+  local args = pack(...)
+  local results
+  local ok, err = xpcall(function() results = pack(fn(self, unpack(args, 1, args.n))) end, with_traceback)
+  if not ok then
+    self:fail(err)
+    return false, "erro no motor: partida encerrada"
+  end
+  return unpack(results, 1, results.n)
+end
+
+function Game:start()
+  return self:guarded(start_impl)
+end
+
+function Game:mulligan(p, indices)
+  return self:guarded(mulligan_impl, p, indices)
+end
+
+-- Ponto único de entrada das jogadas.
+function Game:act(p, action)
+  return self:guarded(act_impl, p, action)
+end
 
 require("duelo/core/pilha")(Game)
 require("duelo/core/jogar")(Game)

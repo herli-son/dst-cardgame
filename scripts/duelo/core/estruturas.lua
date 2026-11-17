@@ -35,7 +35,10 @@ return function(Game)
     if st == nil then return end
     pl.structures[slot] = nil
     self:emit{ t = "break", p = p, slot = slot, uid = st.uid, card_uid = st.card_uid, id = st.def.id, reason = reason }
-    if st.def.on_break then st.def.on_break(self, st) end
+    if st.def.on_break then
+      self:set_context("quebrar", st.def.id)
+      st.def.on_break(self, st)
+    end
     if st.ficha then
       self:vanish(p, st.card, reason)
     else
@@ -64,7 +67,10 @@ return function(Game)
     }
     self.players[p].structures[slot] = st
     self:emit{ t = "structure", p = p, slot = slot, uid = st.uid, card_uid = st.card_uid, id = def.id }
-    if def.on_play then def.on_play(self, st) end
+    if def.on_play then
+      self:set_context("entrar", def.id)
+      def.on_play(self, st)
+    end
     return st
   end
 
@@ -174,6 +180,7 @@ return function(Game)
   local function open_choice(g, spec)
     -- Se o preparo falhar, a escolha é descartada e a próxima da fila abre.
     local function skip() g:next_choice() end
+    if spec.prepare then g:set_context("preparar_escolha", spec.reason) end
     if spec.prepare and while_choosing(g, spec.prepare, skip, g, spec) == false then return false end
     g.pending_choice = spec
     g:emit{ t = "choice", p = spec.player, reason = spec.reason, count = #(spec.options or {}) }
@@ -269,6 +276,7 @@ return function(Game)
     if idx == nil and not ch.allow_none then return false, "é preciso escolher uma opção" end
     if idx ~= nil and (ch.options == nil or ch.options[idx] == nil) then return false, "opção inválida" end
     g.pending_choice = nil
+    g:set_context("escolher", ch.reason)
     -- Se a resolução falhar, o resto do trabalho da escolha acontece antes de o
     -- erro subir: a fila anda, a pilha retoma e a vez passa se for o caso.
     while_choosing(g, ch.resolve, function()
@@ -316,6 +324,7 @@ return function(Game)
     if src == nil then return false, err end
     local def = src.def
     if def.activate == nil then return false, "essa carta não tem efeito ativado" end
+    g:set_context("ativar", def.id)
     local spec = def.activation
     local ok, why = g:can_use_speed(spec.speed)
     if not ok then return false, why end

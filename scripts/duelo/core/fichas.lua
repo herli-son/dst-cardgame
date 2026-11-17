@@ -93,7 +93,10 @@ return function(Game)
     self:emit{ t = "death", p = c.owner, slot = c.slot, uid = c.uid, card_uid = c.card_uid, id = c.def.id,
       reason = reason, killer_uid = killer and killer.uid or nil }
     self:remove_creature(c, "discard", reason or "abatida")
-    if c.def.on_death then c.def.on_death(self, c, killer) end
+    if c.def.on_death then
+      self:set_context("morrer", c.def.id)
+      c.def.on_death(self, c, killer)
+    end
     self:run_hooks("death", c, killer)
   end
 end

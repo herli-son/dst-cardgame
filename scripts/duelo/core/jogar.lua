@@ -107,9 +107,13 @@ return function(Game)
     }
     self.players[p].field[slot] = c
     self:emit{ t = "summon", p = p, slot = slot, uid = c.uid, card_uid = c.card_uid, id = def.id, ficha = c.ficha }
-    if def.on_play then def.on_play(self, c) end
+    if def.on_play then
+      self:set_context("entrar", def.id)
+      def.on_play(self, c)
+    end
     for _, other in ipairs(self:all_creatures()) do
       if other ~= c and other.def.on_any_enter and self.players[other.owner].field[other.slot] == other then
+        self:set_context("reagir", other.def.id)
         other.def.on_any_enter(self, other, c)
       end
     end
@@ -247,6 +251,7 @@ return function(Game)
     if card == nil then return false, "carta não está na mão" end
     local def = g:def_of(card)
     if def == nil then return false, "carta desconhecida: " .. tostring(card.id) end
+    g:set_context("jogar", def.id)
     local rule = Game.play_rules[def.kind]
     if rule == nil then return false, "tipo de carta ainda não suportado: " .. tostring(def.kind) end
     if g:stack_open() and not (rule.allowed_in_stack and rule.allowed_in_stack(g, def)) then
