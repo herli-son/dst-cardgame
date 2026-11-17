@@ -18,30 +18,36 @@ return function(Game)
   -- Cria uma ficha para o jogador p.
   -- opts.zone = "hand" para criar na mão; senão vai para o campo conforme o tipo.
   -- opts.slot escolhe o espaço; sem ele, usa o primeiro livre.
-  -- Retorna a criatura, a estrutura ou a carta criada, ou nil se não houver espaço.
+  -- Retorna a criatura, a estrutura ou a carta criada. Sem isso, retorna nil e o motivo:
+  -- "sem_espaco" (não foi criada) ou "pendente" (o dono escolhe onde ela entra).
   function Game:create_token(p, id, opts)
     opts = opts or {}
     local card = self:make_token(id)
     local def = self:def_of(card)
     if opts.zone == "hand" then
       if self:add_to_hand(p, card, "ficha") then return card end
-      return nil
+      return nil, "sem_espaco"
     end
     if def.kind == "criatura" then
       local slot = opts.slot
       if slot == nil or self.players[p].field[slot] ~= nil then slot = self:free_slots(p)[1] end
       if slot == nil then
         self:emit{ t = "no_space", p = p, id = id }
-        return nil
+        return nil, "sem_espaco"
       end
       return self:place_creature(p, card, slot, { ficha = true })
     elseif def.kind == "estrutura" then
-      local slot = opts.slot or self.first_free_structure(self, p)
+      -- Mesma regra da jogada: só substitui com a zona cheia.
+      local free = self.first_free_structure(self, p)
+      local slot = opts.slot
+      if slot == nil or (self.players[p].structures[slot] ~= nil and free ~= nil) then slot = free end
       if slot == nil then
         -- Zona cheia: o dono escolhe qual estrutura a ficha substitui.
-        self:set_choice(p, { reason = "substituir_estrutura", options = { 1, 2 },
+        local options = {}
+        for s = 1, Game.STRUCTURE_SLOTS do options[s] = s end
+        self:set_choice(p, { reason = "substituir_estrutura", options = options,
           resolve = function(g, idx) g:put_structure(p, card, idx, { ficha = true }) end })
-        return nil
+        return nil, "pendente"
       end
       return self:put_structure(p, card, slot, { ficha = true })
     end
@@ -56,12 +62,17 @@ return function(Game)
     local pl = self.players[c.owner]
     if pl.field[c.slot] ~= c then return end
     pl.field[c.slot] = nil
-    if opts.equips == "inventory" then
-      self:return_all_equips(c, reason)
-    else
-      self:discard_all_equips(c, reason)
-    end
-    self:emit{ t = "leave", p = c.owner, slot = c.slot, uid = c.uid, id = c.def.id, dest = dest, reason = reason }
+    -- Equipamentos para o Inventário só depois de a criatura chegar ao destino
+    -- (a criatura devolvida à mão tem prioridade no limite de mão).
+    if opts.equips ~= "inventory" then self:discard_all_equips(c, reason) end
+    self:emit{ t = "leave", p = c.owner, slot = c.slot, uid = c.uid, card_uid = c.card_uid,
+      id = c.def.id, dest = dest, reason = reason }
+    self:send_card(c, dest, reason)
+    if opts.equips == "inventory" then self:return_all_equips(c, reason) end
+  end
+
+  function Game:send_card(c, dest, reason)
+    local pl = self.players[c.owner]
     local card = c.card
     if c.ficha or card.ficha then
       self:vanish(c.owner, card, reason)
@@ -80,13 +91,15 @@ return function(Game)
   end
 
   -- Abater: a criatura morre, vai para o descarte e dispara os efeitos "ao morrer"
-  -- (o dela, on_death, e os ganchos "death" da partida).
-  function Game:kill(c, reason)
+  -- (o dela, on_death, e os ganchos "death" da partida). killer é a criatura que
+  -- causou a morte, quando houver (Cão vermelho, Cão de gelo).
+  function Game:kill(c, reason, killer)
     local pl = self.players[c.owner]
     if pl.field[c.slot] ~= c then return end
-    self:emit{ t = "death", p = c.owner, slot = c.slot, uid = c.uid, id = c.def.id, reason = reason }
+    self:emit{ t = "death", p = c.owner, slot = c.slot, uid = c.uid, card_uid = c.card_uid, id = c.def.id,
+      reason = reason, killer_uid = killer and killer.uid or nil }
     self:remove_creature(c, "discard", reason or "abatida")
-    if c.def.on_death then c.def.on_death(self, c) end
-    self:run_hooks("death", c)
+    if c.def.on_death then c.def.on_death(self, c, killer) end
+    self:run_hooks("death", c, killer)
   end
 end

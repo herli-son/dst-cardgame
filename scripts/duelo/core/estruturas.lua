@@ -49,7 +49,7 @@ return function(Game)
   function Game:put_structure(p, card, slot, opts)
     opts = opts or {}
     slot = slot or first_free(self, p)
-    assert(slot ~= nil, "zona de estruturas cheia: é preciso indicar qual substituir")
+    if slot == nil then return nil, "zona de estruturas cheia: é preciso indicar qual substituir" end
     if self.players[p].structures[slot] then self:break_structure(p, slot, "substituida") end
     local def = self:def_of(card)
     local st = {
