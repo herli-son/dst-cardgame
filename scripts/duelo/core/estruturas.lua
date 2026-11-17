@@ -94,12 +94,29 @@ return function(Game)
   ----------------------------------------------------------------------------
 
   -- Um efeito pode pedir uma escolha ao jogador. Enquanto ela estiver aberta,
-  -- só a ação "choose" desse jogador é aceita.
+  -- só a ação "choose" desse jogador é aceita. Escolhas abertas enquanto outra
+  -- está pendente entram numa fila e são feitas na ordem.
   -- spec = { reason, options = {...}, allow_none = bool, resolve = function(g, index_ou_nil) }
   function Game:set_choice(p, spec)
     spec.player = p
+    if self.pending_choice then
+      self.choice_queue = self.choice_queue or {}
+      table.insert(self.choice_queue, spec)
+      return
+    end
     self.pending_choice = spec
     self:emit{ t = "choice", p = p, reason = spec.reason, count = #(spec.options or {}) }
+  end
+
+  -- Abre a próxima escolha da fila, se houver.
+  local function next_choice(g)
+    local q = g.choice_queue
+    if q and #q > 0 then
+      local spec = table.remove(q, 1)
+      g.pending_choice = spec
+      g:emit{ t = "choice", p = spec.player, reason = spec.reason, count = #(spec.options or {}) }
+      return spec
+    end
   end
 
   -- action = { type = "choose", index = n } ; index nil ou 0 = nenhuma (se permitido)
@@ -113,9 +130,22 @@ return function(Game)
     if idx ~= nil and (ch.options == nil or ch.options[idx] == nil) then return false, "opção inválida" end
     g.pending_choice = nil
     ch.resolve(g, idx)
+    if g.pending_choice == nil then next_choice(g) end
+    if g.pending_choice then
+      -- Ainda há escolhas: a vez (se for passar) espera a última.
+      if g.pending_choice.passes_turn == nil then g.pending_choice.passes_turn = ch.passes_turn end
+      return true, nil, false
+    end
     -- Escolha aberta durante a resolução da pilha: continua resolvendo.
-    if g.resolving and g.pending_choice == nil then
+    if g.resolving then
       g:resolve_stack()
+      return true, nil, false
+    end
+    -- Continuações suspensas (fim ou início de rodada) retomam aqui.
+    local conts = g.choice_continuations
+    if conts and #conts > 0 then
+      g.choice_continuations = {}
+      for _, fn in ipairs(conts) do fn(g) end
       return true, nil, false
     end
     return true, nil, ch.passes_turn == true

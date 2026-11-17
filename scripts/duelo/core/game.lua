@@ -374,11 +374,17 @@ function Game:begin_round()
   self:check_winner()
   if self.winner ~= nil then return end
   self:run_hooks("round_start")
-  self:update_period()
+  -- Um gancho de início de rodada pode abrir escolhas; a manhã só começa depois.
+  self:after_choices(function(g) g:update_period() end)
 end
 
 function Game:end_round()
   self:run_hooks("round_end")
+  -- Um gancho de fim de rodada pode abrir escolhas; a rodada só termina depois.
+  self:after_choices(function(g) g:finish_round() end)
+end
+
+function Game:finish_round()
   -- Terminar a rodada à noite com a fogueira em zero causa dano. As duas
   -- verificações acontecem antes de decidir o vencedor, para um empate ser possível.
   if self:is_night_lit() and not self.fogueira_no_damage then
@@ -395,6 +401,13 @@ function Game:end_round()
   if self.winner == nil then
     self:begin_round()
   end
+end
+
+-- Roda fn agora se não houver escolha aberta; senão, quando a última for feita.
+function Game:after_choices(fn)
+  if self.pending_choice == nil then return fn(self) end
+  self.choice_continuations = self.choice_continuations or {}
+  table.insert(self.choice_continuations, fn)
 end
 
 function Game:advance_vez()
