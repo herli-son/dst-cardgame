@@ -56,7 +56,7 @@ function Game:run_hooks(event, ...)
   local list = {}
   for i, fn in ipairs(live) do list[i] = fn end
   for _, fn in ipairs(list) do
-    if has_hook(live, fn) then fn(self, ...) end
+    if has_hook(live, fn) then self:as_one_effect(fn, self, ...) end
   end
 end
 
@@ -372,6 +372,44 @@ end
 -- Vida dos jogadores
 ----------------------------------------------------------------------------
 
+-- Um efeito é uma ação só (doc, "Vitória e empate"): todo dano que ele causa aos
+-- jogadores conta junto, e a vitória é verificada no fim dele. Se o mesmo efeito
+-- deixar os dois jogadores com zero ou menos, é empate. Efeitos diferentes contam
+-- separadamente: um efeito que começa quando algum jogador já está com zero ou
+-- menos (a partida está decidida) não acontece. Efeitos aninhados (a morte
+-- causada por um feitiço) são efeitos próprios e decidem no fim deles.
+local function effect_traceback(e)
+  if type(e) ~= "string" then return e end
+  -- Um erro que já passou por outro efeito já traz o traceback.
+  if e:find("stack traceback", 1, true) then return e end
+  return debug.traceback(e, 2)
+end
+
+-- Sinal interno: a partida foi decidida por um efeito aninhado, e o resto do
+-- efeito de fora não acontece. É capturado pelo efeito mais externo.
+local DECIDED = {}
+Game.DECIDED = DECIDED
+
+-- Enquanto um efeito roda, um jogador com zero ou menos de vida (ainda que por um
+-- instante) faz os efeitos aninhados que começarem nesse intervalo não
+-- acontecerem: a partida está sendo decidida por este efeito.
+function Game:as_one_effect(fn, ...)
+  if self.winner ~= nil then return end
+  if self.players[1].life <= 0 or self.players[2].life <= 0 then return end
+  local args = { n = select("#", ...), ... }
+  self.effect_depth = (self.effect_depth or 0) + 1
+  local ok, err = xpcall(function() fn(unpack(args, 1, args.n)) end, effect_traceback)
+  self.effect_depth = self.effect_depth - 1
+  if not ok and err ~= DECIDED then
+    -- Mesmo com erro, o dano que o efeito já causou decide a partida.
+    self:check_winner()
+    error(err, 0)
+  end
+  if ok then self:check_winner() end
+  -- Partida decidida: o efeito de fora, se houver, para aqui.
+  if self.winner ~= nil and self.effect_depth > 0 then error(DECIDED, 0) end
+end
+
 function Game:check_winner()
   if self.winner ~= nil then return end
   local dead1 = self.players[1].life <= 0
@@ -401,7 +439,8 @@ function Game:damage_player(p, n, source, opts)
   pl.life = pl.life - n
   self:emit{ t = "player_damage", p = p, amount = n, source = source, life = pl.life,
     from_uid = opts.from and opts.from.uid or nil }
-  if not opts.no_check and not self.defer_winner then self:check_winner() end
+  -- Dentro de um efeito, a vitória é verificada no fim dele.
+  if not opts.no_check and (self.effect_depth or 0) == 0 then self:check_winner() end
   return n
 end
 
@@ -545,8 +584,10 @@ end
 
 local function settled(self, core, ...)
   local r = pack(pcall(core, self, ...))
-  -- Marca de vitória adiada nunca sobrevive a uma entrada pública.
-  self.defer_winner = false
+  -- A contagem de efeitos abertos nunca sobrevive a uma entrada pública, e o dano
+  -- de um efeito interrompido por erro ainda decide a partida.
+  self.effect_depth = 0
+  self:check_winner()
   self:settle()
   if not r[1] then error(r[2], 0) end
   return unpack(r, 2, r.n)

@@ -146,7 +146,8 @@ return function(Game)
       -- Partida decidida: os efeitos de morte que faltam não rodam.
       if self.winner ~= nil then return end
       local c, killer = item[1], item[2]
-      if c.def.on_death then c.def.on_death(self, c, killer) end
+      if c.def.on_death then self:as_one_effect(c.def.on_death, self, c, killer) end
+      if self.winner ~= nil then return end
       self:run_hooks("death", c, killer)
     end
   end

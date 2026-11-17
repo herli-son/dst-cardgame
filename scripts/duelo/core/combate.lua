@@ -219,10 +219,13 @@ return function(Game)
   -- da criatura e dos equipamentos dela (equip.def.on_strike(game, criatura, alvo, equip)).
   -- alvo é a criatura golpeada ou { player = p }.
   function Game:fire_strike_effects(c, target)
-    if c.def.on_strike then c.def.on_strike(self, c, target) end
+    -- Cada efeito de Golpear (o da criatura e o de cada equipamento) é um efeito
+    -- próprio para a vitória.
+    if c.def.on_strike then self:as_one_effect(c.def.on_strike, self, c, target) end
     for _, slot in ipairs(Game.EQUIP_ORDER) do
+      if self.winner ~= nil then return end
       local e = c.equips[slot]
-      if e and e.def.on_strike then e.def.on_strike(self, c, target, e) end
+      if e and e.def.on_strike then self:as_one_effect(e.def.on_strike, self, c, target, e) end
     end
   end
 
@@ -238,15 +241,14 @@ return function(Game)
       if not s[2].player then killers[s[2]] = s[1] end
       if n > 0 then hits[#hits + 1] = s end
     end
-    -- Os golpes são simultâneos: todos os efeitos de Golpear disparam, e a vitória
-    -- é verificada uma vez só, no fim.
-    self.defer_winner = true
-    local ok, err = pcall(function()
-      for _, s in ipairs(hits) do self:fire_strike_effects(s[1], s[2]) end
-    end)
-    self.defer_winner = false
-    if not ok then error(err, 0) end
+    -- O dano dos golpes da fase é simultâneo, e a vitória por ele é verificada
+    -- antes dos efeitos. Cada efeito de Golpear conta separadamente: se um decidir
+    -- a partida, os seguintes não acontecem.
     self:check_winner()
+    for _, s in ipairs(hits) do
+      if self.winner ~= nil then return end
+      self:fire_strike_effects(s[1], s[2])
+    end
     if self.winner ~= nil then return end
     self:check_lethal(killers, "combate")
   end
