@@ -429,4 +429,48 @@ return {
     g:act(1, { type = "pass" }); g:act(2, { type = "pass" })
     T.eq(g.winner, 0)
   end },
+
+  { "efeito que dá erro depois de zerar um jogador ainda decide a partida", function(T)
+    local g = new_game()
+    Cards.define{ id = "v_quebra", kind = "estrutura", cost = 0, activation = { speed = "instantaneo" },
+      activate = function(gg) gg:damage_player(2, 99, "teste"); error("falha") end }
+    g:put_structure(1, { id = "v_quebra", uid = g:next_uid() }, 1)
+    T.eq(pcall(g.act, g, 1, { type = "activate", structure = 1 }), false)
+    T.eq(g.winner, 1)
+  end },
+
+  { "efeito aninhado que decide a partida para o efeito de fora", function(T)
+    local g = new_game()
+    Cards.define{ id = "v_fim3", kind = "criatura", cost = 0, atk = 0, hp = 1,
+      on_death = function(gg) gg:damage_player(2, 99, "teste") end }
+    Cards.define{ id = "v_depois", kind = "feitico", speed = "instantaneo", cost = 0,
+      on_cast = function(gg)
+        gg:kill(gg:creature_at(2, 1), "teste")
+        gg:damage_player(1, 99, "teste")
+        log[#log + 1] = "continuou"
+      end }
+    put(g, 2, "v_fim3", 1)
+    local pl = g.players[1]
+    pl.hand[#pl.hand + 1] = { id = "v_depois", uid = g:next_uid() }
+    g:act(1, { type = "play", hand_index = #pl.hand })
+    T.eq(g.winner, 1)
+    T.eq(#log, 0, "o resto do feitiço não aconteceu")
+    T.ok(g.players[1].life > 0)
+    T.eq(g.events[#g.events].t, "game_over")
+  end },
+
+  { "erro em efeito aninhado traz um traceback só", function(T)
+    local g = new_game()
+    Cards.define{ id = "v_err", kind = "criatura", cost = 0, atk = 0, hp = 1,
+      on_death = function() error("falha") end }
+    Cards.define{ id = "v_mata", kind = "feitico", speed = "instantaneo", cost = 0,
+      on_cast = function(gg) gg:kill(gg:creature_at(2, 1), "teste") end }
+    put(g, 2, "v_err", 1)
+    local pl = g.players[1]
+    pl.hand[#pl.hand + 1] = { id = "v_mata", uid = g:next_uid() }
+    local ok, err = pcall(g.act, g, 1, { type = "play", hand_index = #pl.hand })
+    T.eq(ok, false)
+    local _, count = tostring(err):gsub("stack traceback", "")
+    T.eq(count, 1)
+  end },
 }
