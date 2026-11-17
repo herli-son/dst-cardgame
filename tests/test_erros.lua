@@ -195,10 +195,11 @@ return {
 
   { "o contexto da jogada termina com ela", function(T)
     local g = new_game()
-    T.ok(g:act(1, { type = "pass" }))
-    local ok = play(g, "e_bicho", { slot = 9 })
-    T.eq(ok, false)
-    T.eq(g.context, nil)
+    T.eq(play(g, "e_bicho", { slot = 1 }), true)
+    T.eq(g.context, nil, "jogada aceita")
+    g:act(2, { type = "pass" })
+    T.eq(play(g, "e_bicho", { slot = 9 }), false)
+    T.eq(g.context, nil, "jogada recusada pelo handler")
   end },
 
   { "gancho registrado de novo durante a passada só roda na próxima", function(T)
