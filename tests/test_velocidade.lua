@@ -576,4 +576,15 @@ return {
     g:act(1, { type = "choose", index = 1 })
     T.eq(g.winner, 0)
   end },
+
+  { "escolha com preparo não abre quando um jogador está sem vida", function(T)
+    local g = new_game()
+    local prepared = false
+    g.players[2].life = 0
+    g:set_choice(1, { reason = "x", options = nil,
+      prepare = function(_, spec) prepared = true; spec.options = { "a" } end,
+      resolve = function() end })
+    T.eq(prepared, false)
+    T.eq(g.pending_choice, nil)
+  end },
 }
