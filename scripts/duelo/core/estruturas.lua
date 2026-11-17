@@ -148,11 +148,20 @@ return function(Game)
     local prev = g.opening_choice
     g.opening_choice = true
     local res
-    local ok, err = xpcall(function() res = fn(a, b) end,
-      function(e) return debug.traceback(tostring(e), 2) end)
+    local ok, err = xpcall(function() res = fn(a, b) end, function(e)
+      -- Erros que não são texto (ex.: tabela com código) sobem como vieram.
+      if type(e) ~= "string" then return e end
+      return debug.traceback(e, 2)
+    end)
     g.opening_choice = prev
     if not ok then
-      if on_error then on_error() end
+      if on_error then
+        -- Um erro durante a limpeza não esconde o erro original.
+        local ok2, err2 = pcall(on_error)
+        if not ok2 and type(err) == "string" then
+          err = err .. "\n(depois, ao continuar a fila: " .. tostring(err2) .. ")"
+        end
+      end
       error(err, 0)
     end
     return res
@@ -177,18 +186,44 @@ return function(Game)
     if not open_choice(self, spec) then self:next_choice() end
   end
 
-  -- Abre a próxima escolha da fila, se houver.
   -- Há escolha aberta ou esperando na fila.
   function Game:choices_waiting()
     return self.pending_choice ~= nil or (self.choice_queue ~= nil and #self.choice_queue > 0)
   end
 
+  -- Abre a próxima escolha da fila, se houver.
   function Game:next_choice()
     local q = self.choice_queue
     while q and #q > 0 do
       local spec = table.remove(q, 1)
       if open_choice(self, spec) then return spec end
     end
+  end
+
+  -- O que vem depois de uma escolha: abrir a próxima da fila (que herda a decisão
+  -- de passar a vez), retomar a pilha em resolução e as continuações suspensas.
+  -- Devolve se a vez deve passar agora.
+  local function after_choose(g, ch)
+    if g.pending_choice == nil then g:next_choice() end
+    if g.pending_choice then
+      if g.pending_choice.passes_turn == nil then g.pending_choice.passes_turn = ch.passes_turn end
+      return false
+    end
+    local resumed = false
+    if g.resolving then
+      -- A pilha retoma; ao fechar, ela mesma passa a vez para quem não a abriu.
+      g:resolve_stack()
+      if g:choices_waiting() then return false end
+      resumed = true
+    end
+    local conts = g.choice_continuations
+    if conts and #conts > 0 then
+      g.choice_continuations = {}
+      for _, fn in ipairs(conts) do fn(g) end
+      return false
+    end
+    if resumed then return false end
+    return ch.passes_turn == true
   end
 
   -- action = { type = "choose", index = n } ; index nil ou 0 = nenhuma (se permitido)
@@ -201,29 +236,12 @@ return function(Game)
     if idx == nil and not ch.allow_none then return false, "é preciso escolher uma opção" end
     if idx ~= nil and (ch.options == nil or ch.options[idx] == nil) then return false, "opção inválida" end
     g.pending_choice = nil
-    -- Se a resolução falhar, a fila continua andando antes de o erro subir.
+    -- Se a resolução falhar, o resto do trabalho da escolha acontece antes de o
+    -- erro subir: a fila anda, a pilha retoma e a vez passa se for o caso.
     while_choosing(g, ch.resolve, function()
-      if g.pending_choice == nil then g:next_choice() end
+      if after_choose(g, ch) and not g:stack_open() and g.winner == nil then g:advance_vez() end
     end, g, idx)
-    if g.pending_choice == nil then g:next_choice() end
-    if g.pending_choice then
-      -- Ainda há escolhas: a vez (se for passar) espera a última.
-      if g.pending_choice.passes_turn == nil then g.pending_choice.passes_turn = ch.passes_turn end
-      return true, nil, false
-    end
-    -- Escolha aberta durante a resolução da pilha: continua resolvendo.
-    if g.resolving then
-      g:resolve_stack()
-      return true, nil, false
-    end
-    -- Continuações suspensas (fim ou início de rodada) retomam aqui.
-    local conts = g.choice_continuations
-    if conts and #conts > 0 then
-      g.choice_continuations = {}
-      for _, fn in ipairs(conts) do fn(g) end
-      return true, nil, false
-    end
-    return true, nil, ch.passes_turn == true
+    return true, nil, after_choose(g, ch)
   end
 
   ----------------------------------------------------------------------------
