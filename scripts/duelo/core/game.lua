@@ -518,5 +518,6 @@ require("duelo/core/jogar")(Game)
 require("duelo/core/estruturas")(Game)
 require("duelo/core/equipamentos")(Game)
 require("duelo/core/fichas")(Game)
+require("duelo/core/combate")(Game)
 
 return Game
