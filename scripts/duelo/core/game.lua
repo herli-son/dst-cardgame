@@ -51,8 +51,9 @@ local function has_hook(list, entry)
 end
 
 function Game:run_hooks(event, ...)
-  -- Percorre uma cópia, porque um gancho pode adicionar ou remover outros; um
-  -- gancho removido durante a passada não roda mais.
+  -- Percorre uma cópia, porque um gancho pode adicionar ou remover outros. Um
+  -- gancho removido durante a passada não roda mais, e um registrado durante a
+  -- passada (mesmo que seja a mesma função de novo) só roda na próxima.
   local live = self.hooks[event]
   local list = {}
   for i, entry in ipairs(live) do list[i] = entry end
@@ -520,6 +521,9 @@ local function act_impl(self, p, action)
     return false, "com a pilha aberta, só Rápidos e Instantâneos"
   end
   local ok, err, passes_turn = handler(self, p, action)
+  -- O contexto da ação termina com o handler; o que vem depois (vez, período)
+  -- é do motor, não da carta.
+  self.context = nil
   if not ok then return false, err end
   -- Escolher completa um efeito que já aconteceu; não é uma jogada nova e não
   -- interrompe dois passes seguidos.
