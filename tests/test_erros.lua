@@ -171,4 +171,25 @@ return {
     local g = Game.new{ decks = { d, d }, first = 1, mulligan = false, rng = function(n) return n end }
     T.eq(g:start(), true)
   end },
+
+  { "continuação que falha aponta a carta que a pediu", function(T)
+    local g = new_game()
+    Cards.define{ id = "e_continua", kind = "criatura", cost = 0, atk = 0, hp = 1,
+      on_play = function(gg, c)
+        gg:set_choice(c.owner, { reason = "x", options = { "a" }, resolve = function() end })
+        gg:after_choices(function() error("BUG_NA_CONTINUACAO") end)
+      end }
+    g.players[1].hand[#g.players[1].hand + 1] = { id = "e_continua", uid = g:next_uid() }
+    T.ok(play(g, "e_continua", { slot = 1 }))
+    T.eq(g:act(1, { type = "choose", index = 1 }), false)
+    T.eq(g.error.context.id, "e_continua")
+  end },
+
+  { "erro do motor numa jogada aponta a carta jogada", function(T)
+    local g = new_game({ "e_bug" })
+    g.spend_mana = function() error("BUG_NO_MOTOR") end
+    T.eq(play(g, "e_bug"), false)
+    T.eq(g.error.context.kind, "jogar")
+    T.eq(g.error.context.id, "e_bug")
+  end },
 }
