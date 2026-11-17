@@ -555,9 +555,10 @@ function Game:finish_round()
   end
   self:emit{ t = "round_end", round = self.round }
   if self.winner == nil then
-    -- A rodada nova começa com o estado estável.
+    -- A rodada nova começa com o estado estável: se uma morte do fim da rodada
+    -- abrir uma escolha, a rodada nova só começa depois dela.
     self:settle()
-    self:begin_round()
+    self:after_choices(function(g) if g.winner == nil then g:begin_round() end end)
   end
 end
 
