@@ -148,4 +148,61 @@ return {
     T.eq(g.players[2].life, life)
     T.eq(f.damage, 1)
   end },
+
+  { "atacante que saiu de campo não cria obrigação", function(T)
+    local g = new_game()
+    local f = put(g, 1, "b_fragil", 1); put(g, 1, "b_comum", 2)
+    put(g, 2, "b_agressivo", 1); put(g, 2, "b_comum", 2)
+    attack(g, { 1, 2 })
+    g:remove_creature(f, "hand")
+    T.ok(block(g, { { 2, 2 } }))
+  end },
+
+  { "a Agressiva do tipo Rival não foge da Frágil se outro Porco atende o Rival", function(T)
+    local g = new_game()
+    Cards.define{ id = "b_porco_agressivo", kind = "criatura", cost = 0, atk = 1, hp = 9,
+      kw = { agressivo = true }, types = { porco = true } }
+    put(g, 1, "b_merm", 1); put(g, 1, "b_fragil", 2)
+    local ap = put(g, 2, "b_porco_agressivo", 1)
+    local porco = put(g, 2, "b_porco", 2)
+    attack(g, { 1, 2 })
+    T.eq(block(g, { { 1, 1 } }), false, "deixaria a Frágil sem a Agressiva")
+    T.ok(block(g, { { 1, 2 }, { 2, 1 } }))
+    g = new_game()
+    local m = put(g, 1, "b_merm", 1); local f = put(g, 1, "b_fragil", 2)
+    ap = put(g, 2, "b_porco_agressivo", 1); porco = put(g, 2, "b_porco", 2)
+    attack(g, { 1, 2 })
+    resolve_without_blocks(g)
+    T.eq(blocker_of(g, m), porco.uid, "no automático, o Porco comum fica com o Rival")
+    T.eq(blocker_of(g, f), ap.uid)
+  end },
+
+  { "Rivais de tipos diferentes são todos atendidos quando possível", function(T)
+    local g = new_game()
+    Cards.define{ id = "b_rival_coelho", kind = "criatura", cost = 0, atk = 1, hp = 9, kw = { rival = "coelho" } }
+    Cards.define{ id = "b_porco_coelho", kind = "criatura", cost = 0, atk = 1, hp = 9,
+      types = { porco = true, coelho = true } }
+    Cards.define{ id = "b_rival_porco", kind = "criatura", cost = 0, atk = 1, hp = 9, kw = { rival = "porco" } }
+    local rp = put(g, 1, "b_rival_porco", 1); local rc = put(g, 1, "b_rival_coelho", 2)
+    local pc = put(g, 2, "b_porco_coelho", 1); local porco = put(g, 2, "b_porco", 2)
+    attack(g, { 1, 2 })
+    T.eq(block(g, { { 1, 1 } }), false)
+    T.ok(block(g, { { 1, 2 }, { 2, 1 } }))
+    g = new_game()
+    rp = put(g, 1, "b_rival_porco", 1); rc = put(g, 1, "b_rival_coelho", 2)
+    pc = put(g, 2, "b_porco_coelho", 1); porco = put(g, 2, "b_porco", 2)
+    attack(g, { 1, 2 })
+    resolve_without_blocks(g)
+    T.eq(blocker_of(g, rp), porco.uid)
+    T.eq(blocker_of(g, rc), pc.uid)
+  end },
+
+  { "criatura com dano letal esperando não conta nas obrigações", function(T)
+    local g = new_game()
+    put(g, 1, "b_agressivo", 1)
+    local f = put(g, 2, "b_fragil", 1)
+    attack(g, { 1 })
+    f.damage = 9
+    T.ok(block(g, {}), "a Frágil condenada não está livre para bloquear")
+  end },
 }
