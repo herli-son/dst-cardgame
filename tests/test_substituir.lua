@@ -11,13 +11,20 @@ local function define()
     on_play = function(g, c) log[#log + 1] = "entrou:" .. c.slot end }
   Cards.define{ id = "s_espada", kind = "equipamento", slot = "mao", cost = 0, atk_bonus = 1 }
   Cards.define{ id = "s_sobrev", kind = "criatura", cost = 0, atk = 1, hp = 9, sobrevivente = true }
+  Cards.define{ id = "s_casa", kind = "estrutura", cost = 0 }
+  Cards.define{ id = "s_obra", kind = "estrutura", cost = 0 }
+  Cards.define{ id = "s_construir", kind = "feitico", speed = "rapido", cost = 0, creates_structure = true,
+    on_cast = function(g, p, action) g:create_token(p, "s_obra", { slot = action.replace }) end }
 end
 
 local function new_game()
   define()
   local d1, d2 = {}, {}
   for i = 1, 20 do d1[i] = { id = "s_base" }; d2[i] = { id = "s_base" } end
-  local g = Game.new{ decks = { d1, d2 }, first = 1, mulligan = false, rng = function(n) return n end }
+  local extra = {}
+  for i = 1, 3 do extra[i] = { id = "s_obra" } end
+  local g = Game.new{ decks = { d1, d2 }, extra_decks = { extra, {} },
+    first = 1, mulligan = false, rng = function(n) return n end }
   g:start()
   return g
 end
@@ -104,5 +111,36 @@ return {
     T.eq(g:act(1, { type = "play", hand_index = give(g, 1, "s_torre") }), false)
     T.ok(g:act(1, { type = "play", hand_index = #g.players[1].hand, target = { p = 2, slot = 1 } }))
     T.eq(log[#log], "torre:s_base")
+  end },
+
+  { "feitiço que cria estrutura com a zona cheia escolhe a substituída na jogada", function(T)
+    local g = new_game()
+    g:put_structure(1, { id = "s_casa", uid = g:next_uid() }, 1)
+    g:put_structure(1, { id = "s_casa", uid = g:next_uid() }, 2)
+    local ok, why = g:act(1, { type = "play", hand_index = give(g, 1, "s_construir") })
+    T.eq(ok, false)
+    T.ok(why:find("substituir", 1, true) ~= nil)
+    T.ok(g:act(1, { type = "play", hand_index = #g.players[1].hand, replace = 2 }))
+    g:act(1, { type = "pass" }); g:act(2, { type = "pass" })
+    T.eq(g:structure_at(1, 1).def.id, "s_casa")
+    T.eq(g:structure_at(1, 2).def.id, "s_obra")
+    T.eq(g.pending_choice, nil, "nenhuma escolha na resolução")
+  end },
+
+  { "se abrir vaga até a resolução, a nova estrutura entra na vaga", function(T)
+    local g = new_game()
+    g:put_structure(1, { id = "s_casa", uid = g:next_uid() }, 1)
+    g:put_structure(1, { id = "s_casa", uid = g:next_uid() }, 2)
+    T.ok(g:act(1, { type = "play", hand_index = give(g, 1, "s_construir"), replace = 2 }))
+    g:break_structure(1, 1, "teste")
+    g:act(1, { type = "pass" }); g:act(2, { type = "pass" })
+    T.eq(g:structure_at(1, 1).def.id, "s_obra")
+    T.eq(g:structure_at(1, 2).def.id, "s_casa", "a escolhida não é substituída")
+  end },
+
+  { "com vaga na jogada, o feitiço não exige a escolha", function(T)
+    local g = new_game()
+    g:put_structure(1, { id = "s_casa", uid = g:next_uid() }, 1)
+    T.ok(g:act(1, { type = "play", hand_index = give(g, 1, "s_construir") }))
   end },
 }
