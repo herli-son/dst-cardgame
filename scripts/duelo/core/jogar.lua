@@ -86,7 +86,37 @@ return function(Game)
     return base + (c.hp_bonus or 0) + (self.equip_bonus and self:equip_bonus(c, "hp_bonus") or 0)
   end
 
-  -- Coloca uma criatura em campo. opts.ficha marca criaturas criadas por efeito.
+  -- Efeito de entrada com alvos escolhidos na jogada (def.play_targets; doc,
+  -- "Momento das escolhas"): opts.entry = { locks, action } vem da jogada; se um
+  -- alvo saiu de campo até a entrada, o efeito não acontece (alvo perdido). Sem
+  -- entry (a carta entrou por efeito), on_play recebe objects nil e escolhe na hora.
+  function Game:run_entry(src, entry)
+    local def = src.def
+    if def.on_play == nil then return end
+    if entry and def.play_targets then
+      local valid, objects = self:targets_still_valid(entry.locks)
+      if valid then valid = def.play_targets(self, src.owner, entry.action, objects) end
+      if not valid then
+        self:emit{ t = "fizzle", p = src.owner, id = def.id }
+        return
+      end
+      return self:effect("entrar", def.id, def.on_play, self, src, objects, entry.action)
+    end
+    self:effect("entrar", def.id, def.on_play, self, src)
+  end
+
+  -- Os alvos de entrada são conferidos na jogada, como os de um feitiço.
+  function Game:check_entry_targets(p, def, action)
+    if def.play_targets == nil then return true end
+    local ok, err = self:check_targets(action)
+    if not ok then return false, err end
+    local valid, why = def.play_targets(self, p, action, self:target_objects(action))
+    if not valid then return false, why or "alvo inválido" end
+    return true
+  end
+
+  -- Coloca uma criatura em campo. opts.ficha marca criaturas criadas por efeito;
+  -- opts.entry traz os alvos de entrada escolhidos na jogada (ver run_entry).
   -- Dispara o efeito de entrada da própria carta e as reações das outras.
   function Game:place_creature(p, card, slot, opts)
     opts = opts or {}
@@ -104,10 +134,11 @@ return function(Game)
       equips = {},
       entered_round = self.round,
       ficha = opts.ficha or card.ficha or false,
+      link = opts.link, -- estrutura de origem (ver Game:linked_to)
     }
     self.players[p].field[slot] = c
     self:emit{ t = "summon", p = p, slot = slot, uid = c.uid, card_uid = c.card_uid, id = def.id, ficha = c.ficha }
-    if def.on_play then self:effect("entrar", def.id, def.on_play, self, c) end
+    self:run_entry(c, opts.entry)
     for _, other in ipairs(self:all_creatures()) do
       if other ~= c and other.def.on_any_enter and self.players[other.owner].field[other.slot] == other then
         self:effect("reagir", other.def.id, other.def.on_any_enter, self, other, c)
@@ -278,9 +309,10 @@ return function(Game)
   -- Feitiços
   ----------------------------------------------------------------------------
 
-  -- Manda a carta usada para o descarte; fichas deixam de existir.
+  -- Manda a carta para o descarte. Ficha marcada com returns_to_extra volta para o
+  -- baralho extra.
   function Game:to_discard(p, card)
-    if card.ficha then return self:vanish(p, card, "descarte") end
+    if card.ficha and self:def_of(card).returns_to_extra then return self:vanish(p, card, "descarte") end
     self:reset_card(card)
     local d = self.players[p].discard
     d[#d + 1] = card
@@ -294,6 +326,15 @@ return function(Game)
       if not ok then return false, err end
       ok, err = g:check_targets(action)
       if not ok then return false, err end
+      -- Feitiço que cria estrutura (def.creates_structure): com a zona cheia, a
+      -- substituída é escolhida na jogada (action.replace). Se abrir vaga até a
+      -- resolução, a nova entra na vaga (enter_structure com opts.slot).
+      if def.creates_structure and Game.first_free_structure(g, p) == nil then
+        local r = action.replace
+        if type(r) ~= "number" or r % 1 ~= 0 or r < 1 or r > Game.STRUCTURE_SLOTS then
+          return false, "zona cheia: escolha qual estrutura substituir"
+        end
+      end
       if def.targets then
         local valid, why = def.targets(g, p, action, g:target_objects(action))
         if not valid then return false, why or "alvo inválido" end
@@ -320,19 +361,78 @@ return function(Game)
   -- Criaturas
   ----------------------------------------------------------------------------
 
+  -- Sacrifício como custo de jogar (def.sacrifice = { count = n, filter = fn(g, c) }):
+  -- action.sacrifice traz os espaços das criaturas suas sacrificadas. Devolve a lista
+  -- de criaturas, ou nil e o erro.
+  local function sacrifice_list(g, p, def, action)
+    local spec = def.sacrifice
+    local slots = action.sacrifice
+    if type(slots) ~= "table" or #slots ~= spec.count then
+      return nil, "escolha " .. spec.count .. " criatura(s) para sacrificar"
+    end
+    local list, seen = {}, {}
+    for i, s in ipairs(slots) do
+      local c = type(s) == "number" and g:creature_at(p, s) or nil
+      if c == nil or seen[c] then return nil, "sacrifício inválido" end
+      if spec.filter and not spec.filter(g, c) then return nil, "essa criatura não pode ser sacrificada" end
+      seen[c] = true
+      list[i] = c
+    end
+    return list
+  end
+
   Game.play_rules.criatura = {
-    -- action.slot: espaço livre de 1 a 6
+    -- action.slot: espaço livre de 1 a 6. Com o campo cheio, o espaço da criatura
+    -- sua que será substituída (doc, "Substituir"): ela é destruída, sem "ao morrer",
+    -- e os equipamentos vão para o Inventário. Com sacrifício, o sacrifício é pago
+    -- na jogada (abate normal) e libera o espaço: action.slot pode ser o de uma
+    -- sacrificada, e não há substituição.
     validate = function(g, p, card, def, action)
       local s = action.slot
       if type(s) ~= "number" or s < 1 or s > Game.FIELD_SLOTS or s % 1 ~= 0 then
         return false, "espaço inválido"
       end
-      if g.players[p].field[s] ~= nil then return false, "espaço ocupado" end
+      if def.sacrifice then
+        local list, err = sacrifice_list(g, p, def, action)
+        if list == nil then return false, err end
+        local occupant = g.players[p].field[s]
+        local freed = false
+        for _, c in ipairs(list) do if c == occupant then freed = true end end
+        if occupant ~= nil and not freed then return false, "espaço ocupado" end
+      elseif g.players[p].field[s] ~= nil and #g:free_slots(p) > 0 then
+        return false, "espaço ocupado: substituir só com o campo cheio"
+      end
       if def.can_play and not def.can_play(g, p, action) then return false, "condição da carta não atendida" end
-      return true
+      return g:check_entry_targets(p, def, action)
     end,
     resolve = function(g, p, card, def, action)
-      g:place_creature(p, card, action.slot)
+      -- Os alvos são travados antes da substituição: se o alvo era a substituída,
+      -- ele é perdido.
+      local entry = { locks = g:lock_targets(action), action = action }
+      if def.sacrifice then
+        local list = {}
+        for i, c in ipairs(sacrifice_list(g, p, def, action)) do list[i] = { c, nil, "sacrificio" } end
+        g:kill_many(list, "sacrificio")
+        -- A nova entra depois de os efeitos de morte terminarem: se um deles
+        -- decidir a partida, ela não entra; se abrir escolha, entra depois dela.
+        -- Um "ao morrer" pode ter ocupado o espaço liberado: a nova vai para o
+        -- primeiro livre; sem nenhum, não entra e vai para o descarte.
+        g:after_choices(function(gg)
+          if gg.winner ~= nil then return end
+          local slot = action.slot
+          if gg.players[p].field[slot] ~= nil then slot = gg:free_slots(p)[1] end
+          if slot == nil then
+            gg:emit{ t = "no_space", p = p, id = def.id }
+            gg:to_discard(p, card)
+          else
+            gg:place_creature(p, card, slot, { entry = entry })
+          end
+        end, { keeps_turn_flow = true })
+        return
+      end
+      local old = g.players[p].field[action.slot]
+      if old then g:remove_creature(old, "destroyed", "substituida", { equips = "inventory" }) end
+      g:place_creature(p, card, action.slot, { entry = entry })
     end,
   }
 end

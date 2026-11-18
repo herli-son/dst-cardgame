@@ -9,12 +9,20 @@
 --   atk, hp, speed (padrão 1), kw = { agressivo = true, fragil = true, ... },
 --   kw.rival = "tipo"                  Rival guarda o nome do tipo (ex.: "porco")
 --   types = { aranha = true, ... }, sobrevivente (boolean)
+--   returns_to_extra = true            como ficha, volta ao baralho extra em vez do
+--                                      descarte (Fantasmas criados, Alimentos)
 --   no_attack = true / no_block = true não pode atacar / não pode bloquear
+--   sacrifice = { count = n, filter = fn(game, c) }  custo de jogar: abater n
+--                                      criaturas suas (action.sacrifice = espaços)
 --   block_speed                        velocidade ao bloquear (ex.: Tentáculo)
 --   speed_fn(game, criatura, role)     velocidade que depende do estado; role =
 --                                      "attack" | "block"
 --   on_strike(game, criatura, alvo)    Golpear: depois de um golpe com dano > 0
---   on_play(game, criatura)            efeito ao entrar em campo
+--   on_play(game, criatura, objects, action)  efeito ao entrar em campo; com
+--                                      play_targets, os alvos vêm da jogada (objects)
+--   play_targets(game, p, action, objects) -> ok, erro   alvos do efeito de
+--                                      entrada (criatura ou estrutura), conferidos
+--                                      na jogada e de novo na entrada
 --   on_any_enter(game, criatura, nova) reage a qualquer criatura que entrar
 --   stats(game, criatura) -> atk, hp   atributos que dependem do estado (ex.: Morcego)
 -- Feitiço:
@@ -22,6 +30,9 @@
 --   targets(game, p, action, objects) -> ok, erro   confere os alvos; objects traz os
 --                                         objetos dos alvos, na jogada e ao resolver
 --   on_cast(game, p, action, card, objects)  o efeito; use objects, não o espaço da ação
+--   creates_structure = true           cria estrutura: com a zona cheia, a jogada
+--                                      traz action.replace (espaço a substituir), que o
+--                                      efeito passa como opts.slot de create_token
 -- Equipamento:
 --   on_strike(game, portador, alvo, equip)  Golpear do equipamento
 

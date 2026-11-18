@@ -1,4 +1,5 @@
--- Estruturas: zona de 2 espaços, substituição, quebra e efeitos ativados. Lua 5.1 puro.
+-- Estruturas: zona de 2 espaços, substituição (destrói a antiga), quebra e efeitos
+-- ativados. Lua 5.1 puro.
 -- Instala os métodos no Game: require("duelo/core/estruturas")(Game)
 --
 -- Campos da definição de uma estrutura:
@@ -37,17 +38,15 @@ return function(Game)
     -- O efeito "ao quebrar" roda depois de a carta ir ao destino (já zerada): os
     -- marcadores dela ficam guardados na instância para ele consultar.
     st.marks = { used_round = st.card.used_round, used_period = st.card.used_period }
+    g:unlink(st)
     g:emit{ t = "break", p = p, slot = slot, uid = st.uid, card_uid = st.card_uid, id = st.def.id, reason = reason }
-    if st.ficha then
-      g:vanish(p, st.card, reason)
-    else
-      g:to_discard(p, st.card)
-    end
+    if st.ficha then st.card.ficha = true end
+    g:to_discard(p, st.card)
     return st
   end
 
-  -- Quebrar: a estrutura sai de campo, vai para o descarte (fichas, por enquanto,
-  -- deixam de existir; ver US #94) e dispara o "ao quebrar".
+  -- Quebrar: a estrutura sai de campo, vai para o descarte (fichas também, menos
+  -- as marcadas com returns_to_extra) e dispara o "ao quebrar".
   -- O estado fica completo antes do efeito "ao quebrar": se ele decidir a partida,
   -- nada fica pela metade.
   function Game:break_structure(p, slot, reason)
@@ -57,14 +56,27 @@ return function(Game)
 
   Game.first_free_structure = first_free
 
+  -- Substituir (doc): a estrutura substituída é destruída. Vai para as Destruídas
+  -- e não dispara o "ao quebrar".
+  local function destroy_structure(g, p, slot, reason)
+    local pl = g.players[p]
+    local st = pl.structures[slot]
+    if st == nil then return end
+    pl.structures[slot] = nil
+    g:unlink(st)
+    g:emit{ t = "structure_destroyed", p = p, slot = slot, uid = st.uid, card_uid = st.card_uid,
+      id = st.def.id, reason = reason }
+    if st.ficha then st.card.ficha = true end
+    g:destroy_card(p, st.card, reason)
+  end
+
   -- Coloca uma estrutura num espaço. Com a zona cheia, a nova substitui a do
-  -- espaço indicado, que é quebrada; sem espaço indicado, a zona precisa ter vaga.
+  -- espaço indicado, que é destruída; sem espaço indicado, a zona precisa ter vaga.
   function Game:put_structure(p, card, slot, opts)
     opts = opts or {}
     slot = slot or first_free(self, p)
     if slot == nil then return nil, "zona de estruturas cheia: é preciso indicar qual substituir" end
-    -- A substituída sai e a nova entra antes de qualquer efeito disparar.
-    local old = remove_structure(self, p, slot, "substituida")
+    destroy_structure(self, p, slot, "substituida")
     local def = self:def_of(card)
     local st = {
       uid = self:next_uid(),
@@ -77,9 +89,7 @@ return function(Game)
     }
     self.players[p].structures[slot] = st
     self:emit{ t = "structure", p = p, slot = slot, uid = st.uid, card_uid = st.card_uid, id = def.id }
-    if old and old.def.on_break then self:effect("quebrar", old.def.id, old.def.on_break, self, old) end
-    -- Se o efeito da substituída tirou a nova de campo, a entrada dela não dispara.
-    if def.on_play and self.players[p].structures[slot] == st then self:effect("entrar", def.id, def.on_play, self, st) end
+    self:run_entry(st, opts.entry)
     return st
   end
 
@@ -136,10 +146,10 @@ return function(Game)
       if s ~= nil and g.players[p].structures[s] ~= nil and first_free(g, p) ~= nil then
         return false, "há espaço livre: substituir só com a zona cheia"
       end
-      return true
+      return g:check_entry_targets(p, def, action)
     end,
     resolve = function(g, p, card, def, action)
-      g:put_structure(p, card, action.slot)
+      g:put_structure(p, card, action.slot, { entry = { locks = g:lock_targets(action), action = action } })
     end,
   }
 
@@ -212,16 +222,19 @@ return function(Game)
 
   -- O que vem depois de uma escolha: abrir a próxima da fila (que herda a decisão
   -- de passar a vez), retomar a pilha em resolução e as continuações suspensas.
-  -- Devolve se a vez deve passar agora.
+  -- Devolve true se alguma continuação cuidou da vez (as marcadas com
+  -- keeps_turn_flow não cuidam).
   local function run_continuations(g)
     local conts = g.choice_continuations
     if conts and #conts > 0 then
       g.choice_continuations = {}
+      local handled = false
       for _, c in ipairs(conts) do
         local ctx = c.context or {}
         g:effect(ctx.kind or "continuar", ctx.id, c.fn, g)
+        if not c.keeps_turn_flow then handled = true end
       end
-      return true
+      return handled
     end
     return false
   end
@@ -246,6 +259,11 @@ return function(Game)
       return false
     end
     if run_continuations(g) then return false end
+    -- Uma continuação da jogada pode ter aberto outra escolha: ela herda a decisão.
+    if g.pending_choice then
+      if g.pending_choice.passes_turn == nil then g.pending_choice.passes_turn = ch.passes_turn end
+      return false
+    end
     return ch.passes_turn == true
   end
 

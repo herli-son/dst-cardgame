@@ -36,8 +36,8 @@ return function(Game)
     local old = c.equips[def.slot]
     if old then
       c.equips[def.slot] = nil
-      old.card.durability = old.durability
-      self:add_to_inventory(c.owner, old.card)
+      -- Mesma regra da saída de campo: a ficha volta ao baralho extra.
+      self:deposit_equips(c.owner, { old }, "troca")
     end
     local e = {
       uid = self:next_uid(),

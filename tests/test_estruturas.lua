@@ -58,7 +58,7 @@ return {
     clear_test_cards()
   end },
 
-  { "com a zona cheia, é preciso escolher qual substituir; a antiga é quebrada e vai ao descarte", function(T)
+  { "com a zona cheia, é preciso escolher qual substituir; a antiga é destruída sem o ao quebrar", function(T)
     local g = new_game({ "t_poco", "t_casa", "t_torre" })
     play(g, 1, "t_poco"); pass(g)
     play(g, 1, "t_casa"); pass(g)
@@ -66,19 +66,19 @@ return {
     T.eq(ok, false, "sem indicar o espaço com a zona cheia")
     T.ok(play(g, 1, "t_torre", 1))
     T.eq(g:structure_at(1, 1).def.id, "t_torre")
-    T.eq(log[1], "quebrou:t_poco")
-    local d = g.players[1].discard
-    T.eq(d[#d].id, "t_poco", "estrutura quebrada vai para o descarte")
+    T.eq(log[1], nil, "substituir não quebra")
+    local d = g.players[1].destroyed
+    T.eq(d[#d].id, "t_poco", "estrutura substituída vai para as Destruídas")
     clear_test_cards()
   end },
 
-  { "estrutura que é ficha deixa de existir ao ser quebrada", function(T)
+  { "estrutura que é ficha vai para o descarte ao ser quebrada", function(T)
     local g = new_game({})
     g:put_structure(1, { id = "t_casa", ficha = true }, 1)
     local before = #g.players[1].discard
     g:break_structure(1, 1)
     T.eq(g:structure_at(1, 1), nil)
-    T.eq(#g.players[1].discard, before)
+    T.eq(#g.players[1].discard, before + 1)
     clear_test_cards()
   end },
 
