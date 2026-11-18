@@ -35,6 +35,9 @@
 --                                      efeito passa como opts.slot de create_token
 -- Equipamento:
 --   on_strike(game, portador, alvo, equip)  Golpear do equipamento
+--   activate(game, p, equip, action, objects)  efeito ativado; equip.holder é o
+--                                      portador e só existe durante o activate (não
+--                                      em can_activate nem em targets)
 
 local Cards = {}
 

@@ -74,8 +74,15 @@ local function evaluate_block(g, p, cb, action)
     local a = g:creature_at(cb.attacker, b.attacker)
     local d = g:creature_at(p, b.blocker)
     blocked[a] = true
-    if g:hp(d) - d.damage > g:atk(a) then survivors = survivors + 1 end
-    if g:atk(d) >= g:hp(a) - a.damage then kills = kills + 1 end
+    -- Velocidade: quem golpeia antes pode matar o outro sem levar o golpe de volta.
+    local va, vd = g:speed(a, "attack"), g:speed(d, "block")
+    local d_dies = va >= 1 and g:atk(a) >= g:hp(d) - d.damage
+    local a_dies = vd >= 1 and g:atk(d) >= g:hp(a) - a.damage
+    if d_dies and a_dies then
+      if va > vd and va >= 2 then a_dies = false elseif vd > va and vd >= 2 then d_dies = false end
+    end
+    if not d_dies then survivors = survivors + 1 end
+    if a_dies then kills = kills + 1 end
   end
   local through = 0
   for _, a in ipairs(cb.attackers) do
@@ -210,8 +217,15 @@ function Bot:choose(g, p, jogadas)
   return jogadas[1]
 end
 
+-- Um erro de carta durante a avaliação (ex.: def.stats com bug) não derruba o
+-- bot: ele passa, e o erro aparece quando a jogada rodar pelo motor.
 function Bot:act(g, p)
-  local a = self:choose(g, p, Jogadas.list(g, p))
+  local jogadas = Jogadas.list(g, p)
+  local ok, a = pcall(self.choose, self, g, p, jogadas)
+  if not ok then
+    a = nil
+    for _, j in ipairs(jogadas) do if j.type == "pass" then a = j end end
+  end
   if a == nil then return false, "nenhuma jogada disponível" end
   return g:act(p, a)
 end
