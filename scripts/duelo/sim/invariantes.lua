@@ -87,14 +87,19 @@ end
 -- Vez e rodada: Game:begin_round põe active = attacker (1 ou 2), vez = 1,
 -- passes = 0 e round >= 1; Game:advance_vez e Game:hand_over só alternam
 -- active entre 1 e 2. Dois passes seguidos encerram a rodada na hora (act_impl),
--- então com a partida em andamento passes é 0 ou 1.
+-- então com a partida em andamento passes é 0 ou 1; a exceção é um gancho de
+-- fim de rodada que abre uma escolha (Game:end_round espera por ela com
+-- after_choices), quando passes fica em 2 até a escolha ser feita.
 checks[#checks + 1] = function(g)
   if g.phase ~= "playing" then return end
   if g.active ~= 1 and g.active ~= 2 then return "active inválido: " .. tostring(g.active) end
   if g.attacker ~= 1 and g.attacker ~= 2 then return "attacker inválido: " .. tostring(g.attacker) end
   if not is_int(g.round) or g.round < 1 then return "rodada inválida: " .. tostring(g.round) end
   if not is_int(g.vez) or g.vez < 1 then return "vez inválida: " .. tostring(g.vez) end
-  if not is_int(g.passes) or g.passes < 0 or g.passes > 1 then return "passes inválido: " .. tostring(g.passes) end
+  if not is_int(g.passes) or g.passes < 0 then return "passes inválido: " .. tostring(g.passes) end
+  if g.passes > 1 and not g:choices_waiting() then
+    return "passes em " .. g.passes .. " sem escolha esperando"
+  end
 end
 
 -- Vida: Game.check_amount só deixa dano e cura inteiros, e Game:heal_player
@@ -133,10 +138,9 @@ checks[#checks + 1] = function(g)
 end
 
 -- Zonas de cartas: sequências sem buracos, cada carta com uid numérico e
--- definição conhecida. Mão, Inventário e separadas juntas (Game:hand_count)
--- nunca passam de Game:hand_limit: Game:add_to_hand e Game:add_to_inventory
--- destroem a carta que passaria do limite, e Game:create_token com zone = "hand"
--- nem tira a cópia do baralho extra.
+-- definição conhecida. O limite de mão não entra aqui: Game:add_to_hand destrói
+-- o que passaria dele na entrada, mas um modificador de limite removido (ex.:
+-- Mochila desequipada) deixa a mão acima do limite, e o motor aceita isso.
 checks[#checks + 1] = function(g)
   for p = 1, 2 do
     local pl = g.players[p]
@@ -150,9 +154,6 @@ checks[#checks + 1] = function(g)
           return "carta desconhecida na zona " .. zone .. " do jogador " .. p .. ": " .. tostring(card.id)
         end
       end
-    end
-    if g:hand_count(p) > g:hand_limit(p) then
-      return "jogador " .. p .. " com " .. g:hand_count(p) .. " cartas na mão, limite " .. g:hand_limit(p)
     end
   end
 end
@@ -283,7 +284,9 @@ end
 -- vezes, e nenhum passa do contador. Com opts.card_total, o total de cartas é
 -- conservado: o motor nunca cria nem some com uma carta, só a muda de zona
 -- (fichas saem do baralho extra e voltam para ele); o que falta nas zonas só
--- pode ser o que está em trânsito (in_transit).
+-- pode ser o que está em trânsito (in_transit). Com a partida decidida, a
+-- conservação não vale mais: Game:close_stack zera a pilha com os feitiços
+-- dentro, e as continuações de escolha (criatura com sacrifício) não rodam.
 checks[#checks + 1] = function(g, opts)
   local seen = {}
   local total = 0
@@ -317,7 +320,7 @@ checks[#checks + 1] = function(g, opts)
     end
   end
   if bad then return bad end
-  if opts and opts.card_total ~= nil then
+  if opts and opts.card_total ~= nil and g.winner == nil then
     local expected = opts.card_total
     if total > expected then return "total de cartas subiu: " .. total .. ", esperado " .. expected end
     local transit = in_transit(g)
@@ -329,11 +332,26 @@ end
 
 -- Escolha pendente: Game:set_choice marca o jogador; validate_choose só aceita
 -- um índice de options ou, com allow_none, nenhum. Uma escolha sem opção
--- possível travaria a partida. Jogador da escolha é 1 ou 2.
+-- possível travaria a partida. Jogador da escolha é 1 ou 2. Só vale com a
+-- partida em andamento: com a partida decidida, uma escolha da fila ainda pode
+-- abrir (after_choose chama next_choice) e fica lá, sem efeito.
+-- Sem escolha aberta, nada fica esperando: Game:next_choice esvazia a fila
+-- (after_choose e set_choice) e run_continuations roda as continuações assim
+-- que a última escolha é feita; algo na fila sem escolha aberta seria um
+-- travamento silencioso.
 checks[#checks + 1] = function(g)
+  if g.phase == "error" then return end
   local ch = g.pending_choice
-  if ch == nil then return end
-  if g.phase ~= "playing" then return "escolha pendente com fase " .. tostring(g.phase) end
+  if ch == nil then
+    if g.choice_queue and #g.choice_queue > 0 then
+      return "fila com " .. #g.choice_queue .. " escolha(s) sem escolha aberta"
+    end
+    if g.choice_continuations and #g.choice_continuations > 0 then
+      return #g.choice_continuations .. " continuação(ões) de escolha sem escolha aberta"
+    end
+    return
+  end
+  if g.phase ~= "playing" then return end
   if ch.player ~= 1 and ch.player ~= 2 then return "escolha pendente sem jogador válido: " .. tostring(ch.player) end
   if ch.options ~= nil and type(ch.options) ~= "table" then return "escolha pendente com options inválido" end
   if type(ch.resolve) ~= "function" then return "escolha pendente sem resolve" end

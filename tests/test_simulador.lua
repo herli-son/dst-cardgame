@@ -211,9 +211,6 @@ return {
     g.players[1].mana = 0
     broken(T, g, "mana máxima")
     g = scenario()
-    for _ = 1, 20 do table.insert(g.players[1].hand, table.remove(g.players[1].deck)) end
-    broken(T, g, "limite")
-    g = scenario()
     g.players[1].hand[7] = { id = "sim_rato", uid = g:next_uid() }
     broken(T, g, "com buracos")
   end },
