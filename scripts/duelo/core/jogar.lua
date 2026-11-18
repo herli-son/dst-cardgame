@@ -325,6 +325,15 @@ return function(Game)
       if not ok then return false, err end
       ok, err = g:check_targets(action)
       if not ok then return false, err end
+      -- Feitiço que cria estrutura (def.creates_structure): com a zona cheia, a
+      -- substituída é escolhida na jogada (action.replace). Se abrir vaga até a
+      -- resolução, a nova entra na vaga (enter_structure com opts.slot).
+      if def.creates_structure and Game.first_free_structure(g, p) == nil then
+        local r = action.replace
+        if type(r) ~= "number" or r % 1 ~= 0 or r < 1 or r > Game.STRUCTURE_SLOTS then
+          return false, "zona cheia: escolha qual estrutura substituir"
+        end
+      end
       if def.targets then
         local valid, why = def.targets(g, p, action, g:target_objects(action))
         if not valid then return false, why or "alvo inválido" end

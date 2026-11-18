@@ -28,6 +28,9 @@
 --   targets(game, p, action, objects) -> ok, erro   confere os alvos; objects traz os
 --                                         objetos dos alvos, na jogada e ao resolver
 --   on_cast(game, p, action, card, objects)  o efeito; use objects, não o espaço da ação
+--   creates_structure = true           cria estrutura: com a zona cheia, a jogada
+--                                      traz action.replace (espaço a substituir), que o
+--                                      efeito passa como opts.slot de create_token
 -- Equipamento:
 --   on_strike(game, portador, alvo, equip)  Golpear do equipamento
 
