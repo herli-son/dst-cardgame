@@ -125,11 +125,54 @@ return {
     Cards.define{ id = "sim_bug2", kind = "criatura", cost = 0, atk = 1, hp = 1, on_play = function() error("x") end }
     local deck = {}
     for i = 1, 10 do deck[i] = { id = "sim_bug2" } end
-    local bad = Simulador.run_many{ n = 3, seed_base = 10, decks = { deck, deck } }
+    local bad = Simulador.run_many{ n = 3, seed_base = 10, decks = { deck, deck }, alternar = true,
+      players = { "bot", "random" } }
     T.eq(#bad.falhas, 3)
     T.eq(bad.falhas[1].seed, 11)
     T.eq(bad.falhas[1].resultado, "erro")
-    T.ok(Simulador.format_report(bad):find("seed 11", 1, true) ~= nil)
+    -- A troca de lados segue a paridade da seed e fica registrada na falha,
+    -- com os jogadores na ordem da própria partida.
+    T.eq(bad.falhas[1].lados_trocados, true)
+    T.eq(bad.falhas[1].players[1], "random")
+    T.eq(bad.falhas[2].lados_trocados, false)
+    T.eq(bad.falhas[2].players[1], "bot")
+    local text = Simulador.format_report(bad)
+    T.ok(text:find("seed 11 (random x bot, lados trocados;", 1, true) ~= nil, text)
+    T.ok(text:find("seed 12 (bot x random;", 1, true) ~= nil, text)
+  end },
+
+  { "a troca de lados pela paridade da seed reproduz a mesma partida", function(T)
+    local agg = Simulador.run_many(opts{ n = 2, seed_base = 200, alternar = true, log = true })
+    T.eq(agg.n, 2)
+    -- A seed 201 é ímpar: baralhos trocados. Reproduzir à mão dá o mesmo jogo.
+    local o = opts{ seed = 201 }
+    local rep = Simulador.run_game{ seed = 201, decks = { o.decks[2], o.decks[1] }, extra_decks = { o.extra_decks[2], o.extra_decks[1] } }
+    local again = Simulador.run_many(opts{ n = 1, seed_base = 200, alternar = true })
+    T.eq(again.por_resultado[rep.resultado], 1)
+    T.eq(again.rodadas.max, rep.rodadas)
+    T.eq(again.jogadas.max, rep.jogadas)
+  end },
+
+  { "um erro fora do motor vira falha erro_simulador com seed e passo", function(T)
+    CartasSim.define()
+    local Cards = require("duelo/core/cards")
+    -- O gerador de jogadas lê def.kind; uma definição quebrada derruba o gerador,
+    -- não o motor. O simulador relata a falha em vez de parar.
+    local Jogadas = require("duelo/bot/jogadas")
+    local original = Jogadas.list
+    Jogadas.list = function(g, p)
+      if g.round >= 2 then error("gerador quebrado de propósito") end
+      return original(g, p)
+    end
+    local ok, rep = pcall(Simulador.run_game, opts{ seed = 3 })
+    Jogadas.list = original
+    T.ok(ok, tostring(rep))
+    T.eq(rep.resultado, "erro_simulador")
+    T.eq(rep.seed, 3)
+    T.ok(rep.passo ~= nil and rep.passo > 0)
+    T.ok(tostring(rep.motivo):find("gerador quebrado", 1, true) ~= nil, tostring(rep.motivo))
+    local agg = Simulador.run_many{ n = 0 }
+    T.eq(agg.por_resultado.erro_simulador, 0)
   end },
 
   { "200 partidas random contra random terminam sem falha", function(T)
@@ -262,6 +305,7 @@ return {
     g.phase = "over"
     broken(T, g, "over sem vencedor")
   end },
+
   { "passes em 2 com uma escolha aberta pelo fim da rodada não viola a invariante", function(T)
     local g = scenario()
     local Cards = require("duelo/core/cards")
