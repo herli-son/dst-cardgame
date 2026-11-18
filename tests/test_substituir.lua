@@ -143,4 +143,37 @@ return {
     g:put_structure(1, { id = "s_casa", uid = g:next_uid() }, 1)
     T.ok(g:act(1, { type = "play", hand_index = give(g, 1, "s_construir") }))
   end },
+
+  { "sacrifício é pago na jogada e libera o espaço", function(T)
+    local g = new_game()
+    Cards.define{ id = "s_ritual", kind = "criatura", cost = 0, atk = 5, hp = 5, sacrifice = { count = 1 } }
+    local list = fill(g, 1)
+    local h = give(g, 1, "s_ritual")
+    T.eq(g:act(1, { type = "play", hand_index = h, slot = 3 }), false, "sem sacrifício")
+    T.eq(g:act(1, { type = "play", hand_index = h, slot = 3, sacrifice = { 4 } }), false, "espaço ocupado por outra")
+    T.ok(g:act(1, { type = "play", hand_index = h, slot = 4, sacrifice = { 4 } }))
+    T.eq(g:creature_at(1, 4).def.id, "s_ritual")
+    T.eq(log[1], "morreu", "o sacrifício é um abate normal")
+    local d = g.players[1].discard
+    T.eq(d[#d].uid, list[4].card_uid)
+    T.eq(#g.players[1].destroyed, 0, "nada é destruído")
+  end },
+
+  { "sacrifício respeita o filtro da carta", function(T)
+    local g = new_game()
+    Cards.define{ id = "s_ritual2", kind = "criatura", cost = 0, atk = 5, hp = 5,
+      sacrifice = { count = 1, filter = function(gg, c) return c.def.id == "s_sobrev" end } }
+    g:place_creature(1, { id = "s_base", uid = g:next_uid() }, 1)
+    local h = give(g, 1, "s_ritual2")
+    T.eq(g:act(1, { type = "play", hand_index = h, slot = 2, sacrifice = { 1 } }), false)
+  end },
+
+  { "jogar uma criatura que mantém a vez continua mantendo com sacrifício", function(T)
+    local g = new_game()
+    Cards.define{ id = "s_rapido", kind = "criatura", cost = 0, atk = 1, hp = 1, keeps_turn = true,
+      sacrifice = { count = 1 } }
+    g:place_creature(1, { id = "s_base", uid = g:next_uid() }, 1)
+    T.ok(g:act(1, { type = "play", hand_index = give(g, 1, "s_rapido"), slot = 1, sacrifice = { 1 } }))
+    T.eq(g.active, 1)
+  end },
 }
