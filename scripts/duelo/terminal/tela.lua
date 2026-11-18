@@ -134,6 +134,7 @@ function Tela.cabecalho(g, p)
     .. "Ele: vida " .. him.life .. "  mana " .. him.mana .. "/" .. him.max_mana
   local vez = quem(g, p, g.active)
   if g.pending_choice then vez = quem(g, p, g.pending_choice.player) .. " (escolha)" end
+  if g.winner ~= nil then vez = "-" end
   lines[#lines + 1] = pad("Token de ataque: " .. quem(g, p, g.attacker), 40) .. "Vez: " .. vez
   if g.winner ~= nil then
     local fim = "empate"

@@ -240,9 +240,7 @@ local function parse_jogar(g, p, toks, i, from)
     if t == nil then return nil, err2 end
     action.target = t
   elseif alvo_tok then
-    local t, err2 = Comandos.alvo(p, alvo_tok)
-    if t == nil then return nil, err2 end
-    action.target = t
+    return nil, "essa carta não tem alvo; para escolher o espaço use em c1..c6 (criatura) ou em e1, e2 (estrutura)"
   end
   return action
 end
@@ -359,6 +357,7 @@ function Comandos.parse(g, p, linha)
   if cmd == "sair" then return { type = "sair" } end
   if cmd == "j" then
     local n = inteiro(toks[2])
+    if n == nil then return nil, "falta o número da jogada (j <n>; veja: jogadas)" end
     local lista = Jogadas.list(g, p)
     if lista[n] == nil then return nil, "não há jogada " .. tostring(n) .. " (veja: jogadas)" end
     return lista[n]

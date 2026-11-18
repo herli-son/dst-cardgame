@@ -332,7 +332,9 @@ return {
     local a = parse_ok(T, g, 1, "j 2")
     T.eq(a.type, lista[2].type); T.eq(a.hand_index, lista[2].hand_index); T.eq(a.slot, lista[2].slot)
     parse_err(T, g, 1, "j 99", "não há jogada 99")
-    parse_err(T, g, 1, "j", "não há jogada")
+    parse_err(T, g, 1, "jogar 1 em o3", "essa carta não tem alvo")
+    parse_err(T, g, 1, "j", "falta o número da jogada")
+    parse_err(T, g, 1, "j x", "falta o número da jogada")
   end },
 
   { "todo comando gerado de uma jogada volta à mesma ação pelo parse", function(T)

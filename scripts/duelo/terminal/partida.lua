@@ -193,7 +193,7 @@ function Partida.describe_events(g, from_index, p)
       add(nome(ev.uid) .. " é destruída (" .. tostring(ev.reason) .. ").")
     elseif t == "destroyed" then
       if ev.reason == "limite_de_mao" then
-        add(nome_id(g, ev.id) .. " de " .. quem(ev.p) .. " é destruída: mão cheia.")
+        add("Mão cheia: " .. quem(ev.p) .. " perde " .. nome_id(g, ev.id) .. " (destruída).")
       end
     elseif t == "fizzle" then
       add(nome_id(g, ev.id) .. " não acontece: alvo perdido.")
