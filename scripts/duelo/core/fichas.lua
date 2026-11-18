@@ -1,41 +1,106 @@
--- Fichas: cartas criadas por efeitos, fora do baralho. Lua 5.1 puro.
+-- Fichas: cartas criadas por efeitos. Lua 5.1 puro.
 -- Instala os métodos no Game: require("duelo/core/fichas")(Game)
 --
--- Uma ficha usa a mesma definição da carta de mesmo nome, então tem os mesmos
--- atributos. Quando sai de jogo, ou iria para o descarte, o baralho ou as
--- destruídas, deixa de existir.
+-- Uma ficha é uma cópia do baralho extra do jogador (doc, "Fichas" e "Baralho
+-- extra"): criar tira a cópia de lá, e sem cópia disponível a criação não
+-- acontece. A ficha usa a mesma definição da carta de mesmo nome, então tem os
+-- mesmos atributos. Destinos (doc, "Fichas"):
+--   * morrer, ser quebrada ou ser usada: vai para o descarte, como qualquer carta,
+--     e pode ser revivida; a carta com def.returns_to_extra (Fantasmas criados,
+--     Alimentos) volta para o baralho extra;
+--   * ser destruída: vai para as Destruídas;
+--   * sumir, voltar ou "deixar de existir" (mão, baralho): volta para o baralho extra.
 
 return function(Game)
-  function Game:make_token(id)
+  -- Tira do baralho extra uma cópia da carta id, marcada como ficha. nil se não houver.
+  function Game:take_from_extra(p, id)
     assert(self:def_of({ id = id }) ~= nil, "ficha desconhecida: " .. tostring(id))
-    return { id = id, uid = self:next_uid(), ficha = true }
+    local extra = self.players[p].extra
+    for i = #extra, 1, -1 do
+      if extra[i].id == id then
+        local card = table.remove(extra, i)
+        card.ficha = true
+        return card
+      end
+    end
   end
 
+  -- A ficha volta para o baralho extra do dono, limpa.
   function Game:vanish(p, card, reason)
+    self:reset_card(card)
+    local extra = self.players[p].extra
+    extra[#extra + 1] = card
     self:emit{ t = "vanish", p = p, id = card.id, card_uid = card.uid, reason = reason }
+  end
+
+  -- Vínculo (doc, "Fichas"): a criatura criada por uma estrutura fica ligada a ela
+  -- enquanto a estrutura estiver em campo, para contar limites e para voltar quando
+  -- a carta manda. Cada estrutura tem no máximo LINK_LIMIT criaturas ligadas.
+  Game.LINK_LIMIT = 3
+
+  function Game:linked_to(st)
+    local list = {}
+    for _, c in ipairs(self:creatures(st.owner)) do
+      if c.link == st then list[#list + 1] = c end
+    end
+    return list
+  end
+
+  -- A estrutura saiu de campo: as criaturas ligadas ficam, sem vínculo.
+  function Game:unlink(st)
+    for _, c in ipairs(self:linked_to(st)) do
+      c.link = nil
+      self:emit{ t = "unlink", p = c.owner, uid = c.uid, structure_uid = st.uid }
+    end
   end
 
   -- Cria uma ficha para o jogador p.
   -- opts.zone = "hand" para criar na mão; senão vai para o campo conforme o tipo.
   -- opts.slot escolhe o espaço; sem ele, usa o primeiro livre.
+  -- opts.link = estrutura de origem: a criatura fica ligada a ela; com o limite de
+  -- ligadas atingido, não é criada ("limite_vinculo").
   -- Retorna a criatura, a estrutura ou a carta criada. Sem isso, retorna nil e o motivo:
-  -- "sem_espaco" (não foi criada) ou "pendente" (o dono escolhe onde ela entra).
+  -- "sem_copia" (o baralho extra não tem cópia), "sem_espaco" (não foi criada) ou
+  -- "pendente" (o dono escolhe onde ela entra).
   function Game:create_token(p, id, opts)
     opts = opts or {}
-    local card = self:make_token(id)
-    local def = self:def_of(card)
-    if opts.zone == "hand" then
-      if self:add_to_hand(p, card, "ficha") then return card end
+    local def = self:def_of({ id = id })
+    assert(def ~= nil, "ficha desconhecida: " .. tostring(id))
+    local slot
+    -- Com a mão cheia, a cópia nem sai do baralho extra.
+    if opts.zone == "hand" and self:hand_count(p) >= self:hand_limit(p) then
+      self:emit{ t = "no_space", p = p, id = id }
       return nil, "sem_espaco"
     end
-    if def.kind == "criatura" then
-      local slot = opts.slot
+    -- Estrutura que já saiu de campo não liga ninguém (o vínculo vale enquanto
+    -- ela estiver em campo).
+    if opts.link and self:find_structure(opts.link.uid) ~= opts.link then
+      opts = { zone = opts.zone, slot = opts.slot }
+    end
+    if opts.link and #self:linked_to(opts.link) >= Game.LINK_LIMIT then
+      self:emit{ t = "link_limit", p = p, id = id, structure_uid = opts.link.uid }
+      return nil, "limite_vinculo"
+    end
+    if opts.zone ~= "hand" and def.kind == "criatura" then
+      slot = opts.slot
       if slot == nil or self.players[p].field[slot] ~= nil then slot = self:free_slots(p)[1] end
+      -- Sem espaço, a cópia nem sai do baralho extra.
       if slot == nil then
         self:emit{ t = "no_space", p = p, id = id }
         return nil, "sem_espaco"
       end
-      return self:place_creature(p, card, slot, { ficha = true })
+    end
+    local card = self:take_from_extra(p, id)
+    if card == nil then
+      self:emit{ t = "no_copy", p = p, id = id }
+      return nil, "sem_copia"
+    end
+    if opts.zone == "hand" then
+      self:add_to_hand(p, card, "ficha")
+      return card
+    end
+    if def.kind == "criatura" then
+      return self:place_creature(p, card, slot, { ficha = true, link = opts.link })
     elseif def.kind == "estrutura" then
       return self:enter_structure(p, card, { slot = opts.slot, ficha = true })
     end
@@ -44,7 +109,8 @@ return function(Game)
 
   -- Tira uma criatura de campo. dest = "discard" | "hand" | "deck" | "destroyed".
   -- opts.equips = "discard" (padrão) ou "inventory" (ex.: Telelocador).
-  -- Fichas deixam de existir em qualquer destino.
+  -- Fichas: descarte e destruídas como qualquer carta; mão e baralho as devolvem
+  -- ao baralho extra.
   function Game:remove_creature(c, dest, reason, opts)
     opts = opts or {}
     local pl = self.players[c.owner]
@@ -68,10 +134,12 @@ return function(Game)
   function Game:send_card(c, dest, reason)
     local pl = self.players[c.owner]
     local card = c.card
-    if c.ficha or card.ficha then
+    if (c.ficha or card.ficha) and (dest == "hand" or dest == "deck") then
       self:vanish(c.owner, card, reason)
       return
     end
+    card.ficha = card.ficha or c.ficha or nil
+    if dest == "discard" or dest == nil then return self:to_discard(c.owner, card) end
     self:reset_card(card)
     if dest == "hand" then
       self:add_to_hand(c.owner, card, "campo")

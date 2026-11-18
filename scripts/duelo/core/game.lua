@@ -112,10 +112,11 @@ local function default_rng(n)
   return math.random(n)
 end
 
-local function new_player(deck)
+local function new_player(deck, extra)
   return {
     life = Game.START_LIFE,
     deck = deck or {}, -- o topo do baralho é o último elemento
+    extra = extra or {}, -- baralho extra: evoluções, invocações e cartas criadas por efeitos
     hand = {},
     discard = {},
     destroyed = {},   -- cartas destruídas: saem de jogo e não voltam (diferente do descarte)
@@ -158,8 +159,8 @@ function Game.new(opts)
   -- Modificadores do limite de mão; use Game:add_hand_limit_mod.
   g.hand_limit_mods = {}
   g.players = {
-    new_player(copy_deck(g, opts.decks and opts.decks[1])),
-    new_player(copy_deck(g, opts.decks and opts.decks[2])),
+    new_player(copy_deck(g, opts.decks and opts.decks[1]), copy_deck(g, opts.extra_decks and opts.extra_decks[1])),
+    new_player(copy_deck(g, opts.decks and opts.decks[2]), copy_deck(g, opts.extra_decks and opts.extra_decks[2])),
   }
   g.first = opts.first or g.rng(2)
   g.use_mulligan = opts.mulligan ~= false
@@ -225,7 +226,6 @@ end
 -- Destruir é diferente de descartar: a carta vai para a zona de destruídas e
 -- não pode ser recuperada por efeitos que buscam no descarte.
 function Game:destroy_card(p, card, reason)
-  if card.ficha then return self:vanish(p, card, reason) end
   self:reset_card(card)
   local pl = self.players[p]
   pl.destroyed[#pl.destroyed + 1] = card
@@ -245,6 +245,9 @@ end
 -- source diz de onde ela veio ("baralho", "ficha", "campo"...). O evento traz o id
 -- da carta e é privado: a camada do mod só repassa id e card_uid ao dono.
 function Game:add_to_hand(p, card, source)
+  -- Uma ficha só entra na mão ao ser criada; movida para a mão de outro lugar
+  -- (descarte, campo), ela volta ao baralho extra.
+  if card.ficha and source ~= "ficha" then return self:vanish(p, card, source) end
   if self:hand_count(p) >= self:hand_limit(p) then
     self:destroy_card(p, card, "limite_de_mao")
     return false
@@ -563,12 +566,17 @@ function Game:finish_round()
 end
 
 -- Roda fn agora se não houver escolha aberta; senão, quando a última for feita.
-function Game:after_choices(fn)
+-- opts.keeps_turn_flow = true: a continuação faz parte da jogada e não cuida da
+-- vez (ex.: a criatura que entra depois do sacrifício); a vez segue a decisão da
+-- jogada que abriu a escolha. Sem isso, a continuação cuida da vez (ex.: a
+-- rodada que avança).
+function Game:after_choices(fn, opts)
   if not self:choices_waiting() then return fn(self) end
   self.choice_continuations = self.choice_continuations or {}
   -- Guarda quem pediu, para o registro de erro apontar a mesma carta quando a
   -- continuação rodar depois.
-  table.insert(self.choice_continuations, { fn = fn, context = self.context })
+  table.insert(self.choice_continuations, { fn = fn, context = self.context,
+    keeps_turn_flow = opts and opts.keeps_turn_flow or false })
 end
 
 function Game:advance_vez()

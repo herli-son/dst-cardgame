@@ -50,7 +50,14 @@ local function new_game(hand1, hand2)
   for i = 1, 20 do d1[i] = { id = "r_bicho" }; d2[i] = { id = "r_bicho" } end
   for _, id in ipairs(hand1 or {}) do d1[#d1 + 1] = { id = id } end
   for _, id in ipairs(hand2 or {}) do d2[#d2 + 1] = { id = id } end
-  local g = Game.new{ decks = { d1, d2 }, first = 1, mulligan = false, rng = function(n) return n end }
+  -- Baralho extra com cópias das cartas que os testes criam.
+  local extra = {}
+  for _, id in ipairs({ "r_bicho", "r_torre", "r_torre2", "r_casa" }) do
+    for _ = 1, 10 do extra[#extra + 1] = { id = id } end
+  end
+  local function copy(list) local c = {} for i, x in ipairs(list) do c[i] = { id = x.id } end return c end
+  local g = Game.new{ decks = { d1, d2 }, extra_decks = { copy(extra), copy(extra) },
+    first = 1, mulligan = false, rng = function(n) return n end }
   g:start()
   return g
 end

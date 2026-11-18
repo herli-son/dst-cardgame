@@ -494,7 +494,7 @@ return {
     T.eq(d[#d].id, "v_relogio")
   end },
 
-  { "substituição: a nova estrutura entra mesmo se a antiga decidir ao quebrar", function(T)
+  { "substituição: o ao quebrar da antiga não dispara", function(T)
     local g = new_game()
     Cards.define{ id = "v_relogio2", kind = "estrutura", cost = 0,
       on_break = function(gg) gg:damage_player(1, 99, "teste") end }
@@ -506,7 +506,7 @@ return {
     local pl = g.players[1]
     pl.hand[#pl.hand + 1] = { id = "v_obra", uid = g:next_uid() }
     g:act(1, { type = "play", hand_index = #pl.hand })
-    T.eq(g.winner, 2)
+    T.eq(g.winner, nil)
     T.eq(g:structure_at(1, 1).def.id, "v_nova")
   end },
 
@@ -517,20 +517,6 @@ return {
     T.eq(g:act(1, { type = "choose", index = 1 }), false)
     T.eq(g.error.message:find("stack traceback", 1, true), nil)
     T.ok(g.error.traceback:find("ESCOLHA_COM_BUG", 1, true) ~= nil)
-  end },
-
-  { "a entrada da nova estrutura não dispara se o efeito da substituída a tirar de campo", function(T)
-    local g = new_game()
-    Cards.define{ id = "v_bomba_q", kind = "estrutura", cost = 0,
-      on_break = function(gg, st)
-        for s = 1, 2 do gg:break_structure(st.owner, s, "explosao") end
-      end }
-    Cards.define{ id = "v_nova2", kind = "estrutura", cost = 0,
-      on_play = function() log[#log + 1] = "entrou" end }
-    g:put_structure(1, { id = "v_bomba_q", uid = g:next_uid() }, 1)
-    g:put_structure(1, { id = "v_bomba_q", uid = g:next_uid() }, 2)
-    g:put_structure(1, { id = "v_nova2", uid = g:next_uid() }, 1)
-    T.eq(#log, 0)
   end },
 
   { "o efeito ao quebrar vê os marcadores guardados da estrutura", function(T)
