@@ -316,6 +316,46 @@ return {
     end
   end },
 
+  { "velocidade 3 contra 2 morrem juntas, e a 3 soma o dano das duas fases", function(T)
+    define()
+    Cards.define{ id = "bot_v3", kind = "criatura", cost = 0, atk = 2, hp = 2, speed = 3 }
+    Cards.define{ id = "bot_v2", kind = "criatura", cost = 0, atk = 2, hp = 2, speed = 2 }
+    Cards.define{ id = "bot_muro4", kind = "criatura", cost = 0, atk = 0, hp = 4 }
+    Cards.define{ id = "bot_muro5", kind = "criatura", cost = 0, atk = 0, hp = 5 }
+    -- v3 ataca sem risco de morte: o muro de 4 morreria (2 + 2), então não bloqueia;
+    -- o de 5 sobrevive, então bloqueia.
+    local g = bare(7)
+    put(g, 1, "bot_v3", 1); put(g, 2, "bot_muro4", 1)
+    T.ok(g:act(1, { type = "attack", attackers = { 1 } })); T.ok(g:act(1, { type = "pass" }))
+    local a = Bot.new{ rng = make_rng(1) }:choose(g, 2, Jogadas.list(g, 2))
+    T.eq(a.type, "pass", "o muro de 4 morreria com os dois golpes")
+    g = bare(7)
+    put(g, 1, "bot_v3", 1); put(g, 2, "bot_muro5", 1)
+    T.ok(g:act(1, { type = "attack", attackers = { 1 } })); T.ok(g:act(1, { type = "pass" }))
+    a = Bot.new{ rng = make_rng(1) }:choose(g, 2, Jogadas.list(g, 2))
+    T.eq(a.type, "block")
+    -- v3 ataca; v2 bloqueando morre junto, então não vale como bloqueador que sobrevive.
+    g = bare(7)
+    put(g, 1, "bot_v3", 1); put(g, 2, "bot_v2", 1)
+    T.ok(g:act(1, { type = "attack", attackers = { 1 } })); T.ok(g:act(1, { type = "pass" }))
+    a = Bot.new{ rng = make_rng(1) }:choose(g, 2, Jogadas.list(g, 2))
+    T.eq(a.type, "pass", "sem risco, não troca o bloqueador")
+  end },
+
+  { "listar bloqueios de 6 contra 6 com Frágeis e Agressivas é rápido", function(T)
+    define()
+    Cards.define{ id = "bot_fr1", kind = "criatura", cost = 0, atk = 1, hp = 1, kw = { fragil = true } }
+    Cards.define{ id = "bot_ag1", kind = "criatura", cost = 0, atk = 1, hp = 1, kw = { agressivo = true } }
+    local g = bare(7)
+    for s = 1, 6 do put(g, 1, "bot_fr1", s); put(g, 2, "bot_ag1", s) end
+    T.ok(g:act(1, { type = "attack", attackers = { 1, 2, 3, 4, 5, 6 } })); T.ok(g:act(1, { type = "pass" }))
+    local t0 = os.clock()
+    local list = Jogadas.list(g, 2)
+    local dt = os.clock() - t0
+    T.ok(#list > 700, "lista os emparelhamentos que atendem as obrigações")
+    T.ok(dt < 5, "demorou " .. dt .. "s")
+  end },
+
   { "sem risco de morrer, o bot não sacrifica bloqueadores", function(T)
     local g = bare(7)
     put(g, 1, "bot_lobo", 1); put(g, 2, "bot_rato", 1)
