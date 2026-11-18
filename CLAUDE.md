@@ -87,18 +87,19 @@ Feature: #12
 
 ## Estratégia de branches (git flow)
 
-Hierarquia: `main` → `develop` → `feature` → `user`.
+Hierarquia: `main` → `develop` → `feature` → `user`. As betas são branches filhas da `develop`.
 
 | Branch | Nome | Sai de | Volta para | Papel |
 |---|---|---|---|---|
-| `main` | `main` | | | Versão jogável: só recebe versões jogáveis (da `develop` ou de um hotfix) |
-| `develop` | `develop` | `main` | `main` | Versão beta: o que ainda não está pronto para a `main` e o que está em teste; as betas são geradas a partir dela |
+| `main` | `main` | | | Versão jogável: só recebe versões jogáveis (de uma beta ou de um hotfix) |
+| `develop` | `develop` | `main` | | Desenvolvimento: integra as Features; as betas saem dela |
+| Beta | `beta/[versão]` | `develop` | `main` (e a `develop`, por PR, a cada correção) | Versão em teste, congelada para o teste não travar a `develop` |
 | Feature | `feature/[n° da feature]` | `develop` | `develop` | Desenvolvimento de uma Feature; uma Feature pode ter várias User Stories |
 | User Story | `feature/user/[n° da user story]-[n° da feature]` | a branch da sua Feature | a branch da sua Feature | Onde as Tasks da User Story são desenvolvidas |
 | Hotfix | `hotfix/[n° do bug]` | `main` | `main` | Bug encontrado na `main` |
-| Bugfix | `bugfix/[n° do bug]` | `develop` | `develop` | Bug encontrado na `develop` |
+| Bugfix | `bugfix/[n° do bug]` | `develop` ou a beta | a mesma branch de onde saiu | Bug encontrado na `develop` ou numa beta |
 
-Exemplos: `feature/12`, `feature/user/23-12`, `hotfix/40`, `bugfix/41`.
+Exemplos: `feature/12`, `feature/user/23-12`, `beta/0.1.0`, `hotfix/40`, `bugfix/41`.
 
 Regras:
 
@@ -108,7 +109,9 @@ Regras:
 - Depois do merge da Feature na `develop`, a branch da Feature é deletada.
 - Bugs são resolvidos a partir da branch onde foram encontrados.
 - **Hotfix:** sai da `main`. Depois do merge na `main`, delete a branch e faça merge da `main` na `develop`.
-- **Bugfix:** sai da `develop`. Depois do merge na `develop`, delete a branch.
+- **Bugfix:** sai da `develop` ou da beta em que o bug foi achado e volta para ela. Depois do merge, delete a branch.
+- **Beta:** sai da `develop` quando uma beta vai ser gerada. Correções de bugs achados no teste entram por `bugfix/[n° do bug]` (ver Bugfix). Depois de cada correção, um PR da beta para a `develop` leva a correção, para o bug não voltar na próxima beta. Quando estiver jogável, a beta vai direto para a `main`. É deletada depois de chegar na `main` ou quando uma beta mais nova a substituir.
+- **Versão da beta:** `0.y.z`; `y` sobe a cada beta nova e `z` a cada correção na mesma beta.
 - Toda integração entre branches é feita por Pull Request.
 
 ## Revisão antes do PR
@@ -119,8 +122,8 @@ Regras:
 
 ## Publicação e fechamento de issues
 
-- Quando uma issue fica pronta na `develop` (pelo merge de uma Feature ou de um bugfix), ela **continua aberta** e recebe a etiqueta `aguardando publicação`.
-- As issues com essa etiqueta só fecham quando o código chega na `main`, ou seja, numa versão jogável: o PR da `develop` para a `main` traz uma linha `Closes #n` para cada uma delas, e o GitHub as fecha no merge.
-- PRs para branches de Feature ou para a `develop` não fecham issues.
+- Quando uma issue fica pronta (pelo merge de uma Feature ou de um bugfix na `develop`, ou de um bugfix numa beta), ela **continua aberta** e recebe a etiqueta `aguardando publicação`.
+- As issues com essa etiqueta só fecham quando o código chega na `main`, ou seja, numa versão jogável: o PR da beta para a `main` traz uma linha `Closes #n` para cada issue com a etiqueta cujo código está na beta (inclusive os bugs corrigidos nela), e o GitHub as fecha no merge.
+- PRs para branches de Feature, para a `develop` ou para uma beta não fecham issues.
 
 Referência: [Conventional Commits](https://www.conventionalcommits.org/pt-br/v1.0.0/)
