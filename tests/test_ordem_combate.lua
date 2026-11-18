@@ -314,6 +314,21 @@ return {
     T.eq(g.players[2].life, life)
   end },
 
+  { "com duas Guardas elegíveis, salta a do menor espaço, não a do par anterior", function(T)
+    local g = new_game()
+    put(g, 1, "o_comum", 1); put(g, 1, "o_comum", 2)
+    local a3 = put(g, 1, "o_comum", 3); local a4 = put(g, 1, "o_comum", 4)
+    -- A Guarda do espaço 5 bloqueia o atacante 1 (par que resolve antes); a do
+    -- espaço 2 bloqueia o atacante 2. Na vez do atacante 3, as duas estão
+    -- elegíveis: salta a do espaço 2.
+    local p5 = put(g, 2, "o_guarda", 5); local p2 = put(g, 2, "o_guarda", 2)
+    fight(g, { 1, 2, 3, 4 }, { { 1, 5 }, { 2, 2 } })
+    local jumps = guard_jumps(g)
+    T.eq(#jumps, 2)
+    T.eq(jumps[1].attacker, a3.uid); T.eq(jumps[1].blocker, p2.uid, "menor espaço primeiro")
+    T.eq(jumps[2].attacker, a4.uid); T.eq(jumps[2].blocker, p5.uid)
+  end },
+
   { "Guarda cujo par acabou numa escolha salta depois dela", function(T)
     local g = new_game()
     Cards.define{ id = "o_morre_escolhe", kind = "criatura", cost = 0, atk = 1, hp = 2,
