@@ -142,7 +142,7 @@ return {
     T.eq(bad.falhas[2].lados_trocados, false)
     T.eq(bad.falhas[2].players[1], "bot")
     local text = Simulador.format_report(bad)
-    T.ok(text:find("seed 11 (random x bot, lados trocados;", 1, true) ~= nil, text)
+    T.ok(text:find("seed 11 (random x bot, baralhos trocados;", 1, true) ~= nil, text)
     T.ok(text:find("seed 12 (bot x random;", 1, true) ~= nil, text)
   end },
 

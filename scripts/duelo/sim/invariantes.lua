@@ -320,12 +320,17 @@ checks[#checks + 1] = function(g, opts)
     end
   end
   if bad then return bad end
-  if opts and opts.card_total ~= nil and g.winner == nil then
+  if opts and opts.card_total ~= nil then
     local expected = opts.card_total
+    -- Cartas nunca aparecem do nada, em nenhuma fase.
     if total > expected then return "total de cartas subiu: " .. total .. ", esperado " .. expected end
-    local transit = in_transit(g)
-    if total + transit < expected then
-      return "total de cartas caiu: " .. total .. " nas zonas e no máximo " .. transit .. " em trânsito, esperado " .. expected
+    -- Com a partida decidida, o motor zera a pilha e descarta as continuações,
+    -- e as cartas que estavam ali se perdem: o déficit só vale em andamento.
+    if g.winner == nil then
+      local transit = in_transit(g)
+      if total + transit < expected then
+        return "total de cartas caiu: " .. total .. " nas zonas e no máximo " .. transit .. " em trânsito, esperado " .. expected
+      end
     end
   end
 end
@@ -340,7 +345,9 @@ end
 -- que a última escolha é feita; algo na fila sem escolha aberta seria um
 -- travamento silencioso.
 checks[#checks + 1] = function(g)
-  if g.phase == "error" then return end
+  -- Com a partida decidida, uma escolha cujo preparo decidiu a partida aborta o
+  -- laço de next_choice e o resto da fila fica lá sem efeito: só vale em andamento.
+  if g.phase == "error" or g.winner ~= nil then return end
   local ch = g.pending_choice
   if ch == nil then
     if g.choice_queue and #g.choice_queue > 0 then

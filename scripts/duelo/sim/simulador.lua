@@ -302,8 +302,8 @@ function Simulador.run_many(opts)
     if FAILURES[rep.resultado] then
       agg.falhas[#agg.falhas + 1] = {
         seed = rep.seed, resultado = rep.resultado, motivo = rep.motivo, passo = rep.passo,
-        players = rep.players, lados_trocados = swapped, erro = rep.erro, invariante = rep.invariante,
-        ultima = rep.ultima,
+        players = rep.players, lados_trocados = swapped, mulligan = opts.mulligan == true,
+        erro = rep.erro, invariante = rep.invariante, ultima = rep.ultima,
       }
     end
   end
@@ -341,8 +341,9 @@ function Simulador.format_report(agg)
     add("falhas: %d", #agg.falhas)
     for i, f in ipairs(agg.falhas) do
       if i > 20 then add("  ... e mais %d", #agg.falhas - 20); break end
-      add("  seed %d (%s x %s%s; %s, passo %s): %s", f.seed, tostring(f.players and f.players[1]),
-        tostring(f.players and f.players[2]), f.lados_trocados and ", lados trocados" or "",
+      add("  seed %d (%s x %s%s%s; %s, passo %s): %s", f.seed, tostring(f.players and f.players[1]),
+        tostring(f.players and f.players[2]), f.lados_trocados and ", baralhos trocados" or "",
+        f.mulligan and ", com troca inicial" or "",
         f.resultado, tostring(f.passo), tostring(f.motivo))
       if f.ultima then add("    ultima jogada: jogador %d, %s", f.ultima.p, describe_action(f.ultima.action)) end
       if f.erro and f.erro.traceback then add("    %s", (tostring(f.erro.traceback):gsub("\n", "\n    "))) end

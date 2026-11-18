@@ -9,8 +9,9 @@
 -- com os lados dos baralhos alternados pela paridade da seed. seed (padrão 0) é
 -- a base das sementes. Termina com código 1 se alguma partida falhar (erro do
 -- motor, travamento, invariante ou erro do simulador). Para reproduzir uma
--- falha: Simulador.run_game com a seed, os jogadores e os baralhos impressos
--- (trocados de lado quando a linha diz "lados trocados").
+-- falha: Simulador.run_game com a seed, os jogadores na ordem impressa (ela já é
+-- a da partida), mulligan = true quando a linha diz "com troca inicial", e os
+-- baralhos trocados de lado quando a linha diz "baralhos trocados".
 
 package.path = "scripts/?.lua;tests/?.lua;" .. package.path
 
