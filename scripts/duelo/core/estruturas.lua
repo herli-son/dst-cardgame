@@ -222,16 +222,19 @@ return function(Game)
 
   -- O que vem depois de uma escolha: abrir a próxima da fila (que herda a decisão
   -- de passar a vez), retomar a pilha em resolução e as continuações suspensas.
-  -- Devolve se a vez deve passar agora.
+  -- Devolve true se alguma continuação cuidou da vez (as marcadas com
+  -- keeps_turn_flow não cuidam).
   local function run_continuations(g)
     local conts = g.choice_continuations
     if conts and #conts > 0 then
       g.choice_continuations = {}
+      local handled = false
       for _, c in ipairs(conts) do
         local ctx = c.context or {}
         g:effect(ctx.kind or "continuar", ctx.id, c.fn, g)
+        if not c.keeps_turn_flow then handled = true end
       end
-      return true
+      return handled
     end
     return false
   end
@@ -256,6 +259,11 @@ return function(Game)
       return false
     end
     if run_continuations(g) then return false end
+    -- Uma continuação da jogada pode ter aberto outra escolha: ela herda a decisão.
+    if g.pending_choice then
+      if g.pending_choice.passes_turn == nil then g.pending_choice.passes_turn = ch.passes_turn end
+      return false
+    end
     return ch.passes_turn == true
   end
 

@@ -566,12 +566,17 @@ function Game:finish_round()
 end
 
 -- Roda fn agora se não houver escolha aberta; senão, quando a última for feita.
-function Game:after_choices(fn)
+-- opts.keeps_turn_flow = true: a continuação faz parte da jogada e não cuida da
+-- vez (ex.: a criatura que entra depois do sacrifício); a vez segue a decisão da
+-- jogada que abriu a escolha. Sem isso, a continuação cuida da vez (ex.: a
+-- rodada que avança).
+function Game:after_choices(fn, opts)
   if not self:choices_waiting() then return fn(self) end
   self.choice_continuations = self.choice_continuations or {}
   -- Guarda quem pediu, para o registro de erro apontar a mesma carta quando a
   -- continuação rodar depois.
-  table.insert(self.choice_continuations, { fn = fn, context = self.context })
+  table.insert(self.choice_continuations, { fn = fn, context = self.context,
+    keeps_turn_flow = opts and opts.keeps_turn_flow or false })
 end
 
 function Game:advance_vez()

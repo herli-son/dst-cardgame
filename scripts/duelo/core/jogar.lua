@@ -427,7 +427,7 @@ return function(Game)
           else
             gg:place_creature(p, card, slot, { entry = entry })
           end
-        end)
+        end, { keeps_turn_flow = true })
         return
       end
       local old = g.players[p].field[action.slot]
