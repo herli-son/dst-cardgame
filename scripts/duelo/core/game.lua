@@ -244,6 +244,7 @@ function Game:reset_card(card)
   card.durability = nil
   card.used_round = nil
   card.used_period = nil
+  card.arrived = nil
 end
 
 -- Coloca uma carta na mão respeitando o limite; acima dele, a carta é destruída.
@@ -259,8 +260,55 @@ function Game:add_to_hand(p, card, source)
   end
   local pl = self.players[p]
   pl.hand[#pl.hand + 1] = card
+  self:mark_arrival(card)
   self:emit{ t = "to_hand", p = p, card_uid = card.uid, id = card.id, source = source or "baralho", private = true }
   return true
+end
+
+-- Ordem de chegada às zonas que contam como mão (mão, Inventário, separadas),
+-- para o fim da rodada destruir primeiro o que entrou por último.
+function Game:mark_arrival(card)
+  self.arrival_counter = (self.arrival_counter or 0) + 1
+  card.arrived = self.arrival_counter
+end
+
+-- Cartas que passam do limite de mão, da que entrou por último para a mais
+-- antiga (doc, "Limite de mão"): o limite pode baixar com cartas a mais (ex.: a
+-- Mochila sai de campo). Elas ficam até o fim da rodada, e é esta a lista que o
+-- jogo mostra como "serão destruídas se não forem usadas".
+function Game:hand_overflow(p)
+  local excess = self:hand_count(p) - self:hand_limit(p)
+  if excess <= 0 then return {} end
+  local pl = self.players[p]
+  local all = {}
+  for _, zone in ipairs({ "hand", "inventory", "separated" }) do
+    for i, card in ipairs(pl[zone]) do
+      all[#all + 1] = { card = card, zone = zone, index = i, order = card.arrived or 0 }
+    end
+  end
+  table.sort(all, function(a, b)
+    if a.order ~= b.order then return a.order > b.order end
+    if a.zone ~= b.zone then return a.zone > b.zone end
+    return a.index > b.index
+  end)
+  local list = {}
+  for i = 1, excess do list[i] = all[i] end
+  return list
+end
+
+-- Fim da rodada: destrói o que passa do limite, da mais recente para a mais antiga.
+function Game:enforce_hand_limit(p)
+  local list = self:hand_overflow(p)
+  -- Tira de trás para a frente em cada zona, para os índices continuarem válidos.
+  table.sort(list, function(a, b)
+    if a.zone ~= b.zone then return a.zone < b.zone end
+    return a.index > b.index
+  end)
+  for _, e in ipairs(list) do
+    table.remove(self.players[p][e.zone], e.index)
+    self:destroy_card(p, e.card, "limite_de_mao")
+  end
+  return #list
 end
 
 function Game:draw(p, n)
@@ -562,6 +610,9 @@ function Game:finish_round()
     self:check_winner()
   end
   self:emit{ t = "round_end", round = self.round }
+  if self.winner == nil then
+    for p = 1, 2 do self:enforce_hand_limit(p) end
+  end
   if self.winner == nil then
     -- A rodada nova começa com o estado estável: se uma morte do fim da rodada
     -- abrir uma escolha, a rodada nova só começa depois dela.

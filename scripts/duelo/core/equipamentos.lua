@@ -25,6 +25,7 @@ return function(Game)
     end
     local inv = self.players[p].inventory
     inv[#inv + 1] = card
+    self:mark_arrival(card)
     self:emit{ t = "inventory", p = p, card_uid = card.uid, id = card.id }
     return true
   end
