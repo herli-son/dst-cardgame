@@ -65,7 +65,7 @@ end
 -- Bloqueio
 ----------------------------------------------------------------------------
 
--- Simula o duelo entre atacante e bloqueador como o motor resolve: fase rápida
+-- Simula o par (atacante e bloqueador) como o motor resolve: fase rápida
 -- (velocidade 2 e 3), mortos saem, fase normal (velocidade 1 e 3) entre os que
 -- sobraram. Devolve se o atacante morre e se o bloqueador morre.
 local function duel(g, a, d)
@@ -85,7 +85,10 @@ local function duel(g, a, d)
 end
 
 -- Avalia um conjunto de bloqueios: dano que chega ao jogador, bloqueadores que
--- sobrevivem e atacantes que morrem.
+-- sobrevivem e atacantes que morrem. O motor resolve um par de cada vez, na
+-- ordem dos espaços dos atacantes, e as mortes de um par não mudam os golpes
+-- dos seguintes (fora efeitos de carta), então cada par é avaliado sozinho.
+-- O salto da Guarda (kw.guarda) não entra na conta.
 local function evaluate_block(g, p, cb, action)
   local blocked = {}
   local survivors, kills = 0, 0
