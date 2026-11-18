@@ -413,16 +413,21 @@ return function(Game)
         local list = {}
         for i, c in ipairs(sacrifice_list(g, p, def, action)) do list[i] = { c, nil, "sacrificio" } end
         g:kill_many(list, "sacrificio")
+        -- A nova entra depois de os efeitos de morte terminarem: se um deles
+        -- decidir a partida, ela não entra; se abrir escolha, entra depois dela.
         -- Um "ao morrer" pode ter ocupado o espaço liberado: a nova vai para o
         -- primeiro livre; sem nenhum, não entra e vai para o descarte.
-        local slot = action.slot
-        if g.players[p].field[slot] ~= nil then slot = g:free_slots(p)[1] end
-        if slot == nil then
-          g:emit{ t = "no_space", p = p, id = def.id }
-          g:to_discard(p, card)
-        else
-          g:place_creature(p, card, slot, { entry = entry })
-        end
+        g:after_choices(function(gg)
+          if gg.winner ~= nil then return end
+          local slot = action.slot
+          if gg.players[p].field[slot] ~= nil then slot = gg:free_slots(p)[1] end
+          if slot == nil then
+            gg:emit{ t = "no_space", p = p, id = def.id }
+            gg:to_discard(p, card)
+          else
+            gg:place_creature(p, card, slot, { entry = entry })
+          end
+        end)
         return
       end
       local old = g.players[p].field[action.slot]
