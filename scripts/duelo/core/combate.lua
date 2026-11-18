@@ -108,7 +108,8 @@ return function(Game)
   ----------------------------------------------------------------------------
 
   -- action = { type = "attack", attackers = { espaço, ... } }
-  Game.actions.attack = function(g, p, action)
+  -- Validação, sem declarar: devolve ok, erro e as criaturas, na ordem declarada.
+  local function validate_attack(g, p, action)
     if g.attacker ~= p then return false, "só quem tem o token ataca" end
     if g.attacked_round == g.round then return false, "já houve ataque nesta rodada" end
     if g:stack_open() then return false, "atacar só com a pilha vazia" end
@@ -124,6 +125,13 @@ return function(Game)
       seen[c] = true
       attackers[#attackers + 1] = c
     end
+    return true, nil, attackers
+  end
+  Game.validators.attack = validate_attack
+
+  Game.actions.attack = function(g, p, action)
+    local ok, err, attackers = validate_attack(g, p, action)
+    if not ok then return false, err end
     g.attacked_round = g.round
     g.combat = {
       attacker = p,
@@ -319,7 +327,8 @@ return function(Game)
 
   -- action = { type = "block", blocks = { { attacker = espaço, blocker = espaço }, ... } }
   -- Uma lista vazia declara que não há bloqueios e não conta como pôr algo na pilha.
-  Game.actions.block = function(g, p, action)
+  -- Validação, sem declarar: devolve ok, erro e os pares { atacante, bloqueador }.
+  local function validate_block(g, p, action)
     local cb = g.combat
     if not g:can_declare_blocks(p) then
       return false, "bloqueios só na primeira resposta do defensor ao ataque"
@@ -342,6 +351,14 @@ return function(Game)
     end
     local ok, why = g:check_forced_blocks(cb, chosen)
     if not ok then return false, why end
+    return true, nil, chosen
+  end
+  Game.validators.block = validate_block
+
+  Game.actions.block = function(g, p, action)
+    local ok, err, chosen = validate_block(g, p, action)
+    if not ok then return false, err end
+    local cb = g.combat
     for _, pr in ipairs(chosen) do
       cb.blocks[pr[1]] = pr[2]
       cb.blocked[pr[1]] = true
