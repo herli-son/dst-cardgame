@@ -262,4 +262,77 @@ return {
     g.phase = "over"
     broken(T, g, "over sem vencedor")
   end },
+  { "passes em 2 com uma escolha aberta pelo fim da rodada não viola a invariante", function(T)
+    local g = scenario()
+    local Cards = require("duelo/core/cards")
+    Cards.define{ id = "sim_vigia", kind = "criatura", cost = 0, atk = 1, hp = 1,
+      on_play = function(gg, c)
+        gg:on("round_end", function(g2)
+          g2:set_choice(c.owner, { reason = "vigia", options = { "a", "b" }, resolve = function() end })
+        end, "sim_vigia")
+      end }
+    local pl = g.players[1]
+    pl.hand[#pl.hand + 1] = { id = "sim_vigia", uid = g:next_uid() }
+    T.ok(g:act(1, { type = "play", hand_index = #pl.hand, slot = 3 }))
+    T.ok(g:act(2, { type = "pass" }))
+    T.ok(g:act(1, { type = "pass" }))
+    T.eq(g.passes, 2)
+    T.eq(g.phase, "playing")
+    T.ok(g.pending_choice ~= nil, "a escolha do fim da rodada abriu")
+    local ok, msg = Invariantes.check(g, { card_total = Invariantes.count_cards(g) })
+    T.eq(ok, true, tostring(msg))
+    -- Sem escolha, passes em 2 é violação.
+    g.pending_choice = nil
+    broken(T, g, "passes em 2")
+  end },
+
+  { "escolha pendente com a partida decidida passa, e fila sem escolha aberta falha", function(T)
+    local g = scenario()
+    local Cards = require("duelo/core/cards")
+    -- Duas escolhas na fila: a primeira decide a partida, a segunda abre com a
+    -- partida encerrada.
+    Cards.define{ id = "sim_duplo", kind = "criatura", cost = 0, atk = 1, hp = 1,
+      on_play = function(gg, c)
+        gg:set_choice(c.owner, { reason = "letal", options = { "x" },
+          resolve = function(g2) g2:damage_player(2, 99, "teste") end })
+        gg:set_choice(c.owner, { reason = "depois", options = { "y" }, resolve = function() end })
+      end }
+    local pl = g.players[1]
+    pl.hand[#pl.hand + 1] = { id = "sim_duplo", uid = g:next_uid() }
+    T.ok(g:act(1, { type = "play", hand_index = #pl.hand, slot = 3 }))
+    T.ok(g:act(1, { type = "choose", index = 1 }))
+    T.eq(g.winner, 1)
+    T.eq(g.phase, "over")
+    T.ok(g.pending_choice ~= nil and g.pending_choice.reason == "depois", "a segunda escolha abriu")
+    local ok, msg = Invariantes.check(g, { card_total = Invariantes.count_cards(g) })
+    T.eq(ok, true, tostring(msg))
+    -- Fila ou continuações sem escolha aberta: travamento silencioso.
+    g = scenario()
+    g.choice_queue = { { player = 1, options = { 1 }, resolve = function() end } }
+    broken(T, g, "fila com 1 escolha")
+    g = scenario()
+    g.choice_continuations = { { fn = function() end } }
+    broken(T, g, "sem escolha aberta")
+  end },
+
+  { "feitiço na pilha some com a partida decidida sem violar a conservação", function(T)
+    local g = scenario()
+    local Cards = require("duelo/core/cards")
+    Cards.define{ id = "sim_bomba", kind = "feitico", speed = "rapido", cost = 0,
+      on_cast = function(gg) gg:damage_player(1, 99, "bomba") end }
+    for p = 1, 2 do g.players[p].max_mana, g.players[p].mana = 10, 10 end
+    local p1, p2 = g.players[1], g.players[2]
+    p1.hand[#p1.hand + 1] = { id = "sim_meteoro", uid = g:next_uid() }
+    p2.hand[#p2.hand + 1] = { id = "sim_bomba", uid = g:next_uid() }
+    local total = Invariantes.count_cards(g)
+    T.ok(g:act(1, { type = "play", hand_index = #p1.hand, target = { p = 2, zone = "jogador" } }))
+    T.ok(g:act(1, { type = "pass" }))
+    T.ok(g:act(2, { type = "play", hand_index = #p2.hand }))
+    T.ok(g:act(2, { type = "pass" }))
+    T.ok(g:act(1, { type = "pass" }))
+    T.eq(g.winner, 2)
+    T.ok(Invariantes.count_cards(g) < total, "o meteoro sumiu com a pilha")
+    local ok, msg = Invariantes.check(g, { card_total = total })
+    T.eq(ok, true, tostring(msg))
+  end },
 }
