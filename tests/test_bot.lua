@@ -278,6 +278,44 @@ return {
     T.ok(g:act(2, a))
   end },
 
+  { "com 4 atacantes contra 3 bloqueadores, o bot acha o bloqueio que salva", function(T)
+    local g = bare(7)
+    define()
+    Cards.define{ id = "bot_gigante", kind = "criatura", cost = 0, atk = 6, hp = 6 }
+    Cards.define{ id = "bot_muro", kind = "criatura", cost = 0, atk = 0, hp = 3 }
+    for s = 1, 3 do put(g, 1, "bot_rato", s) end
+    put(g, 1, "bot_gigante", 4)
+    for s = 1, 3 do put(g, 2, "bot_muro", s) end
+    g.players[2].life = 3
+    T.ok(g:act(1, { type = "attack", attackers = { 1, 2, 3, 4 } }))
+    T.ok(g:act(1, { type = "pass" }))
+    local bot = Bot.new{ rng = make_rng(1) }
+    local a = bot:choose(g, 2, Jogadas.list(g, 2))
+    T.eq(a.type, "block")
+    T.eq(#a.blocks, 3)
+    T.ok(g:act(2, a))
+    g:act(2, { type = "pass" }); g:act(1, { type = "pass" })
+    T.ok(g.players[2].life > 0, "sobrevive")
+  end },
+
+  { "o bot não conta como morto o atacante mais rápido que o bloqueador", function(T)
+    define()
+    Cards.define{ id = "bot_veloz", kind = "criatura", cost = 0, atk = 2, hp = 2, speed = 2 }
+    Cards.define{ id = "bot_lento", kind = "criatura", cost = 0, atk = 2, hp = 2 }
+    Cards.define{ id = "bot_muro2", kind = "criatura", cost = 0, atk = 2, hp = 2 }
+    for seed = 1, 6 do
+      local g = bare(7)
+      put(g, 1, "bot_veloz", 1); put(g, 1, "bot_lento", 2); put(g, 2, "bot_muro2", 1)
+      g.players[2].life = 2
+      T.ok(g:act(1, { type = "attack", attackers = { 1, 2 } }))
+      T.ok(g:act(1, { type = "pass" }))
+      local bot = Bot.new{ rng = make_rng(seed) }
+      local a = bot:choose(g, 2, Jogadas.list(g, 2))
+      T.eq(a.type, "block")
+      T.eq(a.blocks[1].attacker, 2, "bloqueia o lento, que ele consegue matar")
+    end
+  end },
+
   { "sem risco de morrer, o bot não sacrifica bloqueadores", function(T)
     local g = bare(7)
     put(g, 1, "bot_lobo", 1); put(g, 2, "bot_rato", 1)
