@@ -14,11 +14,22 @@ local function clear_test_cards()
   for _, id in ipairs(IDS) do Cards.remove(id) end
 end
 
+-- Baralho extra com cópias das cartas que os testes criam.
+local function extra_deck(ids, n)
+  local list = {}
+  for _, id in ipairs(ids) do
+    for _ = 1, n do list[#list + 1] = { id = id } end
+  end
+  return list
+end
+
 local function new_game()
   define_test_cards()
   local d1, d2 = {}, {}
   for i = 1, 20 do d1[i] = { id = "t_coelho" }; d2[i] = { id = "t_coelho" } end
-  local g = Game.new{ decks = { d1, d2 }, first = 1, mulligan = false, rng = function(n) return n end }
+  local extra = { "t_coelho", "t_rocha" }
+  local g = Game.new{ decks = { d1, d2 }, extra_decks = { extra_deck(extra, 10), extra_deck(extra, 10) },
+    first = 1, mulligan = false, rng = function(n) return n end }
   g:start()
   return g
 end
