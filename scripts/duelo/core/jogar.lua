@@ -360,16 +360,45 @@ return function(Game)
   -- Criaturas
   ----------------------------------------------------------------------------
 
+  -- Sacrifício como custo de jogar (def.sacrifice = { count = n, filter = fn(g, c) }):
+  -- action.sacrifice traz os espaços das criaturas suas sacrificadas. Devolve a lista
+  -- de criaturas, ou nil e o erro.
+  local function sacrifice_list(g, p, def, action)
+    local spec = def.sacrifice
+    local slots = action.sacrifice
+    if type(slots) ~= "table" or #slots ~= spec.count then
+      return nil, "escolha " .. spec.count .. " criatura(s) para sacrificar"
+    end
+    local list, seen = {}, {}
+    for i, s in ipairs(slots) do
+      local c = type(s) == "number" and g:creature_at(p, s) or nil
+      if c == nil or seen[c] then return nil, "sacrifício inválido" end
+      if spec.filter and not spec.filter(g, c) then return nil, "essa criatura não pode ser sacrificada" end
+      seen[c] = true
+      list[i] = c
+    end
+    return list
+  end
+
   Game.play_rules.criatura = {
     -- action.slot: espaço livre de 1 a 6. Com o campo cheio, o espaço da criatura
     -- sua que será substituída (doc, "Substituir"): ela é destruída, sem "ao morrer",
-    -- e os equipamentos vão para o Inventário.
+    -- e os equipamentos vão para o Inventário. Com sacrifício, o sacrifício é pago
+    -- na jogada (abate normal) e libera o espaço: action.slot pode ser o de uma
+    -- sacrificada, e não há substituição.
     validate = function(g, p, card, def, action)
       local s = action.slot
       if type(s) ~= "number" or s < 1 or s > Game.FIELD_SLOTS or s % 1 ~= 0 then
         return false, "espaço inválido"
       end
-      if g.players[p].field[s] ~= nil and #g:free_slots(p) > 0 then
+      if def.sacrifice then
+        local list, err = sacrifice_list(g, p, def, action)
+        if list == nil then return false, err end
+        local occupant = g.players[p].field[s]
+        local freed = false
+        for _, c in ipairs(list) do if c == occupant then freed = true end end
+        if occupant ~= nil and not freed then return false, "espaço ocupado" end
+      elseif g.players[p].field[s] ~= nil and #g:free_slots(p) > 0 then
         return false, "espaço ocupado: substituir só com o campo cheio"
       end
       if def.can_play and not def.can_play(g, p, action) then return false, "condição da carta não atendida" end
@@ -379,6 +408,22 @@ return function(Game)
       -- Os alvos são travados antes da substituição: se o alvo era a substituída,
       -- ele é perdido.
       local entry = { locks = g:lock_targets(action), action = action }
+      if def.sacrifice then
+        local list = {}
+        for i, c in ipairs(sacrifice_list(g, p, def, action)) do list[i] = { c, nil, "sacrificio" } end
+        g:kill_many(list, "sacrificio")
+        -- Um "ao morrer" pode ter ocupado o espaço liberado: a nova vai para o
+        -- primeiro livre; sem nenhum, não entra e vai para o descarte.
+        local slot = action.slot
+        if g.players[p].field[slot] ~= nil then slot = g:free_slots(p)[1] end
+        if slot == nil then
+          g:emit{ t = "no_space", p = p, id = def.id }
+          g:to_discard(p, card)
+        else
+          g:place_creature(p, card, slot, { entry = entry })
+        end
+        return
+      end
       local old = g.players[p].field[action.slot]
       if old then g:remove_creature(old, "destroyed", "substituida", { equips = "inventory" }) end
       g:place_creature(p, card, action.slot, { entry = entry })

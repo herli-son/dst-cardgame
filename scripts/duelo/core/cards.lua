@@ -12,6 +12,8 @@
 --   returns_to_extra = true            como ficha, volta ao baralho extra em vez do
 --                                      descarte (Fantasmas criados, Alimentos)
 --   no_attack = true / no_block = true não pode atacar / não pode bloquear
+--   sacrifice = { count = n, filter = fn(game, c) }  custo de jogar: abater n
+--                                      criaturas suas (action.sacrifice = espaços)
 --   block_speed                        velocidade ao bloquear (ex.: Tentáculo)
 --   speed_fn(game, criatura, role)     velocidade que depende do estado; role =
 --                                      "attack" | "block"
