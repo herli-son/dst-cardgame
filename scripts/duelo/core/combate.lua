@@ -50,8 +50,9 @@
 --     bloqueou) que nunca teve bloqueador e ainda está em campo; não salta para
 --     quem perdeu o bloqueador. Esse par resolve normalmente quando chegar a vez
 --     dele, com o dano que ela já tem e revidando. Uma vez por Guarda por
---     combate; como os pares resolvem em ordem, a Guarda cujo par vem antes
---     salta antes. O salto entra em cb.blocks e sai como evento "block" com
+--     combate. O salto é decidido quando chega a vez de um atacante que nunca
+--     teve bloqueador: entre as Guardas já resolvidas e elegíveis, salta a do
+--     menor espaço. O salto entra em cb.blocks e sai como evento "block" com
 --     auto = "guarda".
 --
 -- Campos da definição usados aqui (referência completa em cards.lua): no_attack,
@@ -542,25 +543,28 @@ return function(Game)
 
   local PHASES = { "rapida", "normal" }
 
-  -- Guarda: o bloqueador do par k, se tiver kw.guarda, sobreviveu e ainda não
-  -- saltou, passa a bloquear o próximo atacante à direita que nunca teve
-  -- bloqueador e está em campo.
+  -- Guarda: quando chega a vez de um atacante que nunca teve bloqueador, uma
+  -- Guarda já resolvida (par dela antes deste), viva e que ainda não saltou
+  -- passa a bloqueá-lo; com várias elegíveis, a do menor espaço. Uma vez por
+  -- Guarda por combate. O salto vale como bloqueio declarado.
   local function guard_jump(g, cb, k)
-    local a = cb.order[k]
-    local d = cb.blocked[a] and cb.blocks[a] or nil
-    if d == nil or not kw(d, "guarda") then return end
+    local b = cb.order[k]
+    if cb.blocked[b] or not in_play(g, b, cb.attacker) then return end
     cb.guarded = cb.guarded or {}
-    if cb.guarded[d] or not in_play(g, d, cb.defender) then return end
-    for m = k + 1, #cb.order do
-      local b = cb.order[m]
-      if not cb.blocked[b] and in_play(g, b, cb.attacker) then
-        cb.guarded[d] = true
-        cb.blocks[b], cb.blocked[b] = d, true
-        g:emit{ t = "block", p = cb.defender, auto = "guarda",
-          blocks = { { attacker = b.uid, blocker = d.uid } } }
-        return
+    local best
+    for m = 1, k - 1 do
+      local a = cb.order[m]
+      local d = cb.blocked[a] and cb.blocks[a] or nil
+      if d and kw(d, "guarda") and not cb.guarded[d] and in_play(g, d, cb.defender)
+        and (best == nil or d.slot < best.slot) then
+        best = d
       end
     end
+    if best == nil then return end
+    cb.guarded[best] = true
+    cb.blocks[b], cb.blocked[b] = best, true
+    g:emit{ t = "block", p = cb.defender, auto = "guarda",
+      blocks = { { attacker = b.uid, blocker = best.uid } } }
   end
 
   -- Roda os pares a partir do par `first`, começando pela fase `first_phase`
@@ -573,6 +577,8 @@ return function(Game)
       local a = order[k]
       local from = 1
       if k == first then from = first_phase else struck = {} end
+      -- O salto da Guarda é decidido agora, com as Guardas dos pares anteriores.
+      if from == 1 then guard_jump(self, cb, k) end
       for ph = from, #PHASES do
         local phase = PHASES[ph]
         local strikes = pair_strikes(self, cb, a, phase, struck)
@@ -591,7 +597,6 @@ return function(Game)
       end
       -- O par acabou, com as mortes dele já resolvidas (uma escolha aberta na
       -- última fase retoma aqui, com first_phase além das fases).
-      if k < #order then guard_jump(self, cb, k) end
     end
     self:emit{ t = "combat_end", p = cb.attacker }
   end
