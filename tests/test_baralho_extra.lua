@@ -72,4 +72,54 @@ return {
     T.ok(g:act(1, { type = "choose", index = nil }))
     T.eq(count(g.players[1].extra, "x_casa"), 1)
   end },
+
+  { "ficha morta vai para o descarte e pode voltar a campo", function(T)
+    local g = new_game(copies("x_coelho", 1))
+    local c = g:create_token(1, "x_coelho")
+    g:kill(c, "teste")
+    local d = g.players[1].discard
+    T.eq(d[#d].id, "x_coelho")
+    local card = table.remove(d)
+    local back = g:place_creature(1, card, 3)
+    T.eq(back.ficha, true, "revivida, continua ficha")
+    T.eq(count(g.players[1].extra, "x_coelho"), 0)
+  end },
+
+  { "ficha marcada para voltar ao baralho extra não fica no descarte", function(T)
+    define()
+    Cards.define{ id = "x_fantasma", kind = "criatura", cost = 0, atk = 1, hp = 1, returns_to_extra = true }
+    local g = new_game(copies("x_fantasma", 1))
+    local c = g:create_token(1, "x_fantasma")
+    g:kill(c, "teste")
+    T.eq(count(g.players[1].discard, "x_fantasma"), 0)
+    T.eq(count(g.players[1].extra, "x_fantasma"), 1)
+    Cards.remove("x_fantasma")
+  end },
+
+  { "ficha destruída vai para as Destruídas", function(T)
+    local g = new_game(copies("x_coelho", 1))
+    local c = g:create_token(1, "x_coelho")
+    g:remove_creature(c, "destroyed", "teste")
+    T.eq(count(g.players[1].destroyed, "x_coelho"), 1)
+    T.eq(count(g.players[1].extra, "x_coelho"), 0)
+  end },
+
+  { "ficha devolvida à mão volta para o baralho extra", function(T)
+    local g = new_game(copies("x_coelho", 1))
+    local c = g:create_token(1, "x_coelho")
+    local hand = #g.players[1].hand
+    g:remove_creature(c, "hand", "teste")
+    T.eq(#g.players[1].hand, hand)
+    T.eq(count(g.players[1].extra, "x_coelho"), 1)
+  end },
+
+  { "com a mão cheia, a ficha não é criada e a cópia fica no baralho extra", function(T)
+    local g = new_game(copies("x_coelho", 1))
+    local pl = g.players[1]
+    while g:hand_count(1) < g:hand_limit(1) do pl.hand[#pl.hand + 1] = { id = "x_base", uid = g:next_uid() } end
+    local c, why = g:create_token(1, "x_coelho", { zone = "hand" })
+    T.eq(c, nil); T.eq(why, "sem_espaco")
+    T.eq(count(pl.extra, "x_coelho"), 1)
+    T.eq(#pl.destroyed, 0)
+  end },
 }
