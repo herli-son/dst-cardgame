@@ -268,7 +268,8 @@ return function(Game)
   end
 
   -- action = { type = "choose", index = n } ; index nil ou 0 = nenhuma (se permitido)
-  Game.actions.choose = function(g, p, action)
+  -- Validação, sem resolver: devolve ok, erro, a escolha e o índice (nil = nenhuma).
+  local function validate_choose(g, p, action)
     local ch = g.pending_choice
     if ch == nil then return false, "nenhuma escolha pendente" end
     if ch.player ~= p then return false, "a escolha é do outro jogador" end
@@ -276,6 +277,13 @@ return function(Game)
     if idx == 0 then idx = nil end
     if idx == nil and not ch.allow_none then return false, "é preciso escolher uma opção" end
     if idx ~= nil and (ch.options == nil or ch.options[idx] == nil) then return false, "opção inválida" end
+    return true, nil, ch, idx
+  end
+  Game.validators.choose = validate_choose
+
+  Game.actions.choose = function(g, p, action)
+    local ok, err, ch, idx = validate_choose(g, p, action)
+    if not ok then return false, err end
     g.pending_choice = nil
     -- A resolução de uma escolha é um efeito próprio.
     g:run_card("escolher", ch.reason, while_choosing, g, function(gg, i) gg:as_one_effect(ch.resolve, gg, i) end, g, idx)
@@ -288,6 +296,7 @@ return function(Game)
 
   -- De onde vem o efeito: uma estrutura (action.structure = espaço) ou um equipamento
   -- (action.creature = espaço da criatura, action.equip = "mao" | "peito" | "cabeca").
+  -- Devolve a fonte, o erro e, para um equipamento, a criatura que o porta.
   local function source_of(g, p, action)
     if action.structure then
       local st = g:structure_at(p, action.structure)
@@ -301,15 +310,15 @@ return function(Game)
       if action.equip == nil then return c end
       local e = c.equips[action.equip]
       if e == nil then return nil, "não há equipamento nesse espaço" end
-      e.holder = c
-      return e
+      return e, nil, c
     end
     return nil, "escolha a carta que vai ativar"
   end
 
   -- action = { type = "activate", structure = slot } ou { creature = slot, equip = "mao" }, mais os alvos
-  Game.actions.activate = function(g, p, action)
-    local src, err = source_of(g, p, action)
+  -- Validação, sem ativar: devolve ok, erro e { src, holder, period_key }.
+  local function validate_activate(g, p, action)
+    local src, err, holder = source_of(g, p, action)
     if src == nil then return false, err end
     local def = src.def
     if def.activate == nil then return false, "essa carta não tem efeito ativado" end
@@ -335,6 +344,18 @@ return function(Game)
       local can, reason = g:run_card("ativar", def.id, def.can_activate, g, p, src, action)
       if not can then return false, reason or "condição do efeito não atendida" end
     end
+    return true, nil, { src = src, holder = holder, period_key = period_key }
+  end
+  Game.validators.activate = validate_activate
+
+  Game.actions.activate = function(g, p, action)
+    local ok, err, v = validate_activate(g, p, action)
+    if not ok then return false, err end
+    local src, period_key = v.src, v.period_key
+    local def, card = src.def, src.card
+    local spec = def.activation
+    -- Um equipamento guarda quem o porta enquanto o efeito roda.
+    if v.holder then src.holder = v.holder end
     card.used_round = g.round
     card.used_period = period_key
     g:emit{ t = "activate", p = p, uid = src.uid, card_uid = src.card_uid, id = def.id, speed = spec.speed }
