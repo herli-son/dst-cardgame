@@ -5,8 +5,8 @@
 --   python3 run_lua51.py scripts/duelo/sim/rodar.lua [n] [seed]   (runner lupa)
 --
 -- n (padrão 3000) é o total de partidas, dividido em quatro lotes: random x
--- random, bot x random, random x bot e bot x bot, cada um com os lados dos
--- baralhos alternados pela paridade da seed. seed (padrão 0) é
+-- random (com a troca inicial), bot x random, random x bot e bot x bot, cada um
+-- com os lados dos baralhos alternados pela paridade da seed. seed (padrão 0) é
 -- a base das sementes. Termina com código 1 se alguma partida falhar (erro do
 -- motor, travamento, invariante ou erro do simulador). Para reproduzir uma
 -- falha: Simulador.run_game com a seed, os jogadores e os baralhos impressos
@@ -34,7 +34,7 @@ local seed = tonumber(a2) or 0
 CartasSim.define()
 
 local lotes = {
-  { players = { "random", "random" } },
+  { players = { "random", "random" }, mulligan = true },
   { players = { "bot", "random" } },
   { players = { "random", "bot" } },
   { players = { "bot", "bot" } },
@@ -43,15 +43,17 @@ local per = math.floor(total / #lotes)
 local resto = total - per * #lotes
 local falhas = 0
 local soma = { n = 0, por_resultado = {}, vitorias_por_lado = { 0, 0 }, vitorias_por_deck = { 0, 0 }, empates = 0,
-  rodadas = { media = 0, max = 0 }, jogadas = { media = 0, max = 0 }, falhas = {}, players = { "misto", "misto" }, tempo = 0 }
+  rodadas = { media = 0, max = 0 }, jogadas = { media = 0, max = 0 }, jogadas_por_tipo = {}, falhas = {},
+  players = { "misto", "misto" }, tempo = 0 }
 for _, r in ipairs(Simulador.RESULTS) do soma.por_resultado[r] = 0 end
 
 for i, lote in ipairs(lotes) do
   local n = per + (i <= resto and 1 or 0)
   local agg = Simulador.run_many{
-    n = n, seed_base = seed + (i - 1) * 1000000, players = lote.players, alternar = true,
+    n = n, seed_base = seed + (i - 1) * 1000000, players = lote.players, mulligan = lote.mulligan, alternar = true,
     decks = CartasSim.decks(), extra_decks = CartasSim.extra_decks(),
   }
+  if lote.mulligan then print("(lote com a troca inicial)") end
   print(Simulador.format_report(agg))
   print("")
   falhas = falhas + #agg.falhas
@@ -71,6 +73,7 @@ for i, lote in ipairs(lotes) do
   soma.empates = soma.empates + agg.empates
   soma.rodadas.max = math.max(soma.rodadas.max, agg.rodadas.max)
   soma.jogadas.max = math.max(soma.jogadas.max, agg.jogadas.max)
+  for t, k in pairs(agg.jogadas_por_tipo) do soma.jogadas_por_tipo[t] = (soma.jogadas_por_tipo[t] or 0) + k end
   -- f.players é a ordem da própria partida (já trocada quando for o caso); o
   -- lote fica à parte.
   for _, f in ipairs(agg.falhas) do

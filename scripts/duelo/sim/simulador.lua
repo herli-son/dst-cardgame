@@ -23,6 +23,7 @@
 --     vencedor    1 | 2 (só em "vitoria")
 --     rodadas     g.round ao parar
 --     jogadas     número de jogadas aceitas
+--     por_tipo    jogadas aceitas por tipo de ação ({ pass = n, play = n, ... })
 --     seed, players
 --   e, nas falhas (erro, travamento, invariante, erro_simulador):
 --     passo       número da jogada em que falhou
@@ -39,7 +40,7 @@
 --     seed e lados_trocados. Devolve o agregado:
 --       n, por_resultado = { vitoria = n, ... }, vitorias_por_lado = { n, n },
 --       empates, vitorias_por_deck = { n, n }, rodadas = { media, max },
---       jogadas = { media, max },
+--       jogadas = { media, max }, jogadas_por_tipo = { pass = n, ... },
 --       falhas = { { seed, resultado, motivo, lados_trocados, ... }, ... },
 --       tempo (segundos de relógio da CPU)
 --   Simulador.format_report(agg) -> texto curto
@@ -162,7 +163,8 @@ function Simulador.run_game(opts)
   }
   local players = { make_player(kinds[1], Simulador.make_rng(seed + 1)), make_player(kinds[2], Simulador.make_rng(seed + 2)) }
 
-  local report = { seed = seed, players = { kinds[1] or "random", kinds[2] or "random" }, jogadas = 0, rodadas = 0 }
+  local report = { seed = seed, players = { kinds[1] or "random", kinds[2] or "random" }, jogadas = 0, rodadas = 0,
+    por_tipo = {} }
   if opts.log then report.log = {} end
   local card_total = Invariantes.count_cards(g)
 
@@ -237,6 +239,7 @@ function Simulador.run_game(opts)
       return fail("travamento", step, "jogada listada recusada (" .. describe_action(a) .. "): " .. tostring(err))
     end
     report.jogadas = step
+    report.por_tipo[a.type] = (report.por_tipo[a.type] or 0) + 1
     if g.phase == "error" then
       return fail("erro", step, "erro do motor: " .. tostring(g.error and g.error.message))
     end
@@ -262,7 +265,7 @@ function Simulador.run_many(opts)
   local agg = {
     n = n, por_resultado = {}, vitorias_por_lado = { 0, 0 }, empates = 0,
     vitorias_por_deck = { 0, 0 }, rodadas = { media = 0, max = 0 }, jogadas = { media = 0, max = 0 },
-    falhas = {}, players = opts.players or { "random", "random" }, alternar = opts.alternar == true,
+    jogadas_por_tipo = {}, falhas = {}, players = opts.players or { "random", "random" }, alternar = opts.alternar == true,
   }
   for _, r in ipairs(RESULTS) do agg.por_resultado[r] = 0 end
   local sum_rounds, sum_steps = 0, 0
@@ -282,6 +285,7 @@ function Simulador.run_many(opts)
     end
     local rep = Simulador.run_game(game_opts)
     rep.lados_trocados = swapped
+    for t, k in pairs(rep.por_tipo or {}) do agg.jogadas_por_tipo[t] = (agg.jogadas_por_tipo[t] or 0) + k end
     agg.por_resultado[rep.resultado] = (agg.por_resultado[rep.resultado] or 0) + 1
     if rep.resultado == "vitoria" then
       agg.vitorias_por_lado[rep.vencedor] = agg.vitorias_por_lado[rep.vencedor] + 1
@@ -325,6 +329,12 @@ function Simulador.format_report(agg)
     agg.vitorias_por_lado[1], agg.vitorias_por_lado[2], agg.vitorias_por_deck[1], agg.vitorias_por_deck[2], agg.empates)
   add("rodadas: media %.1f, max %d; jogadas: media %.1f, max %d",
     agg.rodadas.media, agg.rodadas.max, agg.jogadas.media, agg.jogadas.max)
+  local types = {}
+  for t in pairs(agg.jogadas_por_tipo or {}) do types[#types + 1] = t end
+  table.sort(types)
+  local counts = {}
+  for _, t in ipairs(types) do counts[#counts + 1] = t .. " " .. agg.jogadas_por_tipo[t] end
+  if #counts > 0 then add("jogadas por tipo: %s", table.concat(counts, ", ")) end
   if #agg.falhas == 0 then
     add("falhas: nenhuma")
   else
