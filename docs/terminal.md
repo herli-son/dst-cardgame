@@ -12,7 +12,7 @@ Qualquer interpretador Lua 5.1 serve. Duas opções:
    winget install rjpcomputing.luaforwindows
    ```
 
-   Esse pacote é o Lua for Windows, com o Lua 5.1.4. Feche e abra o PowerShell de novo depois da instalação, para o `lua` entrar no `PATH`.
+   Esse pacote é o Lua for Windows, com o Lua 5.1. Feche e abra o PowerShell de novo depois da instalação, para o `lua` entrar no `PATH`.
 
 2. **LuaBinaries**: baixe o pacote "lua-5.1.5_Win64_bin.zip" (ou Win32) em <https://luabinaries.sourceforge.net/>, descompacte numa pasta (por exemplo `C:\lua51`) e adicione essa pasta ao `PATH`, ou chame o executável pelo caminho completo (`C:\lua51\lua5.1.exe`).
 
@@ -20,7 +20,13 @@ Para conferir: `lua -v` (ou `lua5.1 -v`) deve mostrar `Lua 5.1.x`.
 
 ## Rodar
 
-Abra o PowerShell na pasta do repositório (a que tem `scripts/` e `tests/`) e rode:
+Abra o PowerShell na pasta do repositório (a que tem `scripts/` e `tests/`). A tela usa acentos em UTF-8, e o console do Windows em português vem com outra codificação, então antes de jogar troque a codificação do console (uma vez por janela):
+
+```powershell
+chcp 65001
+```
+
+Depois rode:
 
 ```powershell
 lua scripts\duelo\terminal\jogar.lua
