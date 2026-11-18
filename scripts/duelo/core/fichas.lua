@@ -1,17 +1,30 @@
--- Fichas: cartas criadas por efeitos, fora do baralho. Lua 5.1 puro.
+-- Fichas: cartas criadas por efeitos. Lua 5.1 puro.
 -- Instala os métodos no Game: require("duelo/core/fichas")(Game)
 --
--- Uma ficha usa a mesma definição da carta de mesmo nome, então tem os mesmos
--- atributos. Quando sai de jogo, ou iria para o descarte, o baralho ou as
--- destruídas, deixa de existir.
+-- Uma ficha é uma cópia do baralho extra do jogador (doc, "Fichas" e "Baralho
+-- extra"): criar tira a cópia de lá, e sem cópia disponível a criação não
+-- acontece. A ficha usa a mesma definição da carta de mesmo nome, então tem os
+-- mesmos atributos. Quando "deixa de existir", volta para o baralho extra.
 
 return function(Game)
-  function Game:make_token(id)
+  -- Tira do baralho extra uma cópia da carta id, marcada como ficha. nil se não houver.
+  function Game:take_from_extra(p, id)
     assert(self:def_of({ id = id }) ~= nil, "ficha desconhecida: " .. tostring(id))
-    return { id = id, uid = self:next_uid(), ficha = true }
+    local extra = self.players[p].extra
+    for i = #extra, 1, -1 do
+      if extra[i].id == id then
+        local card = table.remove(extra, i)
+        card.ficha = true
+        return card
+      end
+    end
   end
 
+  -- A ficha volta para o baralho extra do dono, limpa.
   function Game:vanish(p, card, reason)
+    self:reset_card(card)
+    local extra = self.players[p].extra
+    extra[#extra + 1] = card
     self:emit{ t = "vanish", p = p, id = card.id, card_uid = card.uid, reason = reason }
   end
 
@@ -19,22 +32,32 @@ return function(Game)
   -- opts.zone = "hand" para criar na mão; senão vai para o campo conforme o tipo.
   -- opts.slot escolhe o espaço; sem ele, usa o primeiro livre.
   -- Retorna a criatura, a estrutura ou a carta criada. Sem isso, retorna nil e o motivo:
-  -- "sem_espaco" (não foi criada) ou "pendente" (o dono escolhe onde ela entra).
+  -- "sem_copia" (o baralho extra não tem cópia), "sem_espaco" (não foi criada) ou
+  -- "pendente" (o dono escolhe onde ela entra).
   function Game:create_token(p, id, opts)
     opts = opts or {}
-    local card = self:make_token(id)
-    local def = self:def_of(card)
+    local def = self:def_of({ id = id })
+    assert(def ~= nil, "ficha desconhecida: " .. tostring(id))
+    local slot
+    if opts.zone ~= "hand" and def.kind == "criatura" then
+      slot = opts.slot
+      if slot == nil or self.players[p].field[slot] ~= nil then slot = self:free_slots(p)[1] end
+      -- Sem espaço, a cópia nem sai do baralho extra.
+      if slot == nil then
+        self:emit{ t = "no_space", p = p, id = id }
+        return nil, "sem_espaco"
+      end
+    end
+    local card = self:take_from_extra(p, id)
+    if card == nil then
+      self:emit{ t = "no_copy", p = p, id = id }
+      return nil, "sem_copia"
+    end
     if opts.zone == "hand" then
       if self:add_to_hand(p, card, "ficha") then return card end
       return nil, "sem_espaco"
     end
     if def.kind == "criatura" then
-      local slot = opts.slot
-      if slot == nil or self.players[p].field[slot] ~= nil then slot = self:free_slots(p)[1] end
-      if slot == nil then
-        self:emit{ t = "no_space", p = p, id = id }
-        return nil, "sem_espaco"
-      end
       return self:place_creature(p, card, slot, { ficha = true })
     elseif def.kind == "estrutura" then
       return self:enter_structure(p, card, { slot = opts.slot, ficha = true })

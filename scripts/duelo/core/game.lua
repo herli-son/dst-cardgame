@@ -112,10 +112,11 @@ local function default_rng(n)
   return math.random(n)
 end
 
-local function new_player(deck)
+local function new_player(deck, extra)
   return {
     life = Game.START_LIFE,
     deck = deck or {}, -- o topo do baralho é o último elemento
+    extra = extra or {}, -- baralho extra: evoluções, invocações e cartas criadas por efeitos
     hand = {},
     discard = {},
     destroyed = {},   -- cartas destruídas: saem de jogo e não voltam (diferente do descarte)
@@ -158,8 +159,8 @@ function Game.new(opts)
   -- Modificadores do limite de mão; use Game:add_hand_limit_mod.
   g.hand_limit_mods = {}
   g.players = {
-    new_player(copy_deck(g, opts.decks and opts.decks[1])),
-    new_player(copy_deck(g, opts.decks and opts.decks[2])),
+    new_player(copy_deck(g, opts.decks and opts.decks[1]), copy_deck(g, opts.extra_decks and opts.extra_decks[1])),
+    new_player(copy_deck(g, opts.decks and opts.decks[2]), copy_deck(g, opts.extra_decks and opts.extra_decks[2])),
   }
   g.first = opts.first or g.rng(2)
   g.use_mulligan = opts.mulligan ~= false
