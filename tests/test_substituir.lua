@@ -192,6 +192,26 @@ return {
     T.eq(log[#log - 1], "escolheu")
     T.eq(log[#log], "ritual")
     T.eq(g:creature_at(1, 1).def.id, "s_ritual3")
+    T.eq(g.active, 2, "a jogada passa a vez depois da escolha")
+  end },
+
+  { "escolha aberta pela entrada depois do sacrifício também passa a vez", function(T)
+    local g = new_game()
+    Cards.define{ id = "s_lobo2", kind = "criatura", cost = 0, atk = 1, hp = 1,
+      on_death = function(gg, c)
+        gg:set_choice(c.owner, { reason = "x", options = { "a" }, resolve = function() end })
+      end }
+    Cards.define{ id = "s_ritual5", kind = "criatura", cost = 0, atk = 5, hp = 5, sacrifice = { count = 1 },
+      on_play = function(gg, c)
+        gg:set_choice(c.owner, { reason = "y", options = { "b" }, resolve = function() end })
+      end }
+    g:place_creature(1, { id = "s_lobo2", uid = g:next_uid() }, 1)
+    T.ok(g:act(1, { type = "play", hand_index = give(g, 1, "s_ritual5"), slot = 1, sacrifice = { 1 } }))
+    T.ok(g:act(1, { type = "choose", index = 1 }))
+    T.eq(g.pending_choice.reason, "y")
+    T.eq(g.active, 1)
+    T.ok(g:act(1, { type = "choose", index = 1 }))
+    T.eq(g.active, 2)
   end },
 
   { "se o ao morrer do sacrifício decide a partida, a criatura não entra", function(T)
