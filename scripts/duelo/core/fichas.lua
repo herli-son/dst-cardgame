@@ -72,6 +72,11 @@ return function(Game)
       self:emit{ t = "no_space", p = p, id = id }
       return nil, "sem_espaco"
     end
+    -- Estrutura que já saiu de campo não liga ninguém (o vínculo vale enquanto
+    -- ela estiver em campo).
+    if opts.link and self:find_structure(opts.link.uid) ~= opts.link then
+      opts = { zone = opts.zone, slot = opts.slot }
+    end
     if opts.link and #self:linked_to(opts.link) >= Game.LINK_LIMIT then
       self:emit{ t = "link_limit", p = p, id = id, structure_uid = opts.link.uid }
       return nil, "limite_vinculo"
