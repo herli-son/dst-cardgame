@@ -134,7 +134,7 @@ return function(Game)
   function Game:send_card(c, dest, reason)
     local pl = self.players[c.owner]
     local card = c.card
-    if (c.ficha or card.ficha) and dest ~= "discard" and dest ~= "destroyed" then
+    if (c.ficha or card.ficha) and (dest == "hand" or dest == "deck") then
       self:vanish(c.owner, card, reason)
       return
     end
