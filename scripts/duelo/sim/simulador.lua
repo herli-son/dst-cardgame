@@ -19,12 +19,12 @@
 --
 --   O relatório traz:
 --     resultado   "vitoria" | "empate" | "limite_rodadas" | "erro" |
---                 "travamento" | "invariante"
+--                 "travamento" | "invariante" | "erro_simulador"
 --     vencedor    1 | 2 (só em "vitoria")
 --     rodadas     g.round ao parar
 --     jogadas     número de jogadas aceitas
 --     seed, players
---   e, nas falhas (erro, travamento, invariante):
+--   e, nas falhas (erro, travamento, invariante, erro_simulador):
 --     passo       número da jogada em que falhou
 --     motivo      texto curto
 --     erro        g.error do motor (message, traceback, context), em "erro"
@@ -33,12 +33,14 @@
 --
 --   Simulador.run_many{ n = 100, seed_base = 0, alternar = false, ... }
 --     roda n partidas com seeds seed_base + i (i de 1 a n) e os outros campos
---     de run_game; com alternar = true, as partidas ímpares trocam os baralhos
---     (e os jogadores) de lado, para as vitórias por baralho não se confundirem
---     com as vitórias por lado. Devolve o agregado:
+--     de run_game; com alternar = true, as partidas de seed ímpar trocam os
+--     baralhos (e os jogadores) de lado, para as vitórias por baralho não se
+--     confundirem com as vitórias por lado. Para reproduzir uma falha, basta a
+--     seed e lados_trocados. Devolve o agregado:
 --       n, por_resultado = { vitoria = n, ... }, vitorias_por_lado = { n, n },
 --       empates, vitorias_por_deck = { n, n }, rodadas = { media, max },
---       jogadas = { media, max }, falhas = { { seed, resultado, motivo }, ... },
+--       jogadas = { media, max },
+--       falhas = { { seed, resultado, motivo, lados_trocados, ... }, ... },
 --       tempo (segundos de relógio da CPU)
 --   Simulador.format_report(agg) -> texto curto
 --   Simulador.make_rng(seed) -> rng(n) determinístico, como o Game espera
@@ -214,11 +216,15 @@ function Simulador.run_game(opts)
 
     local p = whose_turn(g)
     if p ~= 1 and p ~= 2 then return fail("travamento", step, "ninguém para agir (active = " .. tostring(g.active) .. ")") end
-    local jogadas = Jogadas.list(g, p)
+    -- Um erro fora do motor (no gerador de jogadas ou no jogador) é falha do
+    -- simulador, com seed e passo, e não derruba as outras partidas.
+    local listed, jogadas = pcall(Jogadas.list, g, p)
+    if not listed then return fail("erro_simulador", step, "erro ao listar jogadas: " .. tostring(jogadas)) end
     if #jogadas == 0 then
       return fail("travamento", step, "nenhuma jogada válida para o jogador " .. p .. " (rodada " .. g.round .. ")")
     end
-    local a = players[p].choose(g, p, jogadas)
+    local chose, a = pcall(players[p].choose, g, p, jogadas)
+    if not chose then return fail("erro_simulador", step, "erro ao escolher a jogada: " .. tostring(a)) end
     if a == nil then return fail("travamento", step, "o jogador " .. p .. " não escolheu nenhuma jogada") end
     step = step + 1
     if report.log then report.log[#report.log + 1] = { p = p, action = a } end
@@ -243,10 +249,11 @@ end
 -- Muitas partidas
 ----------------------------------------------------------------------------
 
-local RESULTS = { "vitoria", "empate", "limite_rodadas", "erro", "travamento", "invariante" }
+local RESULTS = { "vitoria", "empate", "limite_rodadas", "erro", "travamento", "invariante", "erro_simulador" }
 Simulador.RESULTS = RESULTS
 
-local FAILURES = { erro = true, travamento = true, invariante = true }
+local FAILURES = { erro = true, travamento = true, invariante = true, erro_simulador = true }
+Simulador.FAILURES = FAILURES
 
 function Simulador.run_many(opts)
   opts = opts or {}
@@ -264,8 +271,9 @@ function Simulador.run_many(opts)
     local game_opts = {}
     for k, v in pairs(opts) do game_opts[k] = v end
     game_opts.seed = base + i
-    -- Partidas ímpares com os lados trocados: o baralho 1 joga do lado 2.
-    local swapped = agg.alternar and i % 2 == 1
+    -- Seeds ímpares com os lados trocados: o baralho 1 joga do lado 2. A
+    -- paridade é a da seed, para a falha ser reproduzível só com ela.
+    local swapped = agg.alternar and game_opts.seed % 2 == 1
     if swapped then
       local decks, extras, kinds = opts.decks, opts.extra_decks, opts.players
       if decks then game_opts.decks = { decks[2], decks[1] } end
@@ -273,6 +281,7 @@ function Simulador.run_many(opts)
       if kinds then game_opts.players = { kinds[2], kinds[1] } end
     end
     local rep = Simulador.run_game(game_opts)
+    rep.lados_trocados = swapped
     agg.por_resultado[rep.resultado] = (agg.por_resultado[rep.resultado] or 0) + 1
     if rep.resultado == "vitoria" then
       agg.vitorias_por_lado[rep.vencedor] = agg.vitorias_por_lado[rep.vencedor] + 1
@@ -289,7 +298,8 @@ function Simulador.run_many(opts)
     if FAILURES[rep.resultado] then
       agg.falhas[#agg.falhas + 1] = {
         seed = rep.seed, resultado = rep.resultado, motivo = rep.motivo, passo = rep.passo,
-        players = rep.players, erro = rep.erro, invariante = rep.invariante, ultima = rep.ultima,
+        players = rep.players, lados_trocados = swapped, erro = rep.erro, invariante = rep.invariante,
+        ultima = rep.ultima,
       }
     end
   end
@@ -321,7 +331,9 @@ function Simulador.format_report(agg)
     add("falhas: %d", #agg.falhas)
     for i, f in ipairs(agg.falhas) do
       if i > 20 then add("  ... e mais %d", #agg.falhas - 20); break end
-      add("  seed %d (%s, passo %s): %s", f.seed, f.resultado, tostring(f.passo), tostring(f.motivo))
+      add("  seed %d (%s x %s%s; %s, passo %s): %s", f.seed, tostring(f.players and f.players[1]),
+        tostring(f.players and f.players[2]), f.lados_trocados and ", lados trocados" or "",
+        f.resultado, tostring(f.passo), tostring(f.motivo))
       if f.ultima then add("    ultima jogada: jogador %d, %s", f.ultima.p, describe_action(f.ultima.action)) end
       if f.erro and f.erro.traceback then add("    %s", (tostring(f.erro.traceback):gsub("\n", "\n    "))) end
     end

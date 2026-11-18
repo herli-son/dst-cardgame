@@ -6,8 +6,11 @@
 --
 -- n (padrão 3000) é o total de partidas, dividido em quatro lotes: random x
 -- random, bot x random, random x bot e bot x bot, cada um com os lados dos
--- baralhos alternados. seed (padrão 0) é a base das sementes. Termina com
--- código 1 se alguma partida falhar (erro do motor, travamento ou invariante).
+-- baralhos alternados pela paridade da seed. seed (padrão 0) é
+-- a base das sementes. Termina com código 1 se alguma partida falhar (erro do
+-- motor, travamento, invariante ou erro do simulador). Para reproduzir uma
+-- falha: Simulador.run_game com a seed, os jogadores e os baralhos impressos
+-- (trocados de lado quando a linha diz "lados trocados").
 
 package.path = "scripts/?.lua;tests/?.lua;" .. package.path
 
@@ -31,7 +34,10 @@ local seed = tonumber(a2) or 0
 CartasSim.define()
 
 local lotes = {
-  { "random", "random" }, { "bot", "random" }, { "random", "bot" }, { "bot", "bot" },
+  { players = { "random", "random" } },
+  { players = { "bot", "random" } },
+  { players = { "random", "bot" } },
+  { players = { "bot", "bot" } },
 }
 local per = math.floor(total / #lotes)
 local resto = total - per * #lotes
@@ -40,10 +46,10 @@ local soma = { n = 0, por_resultado = {}, vitorias_por_lado = { 0, 0 }, vitorias
   rodadas = { media = 0, max = 0 }, jogadas = { media = 0, max = 0 }, falhas = {}, players = { "misto", "misto" }, tempo = 0 }
 for _, r in ipairs(Simulador.RESULTS) do soma.por_resultado[r] = 0 end
 
-for i, players in ipairs(lotes) do
+for i, lote in ipairs(lotes) do
   local n = per + (i <= resto and 1 or 0)
   local agg = Simulador.run_many{
-    n = n, seed_base = seed + (i - 1) * 1000000, players = players, alternar = true,
+    n = n, seed_base = seed + (i - 1) * 1000000, players = lote.players, alternar = true,
     decks = CartasSim.decks(), extra_decks = CartasSim.extra_decks(),
   }
   print(Simulador.format_report(agg))
@@ -65,8 +71,10 @@ for i, players in ipairs(lotes) do
   soma.empates = soma.empates + agg.empates
   soma.rodadas.max = math.max(soma.rodadas.max, agg.rodadas.max)
   soma.jogadas.max = math.max(soma.jogadas.max, agg.jogadas.max)
+  -- f.players é a ordem da própria partida (já trocada quando for o caso); o
+  -- lote fica à parte.
   for _, f in ipairs(agg.falhas) do
-    f.players = players
+    f.lote = i
     soma.falhas[#soma.falhas + 1] = f
   end
   soma.tempo = soma.tempo + agg.tempo
