@@ -296,17 +296,16 @@ function Game:hand_overflow(p)
   return list
 end
 
--- Fim da rodada: destrói o que passa do limite, da mais recente para a mais antiga.
+-- Fim da rodada: destrói o que passa do limite, da mais recente para a mais
+-- antiga, nessa ordem (a carta é achada pela identidade na hora de tirar).
 function Game:enforce_hand_limit(p)
   local list = self:hand_overflow(p)
-  -- Tira de trás para a frente em cada zona, para os índices continuarem válidos.
-  table.sort(list, function(a, b)
-    if a.zone ~= b.zone then return a.zone < b.zone end
-    return a.index > b.index
-  end)
   for _, e in ipairs(list) do
-    table.remove(self.players[p][e.zone], e.index)
-    self:destroy_card(p, e.card, "limite_de_mao")
+    local zone = self.players[p][e.zone]
+    for i = #zone, 1, -1 do
+      if zone[i] == e.card then table.remove(zone, i); break end
+    end
+    self:destroy_card(p, e.card, "limite_de_mao_fim_rodada")
   end
   return #list
 end
@@ -611,13 +610,15 @@ function Game:finish_round()
   end
   self:emit{ t = "round_end", round = self.round }
   if self.winner == nil then
-    for p = 1, 2 do self:enforce_hand_limit(p) end
-  end
-  if self.winner == nil then
     -- A rodada nova começa com o estado estável: se uma morte do fim da rodada
-    -- abrir uma escolha, a rodada nova só começa depois dela.
+    -- abrir uma escolha, a rodada nova só começa depois dela. O limite de mão
+    -- vale sobre esse estado estável, logo antes da rodada nova.
     self:settle()
-    self:after_choices(function(g) if g.winner == nil then g:begin_round() end end)
+    self:after_choices(function(g)
+      if g.winner ~= nil then return end
+      for p = 1, 2 do g:enforce_hand_limit(p) end
+      g:begin_round()
+    end)
   end
 end
 
