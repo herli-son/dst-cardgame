@@ -1,4 +1,5 @@
--- Estruturas: zona de 2 espaços, substituição, quebra e efeitos ativados. Lua 5.1 puro.
+-- Estruturas: zona de 2 espaços, substituição (destrói a antiga), quebra e efeitos
+-- ativados. Lua 5.1 puro.
 -- Instala os métodos no Game: require("duelo/core/estruturas")(Game)
 --
 -- Campos da definição de uma estrutura:
@@ -54,14 +55,26 @@ return function(Game)
 
   Game.first_free_structure = first_free
 
+  -- Substituir (doc): a estrutura substituída é destruída. Vai para as Destruídas
+  -- e não dispara o "ao quebrar".
+  local function destroy_structure(g, p, slot, reason)
+    local pl = g.players[p]
+    local st = pl.structures[slot]
+    if st == nil then return end
+    pl.structures[slot] = nil
+    g:emit{ t = "structure_destroyed", p = p, slot = slot, uid = st.uid, card_uid = st.card_uid,
+      id = st.def.id, reason = reason }
+    if st.ficha then st.card.ficha = true end
+    g:destroy_card(p, st.card, reason)
+  end
+
   -- Coloca uma estrutura num espaço. Com a zona cheia, a nova substitui a do
-  -- espaço indicado, que é quebrada; sem espaço indicado, a zona precisa ter vaga.
+  -- espaço indicado, que é destruída; sem espaço indicado, a zona precisa ter vaga.
   function Game:put_structure(p, card, slot, opts)
     opts = opts or {}
     slot = slot or first_free(self, p)
     if slot == nil then return nil, "zona de estruturas cheia: é preciso indicar qual substituir" end
-    -- A substituída sai e a nova entra antes de qualquer efeito disparar.
-    local old = remove_structure(self, p, slot, "substituida")
+    destroy_structure(self, p, slot, "substituida")
     local def = self:def_of(card)
     local st = {
       uid = self:next_uid(),
@@ -74,9 +87,7 @@ return function(Game)
     }
     self.players[p].structures[slot] = st
     self:emit{ t = "structure", p = p, slot = slot, uid = st.uid, card_uid = st.card_uid, id = def.id }
-    if old and old.def.on_break then self:effect("quebrar", old.def.id, old.def.on_break, self, old) end
-    -- Se o efeito da substituída tirou a nova de campo, a entrada dela não dispara.
-    if def.on_play and self.players[p].structures[slot] == st then self:effect("entrar", def.id, def.on_play, self, st) end
+    if def.on_play then self:effect("entrar", def.id, def.on_play, self, st) end
     return st
   end
 

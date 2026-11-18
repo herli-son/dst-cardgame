@@ -322,17 +322,23 @@ return function(Game)
   ----------------------------------------------------------------------------
 
   Game.play_rules.criatura = {
-    -- action.slot: espaço livre de 1 a 6
+    -- action.slot: espaço livre de 1 a 6. Com o campo cheio, o espaço da criatura
+    -- sua que será substituída (doc, "Substituir"): ela é destruída, sem "ao morrer",
+    -- e os equipamentos vão para o Inventário.
     validate = function(g, p, card, def, action)
       local s = action.slot
       if type(s) ~= "number" or s < 1 or s > Game.FIELD_SLOTS or s % 1 ~= 0 then
         return false, "espaço inválido"
       end
-      if g.players[p].field[s] ~= nil then return false, "espaço ocupado" end
+      if g.players[p].field[s] ~= nil and #g:free_slots(p) > 0 then
+        return false, "espaço ocupado: substituir só com o campo cheio"
+      end
       if def.can_play and not def.can_play(g, p, action) then return false, "condição da carta não atendida" end
       return true
     end,
     resolve = function(g, p, card, def, action)
+      local old = g.players[p].field[action.slot]
+      if old then g:remove_creature(old, "destroyed", "substituida", { equips = "inventory" }) end
       g:place_creature(p, card, action.slot)
     end,
   }
