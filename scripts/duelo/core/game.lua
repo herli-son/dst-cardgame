@@ -245,6 +245,9 @@ end
 -- source diz de onde ela veio ("baralho", "ficha", "campo"...). O evento traz o id
 -- da carta e é privado: a camada do mod só repassa id e card_uid ao dono.
 function Game:add_to_hand(p, card, source)
+  -- Uma ficha só entra na mão ao ser criada; movida para a mão de outro lugar
+  -- (descarte, campo), ela volta ao baralho extra.
+  if card.ficha and source ~= "ficha" then return self:vanish(p, card, source) end
   if self:hand_count(p) >= self:hand_limit(p) then
     self:destroy_card(p, card, "limite_de_mao")
     return false
