@@ -117,9 +117,14 @@ return {
     T.ok(agg.rodadas.max >= agg.rodadas.media and agg.rodadas.media > 0)
     T.ok(agg.jogadas.max >= agg.jogadas.media and agg.jogadas.media > 0)
     T.eq(#agg.falhas, 0)
+    local tipos = 0
+    for _, k in pairs(agg.jogadas_por_tipo) do tipos = tipos + k end
+    T.ok(agg.jogadas_por_tipo.pass > 0 and agg.jogadas_por_tipo.play > 0, "conta jogadas por tipo")
+    T.eq(tipos, agg.jogadas.media * agg.n)
     local text = Simulador.format_report(agg)
     T.ok(text:find("6 partidas", 1, true) ~= nil, text)
     T.ok(text:find("falhas: nenhuma", 1, true) ~= nil, text)
+    T.ok(text:find("jogadas por tipo: ", 1, true) ~= nil, text)
     -- Falhas aparecem na lista com a seed.
     local Cards = require("duelo/core/cards")
     Cards.define{ id = "sim_bug2", kind = "criatura", cost = 0, atk = 1, hp = 1, on_play = function() error("x") end }
@@ -173,6 +178,12 @@ return {
     T.ok(tostring(rep.motivo):find("gerador quebrado", 1, true) ~= nil, tostring(rep.motivo))
     local agg = Simulador.run_many{ n = 0 }
     T.eq(agg.por_resultado.erro_simulador, 0)
+  end },
+
+  { "o jogador random exercita escolhas com as cartas de simulação", function(T)
+    local agg = Simulador.run_many(opts{ n = 20, seed_base = 300, alternar = true, mulligan = true })
+    T.eq(#agg.falhas, 0, Simulador.format_report(agg))
+    T.ok((agg.jogadas_por_tipo.choose or 0) > 0, "nenhuma escolha em 20 partidas")
   end },
 
   { "200 partidas random contra random terminam sem falha", function(T)

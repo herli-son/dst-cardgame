@@ -71,6 +71,30 @@ function CartasSim.define()
     on_strike = function(g, c) g:heal_player(c.owner, 1, "curandeira") end }
   -- Sacrifício como custo.
   Cards.define{ id = "sim_golem", kind = "criatura", cost = 3, atk = 6, hp = 6, sacrifice = { count = 1 } }
+  -- Ao morrer, o dono escolhe uma criatura sua para curar 2, ou nenhuma. As
+  -- opções são montadas quando a escolha abre (prepare), com o campo daquele
+  -- momento.
+  Cards.define{ id = "sim_xama", kind = "criatura", cost = 2, atk = 1, hp = 3,
+    on_death = function(g, c)
+      local spec = { reason = "xama", allow_none = true }
+      spec.prepare = function(gg)
+        spec.options = {}
+        for _, mine in ipairs(gg:creatures(c.owner)) do spec.options[#spec.options + 1] = mine.slot end
+      end
+      spec.resolve = function(gg, idx)
+        if idx == nil then return end
+        local alvo = gg:creature_at(c.owner, spec.options[idx])
+        if alvo then gg:heal_creature(alvo, 2, nil, "xama") end
+      end
+      g:set_choice(c.owner, spec)
+    end }
+  -- Ao entrar, cria uma estrutura do baralho extra; com a zona cheia, o dono
+  -- escolhe qual substituir ou nenhuma (escolha "substituir_estrutura").
+  Cards.define{ id = "sim_construtor", kind = "criatura", cost = 2, atk = 1, hp = 2,
+    on_play = function(g, c) g:create_token(c.owner, "sim_totem") end }
+  Cards.define{ id = "sim_totem", kind = "estrutura", cost = 0,
+    activation = { speed = "instantaneo", once_per_round = true },
+    activate = function(g, p) g:heal_player(p, 1, "totem") end }
 
   -- Feitiços: um de cada tipo, com alvo.
   Cards.define{ id = "sim_faisca", kind = "feitico", speed = "instantaneo", cost = 1,
@@ -85,6 +109,10 @@ function CartasSim.define()
       local o = objects[1]
       if o.player then g:damage_player(o.player, 4, "meteoro") else g:damage_creature(o, 4, nil, "meteoro") end
     end }
+  -- Rápido que fere um jogador.
+  Cards.define{ id = "sim_flecha", kind = "feitico", speed = "rapido", cost = 2,
+    targets = player_target,
+    on_cast = function(g, p, action, card, objects) g:damage_player(objects[1].player, 3, "flecha") end }
   Cards.define{ id = "sim_cura", kind = "feitico", speed = "instantaneo", cost = 1,
     targets = player_target,
     on_cast = function(g, p, action, card, objects) g:heal_player(objects[1].player, 3, "cura") end }
@@ -111,14 +139,14 @@ end
 
 local DECKS = {
   agressivo = {
-    sim_rato = 3, sim_lobo = 3, sim_corvo = 3, sim_coelho = 3, sim_cao = 2, sim_furtivo = 2,
-    sim_pantera = 2, sim_aranha = 2, sim_golem = 1, sim_faisca = 2, sim_raio = 2, sim_meteoro = 1,
-    sim_tocha = 1, sim_sobrevivente = 1, sim_machado = 1, sim_lanceiro = 1,
+    sim_rato = 2, sim_lobo = 3, sim_corvo = 2, sim_coelho = 3, sim_cao = 2, sim_furtivo = 2,
+    sim_pantera = 2, sim_aranha = 2, sim_golem = 1, sim_faisca = 2, sim_raio = 1, sim_meteoro = 1,
+    sim_flecha = 2, sim_tocha = 1, sim_sobrevivente = 1, sim_machado = 1, sim_lanceiro = 1, sim_construtor = 1,
   },
   controle = {
-    sim_lesma = 2, sim_muro = 3, sim_porco = 3, sim_cacador = 2, sim_urso = 2, sim_curandeira = 2,
-    sim_sobrevivente = 2, sim_aranha = 2, sim_lanceiro = 2, sim_cura = 2, sim_raio = 1, sim_meteoro = 2,
-    sim_altar = 1, sim_tocha = 1, sim_machado = 1, sim_armadura = 1, sim_lanterna = 1,
+    sim_lesma = 2, sim_muro = 2, sim_porco = 3, sim_cacador = 2, sim_urso = 2, sim_curandeira = 1,
+    sim_xama = 2, sim_construtor = 2, sim_sobrevivente = 2, sim_aranha = 1, sim_lanceiro = 1, sim_cura = 2,
+    sim_raio = 1, sim_meteoro = 2, sim_altar = 1, sim_tocha = 1, sim_machado = 1, sim_armadura = 1, sim_lanterna = 1,
   },
 }
 
@@ -140,6 +168,7 @@ end
 function CartasSim.extra()
   local extra = {}
   for _ = 1, 3 do extra[#extra + 1] = { id = "sim_aranhinha" } end
+  for _ = 1, 3 do extra[#extra + 1] = { id = "sim_totem" } end
   return extra
 end
 
