@@ -44,10 +44,19 @@
 --     bloqueador saiu (morto por um "ao morrer" de um par anterior, por
 --     exemplo), o atacante não golpeia ninguém: o bloqueio declarado vale.
 --   * A partida decidida em qualquer fase para o combate.
+--   * Guarda (kw.guarda; Porco guarda): só na defesa. Depois de resolver o par
+--     dela, se sobreviveu e ainda não saltou neste combate, passa a bloquear o
+--     próximo atacante à direita (espaço maior que o do atacante que ela
+--     bloqueou) que nunca teve bloqueador e ainda está em campo; não salta para
+--     quem perdeu o bloqueador. Esse par resolve normalmente quando chegar a vez
+--     dele, com o dano que ela já tem e revidando. Uma vez por Guarda por
+--     combate; como os pares resolvem em ordem, a Guarda cujo par vem antes
+--     salta antes. O salto entra em cb.blocks e sai como evento "block" com
+--     auto = "guarda".
 --
 -- Campos da definição usados aqui (referência completa em cards.lua): no_attack,
--- no_block, speed, block_speed, speed_fn, kw (fragil, agressivo, rival), types e
--- on_strike (criatura e equipamento).
+-- no_block, speed, block_speed, speed_fn, kw (fragil, agressivo, rival, guarda),
+-- types e on_strike (criatura e equipamento).
 
 return function(Game)
   ----------------------------------------------------------------------------
@@ -533,6 +542,27 @@ return function(Game)
 
   local PHASES = { "rapida", "normal" }
 
+  -- Guarda: o bloqueador do par k, se tiver kw.guarda, sobreviveu e ainda não
+  -- saltou, passa a bloquear o próximo atacante à direita que nunca teve
+  -- bloqueador e está em campo.
+  local function guard_jump(g, cb, k)
+    local a = cb.order[k]
+    local d = cb.blocked[a] and cb.blocks[a] or nil
+    if d == nil or not kw(d, "guarda") then return end
+    cb.guarded = cb.guarded or {}
+    if cb.guarded[d] or not in_play(g, d, cb.defender) then return end
+    for m = k + 1, #cb.order do
+      local b = cb.order[m]
+      if not cb.blocked[b] and in_play(g, b, cb.attacker) then
+        cb.guarded[d] = true
+        cb.blocks[b], cb.blocked[b] = d, true
+        g:emit{ t = "block", p = cb.defender, auto = "guarda",
+          blocks = { { attacker = b.uid, blocker = d.uid } } }
+        return
+      end
+    end
+  end
+
   -- Roda os pares a partir do par `first`, começando pela fase `first_phase`
   -- (struck é o estado desse par). Depois de cada fase, se uma escolha ficou
   -- aberta (um "ao morrer" ou um Golpear que pede escolha), o resto do combate
@@ -559,6 +589,9 @@ return function(Game)
           return
         end
       end
+      -- O par acabou, com as mortes dele já resolvidas (uma escolha aberta na
+      -- última fase retoma aqui, com first_phase além das fases).
+      if k < #order then guard_jump(self, cb, k) end
     end
     self:emit{ t = "combat_end", p = cb.attacker }
   end

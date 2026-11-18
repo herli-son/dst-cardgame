@@ -156,7 +156,9 @@ function Partida.describe_events(g, from_index, p)
       else
         local list = {}
         for _, b in ipairs(ev.blocks) do list[#list + 1] = nome(b.blocker) .. " bloqueia " .. nome(b.attacker) end
-        add(quem(ev.p, true) .. " bloqueia" .. (ev.auto and " (obrigatório)" or "")
+        local como = ""
+        if ev.auto == "guarda" then como = " (Guarda)" elseif ev.auto then como = " (obrigatório)" end
+        add(quem(ev.p, true) .. " bloqueia" .. como
           .. ": " .. table.concat(list, "; ") .. ".")
       end
     elseif t == "strike_phase" then
