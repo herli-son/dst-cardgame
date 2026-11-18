@@ -38,6 +38,7 @@ return function(Game)
     -- O efeito "ao quebrar" roda depois de a carta ir ao destino (já zerada): os
     -- marcadores dela ficam guardados na instância para ele consultar.
     st.marks = { used_round = st.card.used_round, used_period = st.card.used_period }
+    g:unlink(st)
     g:emit{ t = "break", p = p, slot = slot, uid = st.uid, card_uid = st.card_uid, id = st.def.id, reason = reason }
     if st.ficha then st.card.ficha = true end
     g:to_discard(p, st.card)
@@ -62,6 +63,7 @@ return function(Game)
     local st = pl.structures[slot]
     if st == nil then return end
     pl.structures[slot] = nil
+    g:unlink(st)
     g:emit{ t = "structure_destroyed", p = p, slot = slot, uid = st.uid, card_uid = st.card_uid,
       id = st.def.id, reason = reason }
     if st.ficha then st.card.ficha = true end

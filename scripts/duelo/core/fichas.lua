@@ -33,9 +33,32 @@ return function(Game)
     self:emit{ t = "vanish", p = p, id = card.id, card_uid = card.uid, reason = reason }
   end
 
+  -- Vínculo (doc, "Fichas"): a criatura criada por uma estrutura fica ligada a ela
+  -- enquanto a estrutura estiver em campo, para contar limites e para voltar quando
+  -- a carta manda. Cada estrutura tem no máximo LINK_LIMIT criaturas ligadas.
+  Game.LINK_LIMIT = 3
+
+  function Game:linked_to(st)
+    local list = {}
+    for _, c in ipairs(self:creatures(st.owner)) do
+      if c.link == st then list[#list + 1] = c end
+    end
+    return list
+  end
+
+  -- A estrutura saiu de campo: as criaturas ligadas ficam, sem vínculo.
+  function Game:unlink(st)
+    for _, c in ipairs(self:linked_to(st)) do
+      c.link = nil
+      self:emit{ t = "unlink", p = c.owner, uid = c.uid, structure_uid = st.uid }
+    end
+  end
+
   -- Cria uma ficha para o jogador p.
   -- opts.zone = "hand" para criar na mão; senão vai para o campo conforme o tipo.
   -- opts.slot escolhe o espaço; sem ele, usa o primeiro livre.
+  -- opts.link = estrutura de origem: a criatura fica ligada a ela; com o limite de
+  -- ligadas atingido, não é criada ("limite_vinculo").
   -- Retorna a criatura, a estrutura ou a carta criada. Sem isso, retorna nil e o motivo:
   -- "sem_copia" (o baralho extra não tem cópia), "sem_espaco" (não foi criada) ou
   -- "pendente" (o dono escolhe onde ela entra).
@@ -48,6 +71,10 @@ return function(Game)
     if opts.zone == "hand" and self:hand_count(p) >= self:hand_limit(p) then
       self:emit{ t = "no_space", p = p, id = id }
       return nil, "sem_espaco"
+    end
+    if opts.link and #self:linked_to(opts.link) >= Game.LINK_LIMIT then
+      self:emit{ t = "link_limit", p = p, id = id, structure_uid = opts.link.uid }
+      return nil, "limite_vinculo"
     end
     if opts.zone ~= "hand" and def.kind == "criatura" then
       slot = opts.slot
@@ -68,7 +95,7 @@ return function(Game)
       return card
     end
     if def.kind == "criatura" then
-      return self:place_creature(p, card, slot, { ficha = true })
+      return self:place_creature(p, card, slot, { ficha = true, link = opts.link })
     elseif def.kind == "estrutura" then
       return self:enter_structure(p, card, { slot = opts.slot, ficha = true })
     end

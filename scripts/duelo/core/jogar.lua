@@ -134,6 +134,7 @@ return function(Game)
       equips = {},
       entered_round = self.round,
       ficha = opts.ficha or card.ficha or false,
+      link = opts.link, -- estrutura de origem (ver Game:linked_to)
     }
     self.players[p].field[slot] = c
     self:emit{ t = "summon", p = p, slot = slot, uid = c.uid, card_uid = c.card_uid, id = def.id, ficha = c.ficha }
