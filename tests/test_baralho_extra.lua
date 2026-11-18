@@ -122,4 +122,29 @@ return {
     T.eq(count(pl.extra, "x_coelho"), 1)
     T.eq(#pl.destroyed, 0)
   end },
+
+  { "criatura criada por estrutura fica ligada a ela, até 3", function(T)
+    local g = new_game(copies("x_coelho", 5))
+    local st = g:put_structure(1, { id = "x_casa", uid = g:next_uid() }, 1)
+    for _ = 1, 3 do T.ok(g:create_token(1, "x_coelho", { link = st }) ~= nil) end
+    T.eq(#g:linked_to(st), 3)
+    local c, why = g:create_token(1, "x_coelho", { link = st })
+    T.eq(c, nil); T.eq(why, "limite_vinculo")
+    T.eq(count(g.players[1].extra, "x_coelho"), 2, "a cópia fica no baralho extra")
+    T.ok(g:create_token(1, "x_coelho") ~= nil, "sem vínculo, não há limite")
+  end },
+
+  { "quando a estrutura sai de campo, as ligadas ficam sem vínculo", function(T)
+    local g = new_game(copies("x_coelho", 5))
+    local st = g:put_structure(1, { id = "x_casa", uid = g:next_uid() }, 1)
+    local a = g:create_token(1, "x_coelho", { link = st })
+    g:break_structure(1, 1, "teste")
+    T.eq(g:creature_at(1, a.slot), a, "continua em campo")
+    T.eq(a.link, nil)
+    local st2 = g:put_structure(1, { id = "x_casa", uid = g:next_uid() }, 1)
+    local b = g:create_token(1, "x_coelho", { link = st2 })
+    g:put_structure(1, { id = "x_casa", uid = g:next_uid() }, 2)
+    g:put_structure(1, { id = "x_casa", uid = g:next_uid() }, 1)
+    T.eq(b.link, nil, "substituída (destruída) também desfaz o vínculo")
+  end },
 }
