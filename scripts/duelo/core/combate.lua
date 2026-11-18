@@ -24,10 +24,26 @@
 --     o motor completa os obrigatórios pela ordem declarada dos atacantes e pela
 --     ordem dos espaços dos bloqueadores.
 --
--- Resolução em duas fases, pela Velocidade: a fase rápida (velocidade 2 e 3) e a
--- fase normal (velocidade 1 e 3). Em cada fase, todos os golpes acontecem ao mesmo
--- tempo (dano nas criaturas e no jogador), os efeitos de Golpear disparam, a
--- vitória é verificada e só então as criaturas mortas saem de campo, juntas.
+-- Resolução par a par (doc, "Combate" e "Velocidade"): o combate resolve na
+-- ordem dos espaços dos atacantes (não na ordem declarada), um par de cada vez.
+-- O par é o atacante com o bloqueador dele, ou o atacante sozinho golpeando o
+-- jogador. O par do espaço 1 resolve por completo, depois o do espaço 2, e assim
+-- por diante.
+--   * Dentro do par vale a Velocidade: a fase rápida (velocidade 2 e 3) e a fase
+--     normal (velocidade 1 e 3), só entre os dois do par. Em cada fase os golpes
+--     acontecem ao mesmo tempo, os efeitos de Golpear disparam, a vitória é
+--     verificada e só então as criaturas mortas saem de campo. Quem morre na
+--     fase rápida não golpeia na normal; a velocidade 3 golpeia nas duas fases,
+--     mas contra o jogador golpeia uma vez só.
+--   * As mortes, os "ao morrer", o Golpear e as escolhas de um par acontecem
+--     antes de o par seguinte começar. Uma escolha aberta segura o resto do
+--     combate (a fase seguinte do par ou os pares seguintes), que volta para a
+--     pilha e continua depois dela.
+--   * Uma criatura que já saiu de campo quando chega a vez do par dela não
+--     golpeia nem é golpeada. Se o atacante saiu, o par é pulado. Se o
+--     bloqueador saiu (morto por um "ao morrer" de um par anterior, por
+--     exemplo), o atacante não golpeia ninguém: o bloqueio declarado vale.
+--   * A partida decidida em qualquer fase para o combate.
 --
 -- Campos da definição usados aqui (referência completa em cards.lua): no_attack,
 -- no_block, speed, block_speed, speed_fn, kw (fragil, agressivo, rival), types e
@@ -471,12 +487,14 @@ return function(Game)
     self:check_lethal(killers, "combate")
   end
 
-  -- Monta os golpes de uma fase. phase = "rapida" (velocidade 2 e 3) ou
-  -- "normal": quem golpeou na rápida só golpeia de novo se ainda tiver velocidade
-  -- 3; quem não golpeou golpeia com velocidade 1 ou mais. Quem já golpeou o jogador
-  -- não golpeia de novo. Quem não está no combate (in_play) não golpeia nem é
-  -- golpeado.
-  local function phase_strikes(g, cb, phase, struck, struck_player)
+  -- Monta os golpes de uma fase do par do atacante a. phase = "rapida"
+  -- (velocidade 2 e 3) ou "normal": quem golpeou na rápida só golpeia de novo se
+  -- ainda tiver velocidade 3; quem não golpeou golpeia com velocidade 1 ou mais.
+  -- Contra o jogador, um golpe só. struck[c] = true para quem já golpeou neste
+  -- par. Quem não está no combate (in_play) não golpeia nem é golpeado: sem o
+  -- atacante, o par é pulado; sem o bloqueador, o atacante continua bloqueado e
+  -- não golpeia ninguém.
+  local function pair_strikes(g, cb, a, phase, struck)
     local strikes = {}
     local function strikes_now(c, role)
       local v = g:speed(c, role)
@@ -484,18 +502,15 @@ return function(Game)
       if struck[c] then return v == 3 end
       return v >= 1
     end
-    for _, a in ipairs(cb.attackers) do
-      if in_play(g, a, cb.attacker) then
-        if cb.blocked[a] then
-          local d = cb.blocks[a]
-          if in_play(g, d, cb.defender) then
-            if strikes_now(a, "attack") then strikes[#strikes + 1] = { a, d } end
-            if strikes_now(d, "block") then strikes[#strikes + 1] = { d, a } end
-          end
-        elseif not struck_player[a] and strikes_now(a, "attack") then
-          struck_player[a] = true
-          strikes[#strikes + 1] = { a, { player = cb.defender } }
+    if in_play(g, a, cb.attacker) then
+      if cb.blocked[a] then
+        local d = cb.blocks[a]
+        if in_play(g, d, cb.defender) then
+          if strikes_now(a, "attack") then strikes[#strikes + 1] = { a, d } end
+          if strikes_now(d, "block") then strikes[#strikes + 1] = { d, a } end
         end
+      elseif not struck[a] and strikes_now(a, "attack") then
+        strikes[#strikes + 1] = { a, { player = cb.defender } }
       end
     end
     for _, s in ipairs(strikes) do struck[s[1]] = true end
@@ -507,28 +522,42 @@ return function(Game)
     if cb == nil then return end
     self.combat = nil
     self:finalize_blocks(cb)
+    -- A ordem dos pares é a dos espaços dos atacantes, fixada aqui.
+    local order = {}
+    for i, a in ipairs(cb.attackers) do order[i] = a end
+    table.sort(order, function(x, y) return x.slot < y.slot end)
+    cb.order = order
     self:emit{ t = "combat_start", p = cb.attacker }
-    self:run_combat_phases(cb, 1, {}, {})
+    self:run_combat_pairs(cb, 1, 1, {})
   end
 
   local PHASES = { "rapida", "normal" }
 
-  -- Roda as fases a partir de first. Se uma fase deixar uma escolha aberta (um
-  -- "ao morrer" ou um Golpear que pede escolha), as fases seguintes voltam para a
-  -- pilha e só rodam depois da escolha, com as mortes já resolvidas.
-  function Game:run_combat_phases(cb, first, struck, struck_player)
-    for i = first, #PHASES do
-      local phase = PHASES[i]
-      local strikes = phase_strikes(self, cb, phase, struck, struck_player)
-      if #strikes > 0 then
-        self:emit{ t = "strike_phase", phase = phase }
-        self:strike_phase(strikes)
-      end
-      if self.winner ~= nil then return end
-      if i < #PHASES and self:choices_waiting() then
-        self.stack[#self.stack + 1] = { owner = cb.attacker, label = "ataque",
-          resolve = function(g) g:run_combat_phases(cb, i + 1, struck, struck_player) end }
-        return
+  -- Roda os pares a partir do par `first`, começando pela fase `first_phase`
+  -- (struck é o estado desse par). Depois de cada fase, se uma escolha ficou
+  -- aberta (um "ao morrer" ou um Golpear que pede escolha), o resto do combate
+  -- volta para a pilha e só roda depois da escolha, com as mortes já resolvidas.
+  function Game:run_combat_pairs(cb, first, first_phase, struck)
+    local order = cb.order
+    for k = first, #order do
+      local a = order[k]
+      local from = 1
+      if k == first then from = first_phase else struck = {} end
+      for ph = from, #PHASES do
+        local phase = PHASES[ph]
+        local strikes = pair_strikes(self, cb, a, phase, struck)
+        if #strikes > 0 then
+          local d = cb.blocked[a] and cb.blocks[a] or nil
+          self:emit{ t = "strike_phase", phase = phase, attacker_uid = a.uid,
+            blocker_uid = d and d.uid or nil }
+          self:strike_phase(strikes)
+        end
+        if self.winner ~= nil then return end
+        if (ph < #PHASES or k < #order) and self:choices_waiting() then
+          self.stack[#self.stack + 1] = { owner = cb.attacker, label = "ataque",
+            resolve = function(g) g:run_combat_pairs(cb, k, ph + 1, struck) end }
+          return
+        end
       end
     end
     self:emit{ t = "combat_end", p = cb.attacker }

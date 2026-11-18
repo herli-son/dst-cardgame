@@ -152,7 +152,7 @@ return {
     g.players[2].life = 2
     fight(g, { 1, 2 }, { { attacker = 2, blocker = 1 } })
     T.eq(g.winner, 1)
-    T.eq(g:creature_at(1, 2).damage, 0, "a fase normal não aconteceu")
+    T.eq(g:creature_at(1, 2).damage, 0, "o par seguinte não aconteceu")
   end },
 
   { "bloqueador de velocidade 2 golpeia antes do atacante de velocidade 1", function(T)
@@ -187,12 +187,13 @@ return {
     local g = new_game()
     Cards.define{ id = "v_acelera", kind = "criatura", cost = 0, atk = 1, hp = 5 }
     local a = put(g, 1, "v_acelera", 1)
-    local muro = put(g, 2, "v_parada", 1)
+    -- As fases são do par: quem acelera a criatura é o próprio bloqueador dela.
     Cards.define{ id = "v_gatilho", kind = "criatura", cost = 0, atk = 1, hp = 5, speed = 2,
       on_strike = function(gg) gg:add_speed_mod(a, { set = 2, until_round = gg.round }) end }
-    put(g, 1, "v_gatilho", 2)
-    fight(g, { 1, 2 }, { { attacker = 1, blocker = 1 } })
-    T.eq(muro.damage, 1, "a criatura acelerada golpeou uma vez")
+    local d = put(g, 2, "v_gatilho", 1)
+    fight(g, { 1 }, { { attacker = 1, blocker = 1 } })
+    T.eq(a.damage, 1)
+    T.eq(d.damage, 1, "a criatura acelerada golpeou uma vez, na fase normal")
   end },
 
   { "escolha aberta na fase rápida: o morto não revida na normal", function(T)
