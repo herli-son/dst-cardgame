@@ -434,14 +434,21 @@ return {
     T.eq(d1[1].markers.n, 1)
   end },
 
-  { "limite de mão com modificador vale ao comprar e pode ser removido", function(T)
+  { "limite de mão com modificador: a carta a mais fica até o fim da rodada e então é destruída", function(T)
     local g = new_game()
     local pl = g.players[1]
     local remove = g:add_hand_limit_mod(function(gg, p) return p == 1 and 2 or 0 end)
-    while g:hand_count(1) < Game.HAND_LIMIT do pl.hand[#pl.hand + 1] = { id = "r_bicho", uid = g:next_uid() } end
-    T.ok(g:add_to_hand(1, { id = "r_bicho", uid = g:next_uid() }), "cabe a 11ª")
+    while g:hand_count(1) < Game.HAND_LIMIT do g:add_to_hand(1, { id = "r_bicho", uid = g:next_uid() }) end
+    local extra = { id = "r_bicho", uid = g:next_uid() }
+    T.ok(g:add_to_hand(1, extra), "cabe a 11ª")
     remove()
     T.eq(g:add_to_hand(1, { id = "r_bicho", uid = g:next_uid() }), false, "sem a Mochila, não cabe")
+    T.eq(g:hand_count(1), Game.HAND_LIMIT + 1, "a 11ª fica na mão")
+    T.eq(g:hand_overflow(1)[1].card, extra, "e é ela que está em risco")
+    g:act(1, { type = "pass" }); g:act(2, { type = "pass" })
+    T.eq(g:hand_count(1), Game.HAND_LIMIT, "no fim da rodada a 11ª é destruída")
+    T.eq(pl.destroyed[2], extra, "depois da 12ª recusada, a 11ª cai no fim da rodada")
+    T.eq(#pl.destroyed, 3, "e a compra da rodada nova, com a mão cheia, também é destruída")
   end },
 
   { "eventos de campo trazem uid e card_uid; de zona, card_uid", function(T)

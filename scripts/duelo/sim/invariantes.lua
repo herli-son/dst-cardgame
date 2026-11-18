@@ -140,7 +140,8 @@ end
 -- Zonas de cartas: sequências sem buracos, cada carta com uid numérico e
 -- definição conhecida. O limite de mão não entra aqui: Game:add_to_hand destrói
 -- o que passaria dele na entrada, mas um modificador de limite removido (ex.:
--- Mochila desequipada) deixa a mão acima do limite, e o motor aceita isso.
+-- Mochila desequipada) deixa a mão acima do limite até o fim da rodada, quando
+-- Game:enforce_hand_limit destrói o excesso.
 checks[#checks + 1] = function(g)
   for p = 1, 2 do
     local pl = g.players[p]

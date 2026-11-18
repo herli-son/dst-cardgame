@@ -543,4 +543,29 @@ return {
     T.eq(#Partida.describe_events(g, from, 1), 0)
     T.eq(#Partida.describe_events(g, from, 2), 0, "compra do baralho não gera frase")
   end },
+
+  { "a tela marca as cartas acima do limite de mão", function(T)
+    local g = bare()
+    local remove = g:add_hand_limit_mod(function() return 1 end)
+    while g:hand_count(1) < Game.HAND_LIMIT + 1 do give(g, 1, "demo_coelho") end
+    remove()
+    local text = Tela.render(g, 1)
+    T.ok(text:find("\n! ", 1, true) ~= nil, "uma carta marcada")
+    T.ok(text:find("será destruída no fim da rodada", 1, true) ~= nil)
+    g:act(1, { type = "play", hand_index = #g.players[1].hand, slot = 1 })
+    text = Tela.render(g, 1)
+    T.eq(text:find("\n! ", 1, true), nil, "usada, some a marca")
+  end },
+
+  { "a destruição do fim da rodada é narrada sem revelar a carta do adversário", function(T)
+    local g = bare()
+    local remove = g:add_hand_limit_mod(function() return 1 end)
+    while g:hand_count(2) < Game.HAND_LIMIT + 1 do give(g, 2, "demo_coelho") end
+    remove()
+    local from = #g.events
+    g:act(1, { type = "pass" }); g:act(2, { type = "pass" })
+    local text = table.concat(Partida.describe_events(g, from, 1), "\n")
+    T.ok(text:find("Fim da rodada: uma carta acima do limite", 1, true) ~= nil, text)
+    T.eq(text:find("Coelho", 1, true), nil, "o nome da carta do bot não aparece")
+  end },
 }
