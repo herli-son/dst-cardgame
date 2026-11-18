@@ -176,4 +176,32 @@ return {
     T.ok(g:act(1, { type = "play", hand_index = give(g, 1, "s_rapido"), slot = 1, sacrifice = { 1 } }))
     T.eq(g.active, 1)
   end },
+
+  { "a criatura do sacrifício entra depois da escolha aberta pelo ao morrer", function(T)
+    local g = new_game()
+    Cards.define{ id = "s_lobo", kind = "criatura", cost = 0, atk = 1, hp = 1,
+      on_death = function(gg, c)
+        gg:set_choice(c.owner, { reason = "x", options = { "a" }, resolve = function() log[#log + 1] = "escolheu" end })
+      end }
+    Cards.define{ id = "s_ritual3", kind = "criatura", cost = 0, atk = 5, hp = 5, sacrifice = { count = 1 },
+      on_play = function() log[#log + 1] = "ritual" end }
+    g:place_creature(1, { id = "s_lobo", uid = g:next_uid() }, 1)
+    T.ok(g:act(1, { type = "play", hand_index = give(g, 1, "s_ritual3"), slot = 1, sacrifice = { 1 } }))
+    T.eq(g:creature_at(1, 1), nil, "ainda não entrou")
+    T.ok(g:act(1, { type = "choose", index = 1 }))
+    T.eq(log[#log - 1], "escolheu")
+    T.eq(log[#log], "ritual")
+    T.eq(g:creature_at(1, 1).def.id, "s_ritual3")
+  end },
+
+  { "se o ao morrer do sacrifício decide a partida, a criatura não entra", function(T)
+    local g = new_game()
+    Cards.define{ id = "s_bomba", kind = "criatura", cost = 0, atk = 1, hp = 1,
+      on_death = function(gg) gg:damage_player(2, 99, "teste") end }
+    Cards.define{ id = "s_ritual4", kind = "criatura", cost = 0, atk = 5, hp = 5, sacrifice = { count = 1 } }
+    g:place_creature(1, { id = "s_bomba", uid = g:next_uid() }, 1)
+    g:act(1, { type = "play", hand_index = give(g, 1, "s_ritual4"), slot = 1, sacrifice = { 1 } })
+    T.eq(g.winner, 1)
+    T.eq(g:creature_at(1, 1), nil)
+  end },
 }

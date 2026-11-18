@@ -147,4 +147,45 @@ return {
     g:put_structure(1, { id = "x_casa", uid = g:next_uid() }, 1)
     T.eq(b.link, nil, "substituída (destruída) também desfaz o vínculo")
   end },
+
+  { "criatura criada por estrutura que já saiu de campo não fica ligada", function(T)
+    local g = new_game(copies("x_coelho", 2))
+    local st = g:put_structure(1, { id = "x_casa", uid = g:next_uid() }, 1)
+    g:break_structure(1, 1, "teste")
+    local c = g:create_token(1, "x_coelho", { link = st })
+    T.ok(c ~= nil)
+    T.eq(c.link, nil)
+  end },
+
+  { "ficha com destino desconhecido vai para o descarte, como uma carta comum", function(T)
+    local g = new_game(copies("x_coelho", 1))
+    local c = g:create_token(1, "x_coelho")
+    g:remove_creature(c, nil, "teste")
+    T.eq(count(g.players[1].discard, "x_coelho"), 1)
+    T.eq(count(g.players[1].extra, "x_coelho"), 0)
+  end },
+
+  { "ficha do descarte movida para a mão volta ao baralho extra", function(T)
+    local g = new_game(copies("x_coelho", 1))
+    local c = g:create_token(1, "x_coelho")
+    g:kill(c, "teste")
+    local card = table.remove(g.players[1].discard)
+    local hand = #g.players[1].hand
+    g:add_to_hand(1, card, "descarte")
+    T.eq(#g.players[1].hand, hand)
+    T.eq(count(g.players[1].extra, "x_coelho"), 1)
+  end },
+
+  { "equipamento ficha trocado por outro volta ao baralho extra", function(T)
+    define()
+    Cards.define{ id = "x_sobrev", kind = "criatura", cost = 0, atk = 1, hp = 3, sobrevivente = true }
+    Cards.define{ id = "x_isca", kind = "equipamento", slot = "mao", cost = 0 }
+    local g = new_game(copies("x_isca", 1))
+    local s = g:place_creature(1, { id = "x_sobrev", uid = g:next_uid() }, 1)
+    local isca = g:take_from_extra(1, "x_isca")
+    g:equip(s, isca)
+    g:equip(s, { id = "x_isca", uid = g:next_uid() })
+    T.eq(#g.players[1].inventory, 0)
+    T.eq(count(g.players[1].extra, "x_isca"), 1)
+  end },
 }
