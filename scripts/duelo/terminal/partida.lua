@@ -192,8 +192,12 @@ function Partida.describe_events(g, from_index, p)
     elseif t == "structure_destroyed" then
       add(nome(ev.uid) .. " é destruída (" .. tostring(ev.reason) .. ").")
     elseif t == "destroyed" then
+      -- A carta do adversário não é nomeada: a mão dele é privada.
+      local carta = (ev.p == p) and nome_id(g, ev.id) or "uma carta"
       if ev.reason == "limite_de_mao" then
-        add("Mão cheia: " .. quem(ev.p) .. " perde " .. nome_id(g, ev.id) .. " (destruída).")
+        add("Mão cheia: " .. quem(ev.p) .. " perde " .. carta .. " (destruída).")
+      elseif ev.reason == "limite_de_mao_fim_rodada" then
+        add("Fim da rodada: " .. carta .. " acima do limite de " .. quem(ev.p) .. " é destruída.")
       end
     elseif t == "fizzle" then
       add(nome_id(g, ev.id) .. " não acontece: alvo perdido.")
