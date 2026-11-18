@@ -280,16 +280,23 @@ function Tela.mao(g, p)
   local pl = g.players[p]
   local lines = {}
   lines[#lines + 1] = string.rep("-", Tela.LARGURA)
+  -- Cartas que passam do limite: serão destruídas no fim da rodada se não forem usadas.
+  local risk = {}
+  for _, e in ipairs(g:hand_overflow(p)) do risk[e.card] = true end
+  local function mark(card) return risk[card] and "! " or "  " end
   lines[#lines + 1] = "Mão (" .. #pl.hand .. ", limite " .. g:hand_limit(p) .. ", baralho " .. #pl.deck .. ")"
   if #pl.hand == 0 then lines[#lines + 1] = "  (vazia)" end
-  for i, card in ipairs(pl.hand) do lines[#lines + 1] = "  " .. linha_carta(g, p, i, card) end
+  for i, card in ipairs(pl.hand) do lines[#lines + 1] = mark(card) .. linha_carta(g, p, i, card) end
   if #pl.inventory > 0 then
     lines[#lines + 1] = "Inventário (jogar com: inv <n>)"
-    for i, card in ipairs(pl.inventory) do lines[#lines + 1] = "  " .. linha_carta(g, p, i, card) end
+    for i, card in ipairs(pl.inventory) do lines[#lines + 1] = mark(card) .. linha_carta(g, p, i, card) end
   end
   if #pl.separated > 0 then
     lines[#lines + 1] = "Separadas (jogar com: sep <n>)"
-    for i, card in ipairs(pl.separated) do lines[#lines + 1] = "  " .. linha_carta(g, p, i, card) end
+    for i, card in ipairs(pl.separated) do lines[#lines + 1] = mark(card) .. linha_carta(g, p, i, card) end
+  end
+  if next(risk) then
+    lines[#lines + 1] = "! = acima do limite: será destruída no fim da rodada se não for usada"
   end
   return lines
 end
