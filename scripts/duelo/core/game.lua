@@ -24,6 +24,11 @@ Game.DRAW_PER_ROUND = 1
 -- devolve: ok (boolean), erro (string | nil), passa_a_vez (boolean).
 Game.actions = {}
 
+-- Validação de cada ação, sem resolver: validators[tipo](game, player, action)
+-- devolve ok, erro e, para o handler, o que a validação já apurou. Cada handler
+-- começa chamando a sua; Game:can_act chama só ela.
+Game.validators = {}
+
 -- Regras do próprio motor chamadas quando o período muda: hook(game, periodo).
 -- Efeitos de cartas não entram aqui: usam Game:on(...), que vale só para a partida.
 Game.period_hooks = {}
@@ -586,9 +591,9 @@ function Game:advance_vez()
   self:update_period()
 end
 
--- Jogada sem proteção; use Game:act.
-local function act_impl(self, p, action)
-  self.context = nil
+-- Verificações comuns a toda jogada, antes do handler: fase, vez, escolha
+-- pendente, fogueira apagada e pilha aberta. Não muda nada.
+local function check_action(self, p, action)
   if self.winner ~= nil then return false, "partida encerrada" end
   if self.phase ~= "playing" then return false, "a partida ainda não começou" end
   if type(action) ~= "table" or action.type == nil then return false, "ação inválida" end
@@ -599,6 +604,22 @@ local function act_impl(self, p, action)
   elseif p ~= self.active then
     return false, "não é a sua vez"
   end
+  if action.type == "pass" then return true end
+  if Game.actions[action.type] == nil then return false, "ação desconhecida: " .. tostring(action.type) end
+  if self:is_night_lit() and self.fogueira[p] <= 0 and not Game.allowed_at_zero_fogueira[action.type] then
+    return false, "fogueira apagada: só é possível passar, atacar ou ativar efeitos"
+  end
+  if self:stack_open() and not Game.allowed_with_stack[action.type] then
+    return false, "com a pilha aberta, só Rápidos e Instantâneos"
+  end
+  return true
+end
+
+-- Jogada sem proteção; use Game:act.
+local function act_impl(self, p, action)
+  self.context = nil
+  local ok, err = check_action(self, p, action)
+  if not ok then return false, err end
 
   if action.type == "pass" and self:stack_open() then
     self:stack_pass(p)
@@ -617,14 +638,8 @@ local function act_impl(self, p, action)
   end
 
   local handler = Game.actions[action.type]
-  if handler == nil then return false, "ação desconhecida: " .. tostring(action.type) end
-  if self:is_night_lit() and self.fogueira[p] <= 0 and not Game.allowed_at_zero_fogueira[action.type] then
-    return false, "fogueira apagada: só é possível passar, atacar ou ativar efeitos"
-  end
-  if self:stack_open() and not Game.allowed_with_stack[action.type] then
-    return false, "com a pilha aberta, só Rápidos e Instantâneos"
-  end
-  local ok, err, passes_turn = handler(self, p, action)
+  local passes_turn
+  ok, err, passes_turn = handler(self, p, action)
   -- O contexto da ação termina com o handler; o que vem depois (vez, período)
   -- é do motor, não da carta.
   self.context = nil
@@ -664,6 +679,27 @@ local function error_message(err)
   -- o log de eventos continuar igual entre execuções.
   if type(err) == "table" and type(err.message) == "string" then return err.message end
   return "erro do tipo " .. type(err)
+end
+
+-- Diz se a jogada seria aceita agora, sem fazê-la: roda só as verificações de
+-- Game:act e a validação do handler, sem resolver nada, emitir eventos ou mudar
+-- o estado. Devolve ok, erro, como Game:act. Um erro de carta durante a
+-- validação não encerra a partida: a jogada é dada como inválida.
+function Game:can_act(p, action)
+  if self.phase == "error" then return false, "partida encerrada por erro" end
+  local ok, err = check_action(self, p, action)
+  if not ok then return false, err end
+  if action.type == "pass" then return true end
+  local validate = Game.validators[action.type]
+  if validate == nil then return false, "ação sem validação: " .. tostring(action.type) end
+  -- A validação marca o contexto da jogada; aqui ele volta ao que era.
+  local prev = self.context
+  local results
+  local ran, captured = xpcall(function() results = pack(validate(self, p, action)) end, capture)
+  self.context = prev
+  if not ran then return false, "erro na validação: " .. error_message(captured.value) end
+  if not results[1] then return false, results[2] end
+  return true
 end
 
 function Game:fail(captured)

@@ -108,7 +108,8 @@ return function(Game)
   ----------------------------------------------------------------------------
 
   -- action = { type = "attack", attackers = { espaço, ... } }
-  Game.actions.attack = function(g, p, action)
+  -- Validação, sem declarar: devolve ok, erro e as criaturas, na ordem declarada.
+  local function validate_attack(g, p, action)
     if g.attacker ~= p then return false, "só quem tem o token ataca" end
     if g.attacked_round == g.round then return false, "já houve ataque nesta rodada" end
     if g:stack_open() then return false, "atacar só com a pilha vazia" end
@@ -124,6 +125,13 @@ return function(Game)
       seen[c] = true
       attackers[#attackers + 1] = c
     end
+    return true, nil, attackers
+  end
+  Game.validators.attack = validate_attack
+
+  Game.actions.attack = function(g, p, action)
+    local ok, err, attackers = validate_attack(g, p, action)
+    if not ok then return false, err end
     g.attacked_round = g.round
     g.combat = {
       attacker = p,
@@ -250,15 +258,32 @@ return function(Game)
     return best_score, best_pairs
   end
 
+  -- O melhor emparelhamento só depende de quem está no combate (atacantes e
+  -- bloqueadores em jogo). Fica guardado por combate, fora do estado da partida,
+  -- porque a validação de bloqueios (can_act) pode ser chamada milhares de vezes
+  -- para o mesmo combate.
+  local forced_cache = setmetatable({}, { __mode = "k" })
+
   local function obligations(g, cb)
     local defenders = blockers_of(g, cb.defender)
     local attackers = attackers_of(g, cb)
     local obligated, tiers = {}, {}
+    local key = {}
     for _, a in ipairs(attackers) do
       tiers[a] = tier_of(a, defenders)
       if tiers[a] then obligated[#obligated + 1] = a end
+      key[#key + 1] = a.uid
     end
-    return attackers, defenders, obligated, tiers
+    key[#key + 1] = "/"
+    for _, d in ipairs(defenders) do key[#key + 1] = d.uid end
+    key = table.concat(key, ",")
+    local cached = forced_cache[cb]
+    if cached == nil or cached.key ~= key then
+      local score, pairs = best_forced(obligated, tiers, defenders)
+      cached = { key = key, score = score, pairs = pairs }
+      forced_cache[cb] = cached
+    end
+    return attackers, defenders, obligated, tiers, cached
   end
 
   local TIER_MESSAGES = {
@@ -269,7 +294,7 @@ return function(Game)
   -- Confere os pares contra as regras. pairs = { { atacante, bloqueador }, ... }.
   -- Recusa se os pares atendem menos obrigatórios do que seria possível.
   function Game:check_forced_blocks(cb, pairs)
-    local attackers, defenders, obligated, tiers = obligations(self, cb)
+    local attackers, defenders, obligated, tiers, forced = obligations(self, cb)
     local block_of, blocking = {}, {}
     for _, pr in ipairs(pairs) do block_of[pr[1]], blocking[pr[2]] = pr[2], pr[1] end
     local declared = {}
@@ -278,7 +303,7 @@ return function(Game)
       local k = tiers[a]
       if block_of[a] and TIERS[k].fits(a, block_of[a]) then declared[k] = declared[k] + 1 end
     end
-    local best = best_forced(obligated, tiers, defenders)
+    local best = forced.score
     for k = 1, #TIERS do
       if declared[k] < best[k] then return false, TIER_MESSAGES[k] end
       if declared[k] > best[k] then break end
@@ -298,15 +323,14 @@ return function(Game)
   -- Completa os pares obrigatórios quando o defensor não declarou: o melhor
   -- emparelhamento de Rival e Frágil, depois as Frágeis livres nos Agressivos.
   local function auto_blocks(g, cb)
-    local attackers, defenders, obligated, tiers = obligations(g, cb)
+    local attackers, defenders, _, _, forced = obligations(g, cb)
     local used, pairs = {}, {}
     local function set(a, d)
       used[d] = true
       cb.blocks[a], cb.blocked[a] = d, true
       pairs[#pairs + 1] = { attacker = a.uid, blocker = d.uid }
     end
-    local _, best = best_forced(obligated, tiers, defenders)
-    for _, pr in ipairs(best) do set(pr[1], pr[2]) end
+    for _, pr in ipairs(forced.pairs) do set(pr[1], pr[2]) end
     for _, a in ipairs(attackers) do
       if kw(a, "agressivo") and not cb.blocked[a] then
         for _, d in ipairs(defenders) do
@@ -319,7 +343,8 @@ return function(Game)
 
   -- action = { type = "block", blocks = { { attacker = espaço, blocker = espaço }, ... } }
   -- Uma lista vazia declara que não há bloqueios e não conta como pôr algo na pilha.
-  Game.actions.block = function(g, p, action)
+  -- Validação, sem declarar: devolve ok, erro e os pares { atacante, bloqueador }.
+  local function validate_block(g, p, action)
     local cb = g.combat
     if not g:can_declare_blocks(p) then
       return false, "bloqueios só na primeira resposta do defensor ao ataque"
@@ -342,6 +367,14 @@ return function(Game)
     end
     local ok, why = g:check_forced_blocks(cb, chosen)
     if not ok then return false, why end
+    return true, nil, chosen
+  end
+  Game.validators.block = validate_block
+
+  Game.actions.block = function(g, p, action)
+    local ok, err, chosen = validate_block(g, p, action)
+    if not ok then return false, err end
+    local cb = g.combat
     for _, pr in ipairs(chosen) do
       cb.blocks[pr[1]] = pr[2]
       cb.blocked[pr[1]] = true

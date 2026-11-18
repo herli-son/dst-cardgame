@@ -269,7 +269,9 @@ return function(Game)
   Game.PLAYABLE_ZONES = { hand = "hand", inventory = "inventory", separated = "separated" }
 
   -- action = { type = "play", hand_index = n, from = "hand" | "inventory" | "separated", ... }
-  Game.actions.play = function(g, p, action)
+  -- Validação da jogada, sem gastar nada. Devolve ok, erro e o que apurou:
+  -- { zone, card, def, rule, cost, uses_fogueira }.
+  local function validate_play(g, p, action)
     local pl = g.players[p]
     local zone_name = Game.PLAYABLE_ZONES[action.from or "hand"]
     if zone_name == nil then return false, "origem inválida" end
@@ -293,6 +295,14 @@ return function(Game)
     if uses_fogueira and not g:can_pay_fogueira(p) then return false, "fogueira apagada" end
     local ok, err = g:run_card("jogar", def.id, rule.validate, g, p, card, def, action)
     if not ok then return false, err end
+    return true, nil, { zone = zone, card = card, def = def, rule = rule, cost = cost, uses_fogueira = uses_fogueira }
+  end
+  Game.validators.play = validate_play
+
+  Game.actions.play = function(g, p, action)
+    local ok, err, v = validate_play(g, p, action)
+    if not ok then return false, err end
+    local zone, card, def, rule, cost, uses_fogueira = v.zone, v.card, v.def, v.rule, v.cost, v.uses_fogueira
 
     table.remove(zone, action.hand_index)
     -- Custo fixado ou alterado por zona (Sapo, Inventário) não acompanha a carta.
