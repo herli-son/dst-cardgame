@@ -72,13 +72,13 @@ return {
     clear_test_cards()
   end },
 
-  { "estrutura que é ficha deixa de existir ao ser quebrada", function(T)
+  { "estrutura que é ficha vai para o descarte ao ser quebrada", function(T)
     local g = new_game({})
     g:put_structure(1, { id = "t_casa", ficha = true }, 1)
     local before = #g.players[1].discard
     g:break_structure(1, 1)
     T.eq(g:structure_at(1, 1), nil)
-    T.eq(#g.players[1].discard, before)
+    T.eq(#g.players[1].discard, before + 1)
     clear_test_cards()
   end },
 

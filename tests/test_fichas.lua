@@ -55,17 +55,18 @@ return {
     clear_test_cards()
   end },
 
-  { "ficha que sai de campo deixa de existir em qualquer destino", function(T)
+  { "ficha vai ao descarte e às destruídas como qualquer carta; mão e baralho a devolvem ao extra", function(T)
     local g = new_game()
     local pl = g.players[1]
-    local hand, discard, destroyed, deck = #pl.hand, #pl.discard, #pl.destroyed, #pl.deck
+    local hand, discard, destroyed, deck, extra = #pl.hand, #pl.discard, #pl.destroyed, #pl.deck, #pl.extra
     for _, dest in ipairs({ "discard", "hand", "deck", "destroyed" }) do
       local c = g:create_token(1, "t_coelho")
       g:remove_creature(c, dest, "teste")
       T.eq(g:creature_at(1, c.slot), nil)
     end
-    T.eq(#pl.hand, hand); T.eq(#pl.discard, discard)
-    T.eq(#pl.destroyed, destroyed); T.eq(#pl.deck, deck)
+    T.eq(#pl.hand, hand); T.eq(#pl.deck, deck)
+    T.eq(#pl.discard, discard + 1); T.eq(#pl.destroyed, destroyed + 1)
+    T.eq(#pl.extra, extra - 2, "as duas que foram para a mão e o baralho voltaram")
     clear_test_cards()
   end },
 
@@ -91,12 +92,14 @@ return {
     clear_test_cards()
   end },
 
-  { "ficha de estrutura quebrada deixa de existir", function(T)
+  { "ficha de estrutura quebrada vai para o descarte", function(T)
     local g = new_game()
     local st = g:create_token(1, "t_rocha")
     T.eq(st.ficha, true)
     g:break_structure(1, st.slot)
-    T.eq(#g.players[1].discard, 0)
+    local d = g.players[1].discard
+    T.eq(#d, 1)
+    T.eq(d[1].ficha, true)
     clear_test_cards()
   end },
 }

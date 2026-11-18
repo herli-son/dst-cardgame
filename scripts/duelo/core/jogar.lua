@@ -278,9 +278,10 @@ return function(Game)
   -- Feitiços
   ----------------------------------------------------------------------------
 
-  -- Manda a carta usada para o descarte; fichas deixam de existir.
+  -- Manda a carta para o descarte. Ficha marcada com returns_to_extra volta para o
+  -- baralho extra.
   function Game:to_discard(p, card)
-    if card.ficha then return self:vanish(p, card, "descarte") end
+    if card.ficha and self:def_of(card).returns_to_extra then return self:vanish(p, card, "descarte") end
     self:reset_card(card)
     local d = self.players[p].discard
     d[#d + 1] = card

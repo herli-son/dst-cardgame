@@ -9,6 +9,8 @@
 --   atk, hp, speed (padrão 1), kw = { agressivo = true, fragil = true, ... },
 --   kw.rival = "tipo"                  Rival guarda o nome do tipo (ex.: "porco")
 --   types = { aranha = true, ... }, sobrevivente (boolean)
+--   returns_to_extra = true            como ficha, volta ao baralho extra em vez do
+--                                      descarte (Fantasmas criados, Alimentos)
 --   no_attack = true / no_block = true não pode atacar / não pode bloquear
 --   block_speed                        velocidade ao bloquear (ex.: Tentáculo)
 --   speed_fn(game, criatura, role)     velocidade que depende do estado; role =

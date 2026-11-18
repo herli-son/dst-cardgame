@@ -4,7 +4,12 @@
 -- Uma ficha é uma cópia do baralho extra do jogador (doc, "Fichas" e "Baralho
 -- extra"): criar tira a cópia de lá, e sem cópia disponível a criação não
 -- acontece. A ficha usa a mesma definição da carta de mesmo nome, então tem os
--- mesmos atributos. Quando "deixa de existir", volta para o baralho extra.
+-- mesmos atributos. Destinos (doc, "Fichas"):
+--   * morrer, ser quebrada ou ser usada: vai para o descarte, como qualquer carta,
+--     e pode ser revivida; a carta com def.returns_to_extra (Fantasmas criados,
+--     Alimentos) volta para o baralho extra;
+--   * ser destruída: vai para as Destruídas;
+--   * sumir, voltar ou "deixar de existir" (mão, baralho): volta para o baralho extra.
 
 return function(Game)
   -- Tira do baralho extra uma cópia da carta id, marcada como ficha. nil se não houver.
@@ -39,6 +44,11 @@ return function(Game)
     local def = self:def_of({ id = id })
     assert(def ~= nil, "ficha desconhecida: " .. tostring(id))
     local slot
+    -- Com a mão cheia, a cópia nem sai do baralho extra.
+    if opts.zone == "hand" and self:hand_count(p) >= self:hand_limit(p) then
+      self:emit{ t = "no_space", p = p, id = id }
+      return nil, "sem_espaco"
+    end
     if opts.zone ~= "hand" and def.kind == "criatura" then
       slot = opts.slot
       if slot == nil or self.players[p].field[slot] ~= nil then slot = self:free_slots(p)[1] end
@@ -54,8 +64,8 @@ return function(Game)
       return nil, "sem_copia"
     end
     if opts.zone == "hand" then
-      if self:add_to_hand(p, card, "ficha") then return card end
-      return nil, "sem_espaco"
+      self:add_to_hand(p, card, "ficha")
+      return card
     end
     if def.kind == "criatura" then
       return self:place_creature(p, card, slot, { ficha = true })
@@ -67,7 +77,8 @@ return function(Game)
 
   -- Tira uma criatura de campo. dest = "discard" | "hand" | "deck" | "destroyed".
   -- opts.equips = "discard" (padrão) ou "inventory" (ex.: Telelocador).
-  -- Fichas deixam de existir em qualquer destino.
+  -- Fichas: descarte e destruídas como qualquer carta; mão e baralho as devolvem
+  -- ao baralho extra.
   function Game:remove_creature(c, dest, reason, opts)
     opts = opts or {}
     local pl = self.players[c.owner]
@@ -91,10 +102,12 @@ return function(Game)
   function Game:send_card(c, dest, reason)
     local pl = self.players[c.owner]
     local card = c.card
-    if c.ficha or card.ficha then
+    if (c.ficha or card.ficha) and dest ~= "discard" and dest ~= "destroyed" then
       self:vanish(c.owner, card, reason)
       return
     end
+    card.ficha = card.ficha or c.ficha or nil
+    if dest == "discard" or dest == nil then return self:to_discard(c.owner, card) end
     self:reset_card(card)
     if dest == "hand" then
       self:add_to_hand(c.owner, card, "campo")

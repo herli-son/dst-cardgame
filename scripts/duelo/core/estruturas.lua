@@ -38,16 +38,13 @@ return function(Game)
     -- marcadores dela ficam guardados na instância para ele consultar.
     st.marks = { used_round = st.card.used_round, used_period = st.card.used_period }
     g:emit{ t = "break", p = p, slot = slot, uid = st.uid, card_uid = st.card_uid, id = st.def.id, reason = reason }
-    if st.ficha then
-      g:vanish(p, st.card, reason)
-    else
-      g:to_discard(p, st.card)
-    end
+    if st.ficha then st.card.ficha = true end
+    g:to_discard(p, st.card)
     return st
   end
 
-  -- Quebrar: a estrutura sai de campo, vai para o descarte (fichas, por enquanto,
-  -- deixam de existir; ver US #94) e dispara o "ao quebrar".
+  -- Quebrar: a estrutura sai de campo, vai para o descarte (fichas também, menos
+  -- as marcadas com returns_to_extra) e dispara o "ao quebrar".
   -- O estado fica completo antes do efeito "ao quebrar": se ele decidir a partida,
   -- nada fica pela metade.
   function Game:break_structure(p, slot, reason)

@@ -226,7 +226,6 @@ end
 -- Destruir é diferente de descartar: a carta vai para a zona de destruídas e
 -- não pode ser recuperada por efeitos que buscam no descarte.
 function Game:destroy_card(p, card, reason)
-  if card.ficha then return self:vanish(p, card, reason) end
   self:reset_card(card)
   local pl = self.players[p]
   pl.destroyed[#pl.destroyed + 1] = card
