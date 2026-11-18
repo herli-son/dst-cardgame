@@ -43,6 +43,12 @@ return {
     T.eq(#pl.inventory, 0)
     T.eq(g:hand_count(1), Game.HAND_LIMIT)
     T.eq(pl.destroyed[1], c); T.eq(pl.destroyed[2], b)
+    local reasons = {}
+    for _, ev in ipairs(g.events) do
+      if ev.t == "destroyed" and ev.reason == "limite_de_mao_fim_rodada" then reasons[#reasons + 1] = ev.card_uid end
+    end
+    T.eq(reasons[1], c.uid, "os eventos saem na ordem de chegada invertida")
+    T.eq(reasons[2], b.uid)
     local found = false
     for _, x in ipairs(pl.hand) do if x == a then found = true end end
     T.ok(found, "a 10ª fica")
@@ -68,5 +74,22 @@ return {
     end_round(g)
     T.eq(#g.players[1].destroyed, 0)
     T.eq(#g.players[2].destroyed, 2 + 1)
+  end },
+
+  { "o limite vale sobre o estado estável: a Mochila que cai com uma morte no fim da rodada já conta", function(T)
+    local g = new_game()
+    local remove = g:add_hand_limit_mod(function() return 2 end)
+    Cards.define{ id = "lm_portador", kind = "criatura", cost = 0, atk = 0, hp = 1,
+      on_death = function() remove() end }
+    while g:hand_count(1) < Game.HAND_LIMIT + 2 do g:add_to_hand(1, card(g)) end
+    local v = g:place_creature(1, { id = "lm_portador", uid = g:next_uid() }, 1)
+    g:on("round_end", function(gg) gg:damage_creature(v, 1, nil, "teste") end)
+    T.eq(#g:hand_overflow(1), 0, "antes do fim da rodada, nada em risco")
+    end_round(g)
+    -- A morte no fim da rodada tira o modificador; o excesso (2) é destruído
+    -- antes da rodada nova, e a compra nova, com a mão cheia, também.
+    T.eq(g.round, 2)
+    T.eq(g:hand_count(1), Game.HAND_LIMIT)
+    T.eq(#g.players[1].destroyed, 3)
   end },
 }
