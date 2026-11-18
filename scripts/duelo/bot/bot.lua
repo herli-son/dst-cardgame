@@ -65,6 +65,25 @@ end
 -- Bloqueio
 ----------------------------------------------------------------------------
 
+-- Simula o duelo entre atacante e bloqueador como o motor resolve: fase rápida
+-- (velocidade 2 e 3), mortos saem, fase normal (velocidade 1 e 3) entre os que
+-- sobraram. Devolve se o atacante morre e se o bloqueador morre.
+local function duel(g, a, d)
+  local va, vd = g:speed(a, "attack"), g:speed(d, "block")
+  local atk_a, atk_d = g:atk(a), g:atk(d)
+  local hp_a, hp_d = g:hp(a) - a.damage, g:hp(d) - d.damage
+  local to_a, to_d = 0, 0
+  if va >= 2 then to_d = to_d + atk_a end
+  if vd >= 2 then to_a = to_a + atk_d end
+  local a_dead, d_dead = to_a >= hp_a, to_d >= hp_d
+  if not a_dead and not d_dead then
+    if va == 1 or va == 3 then to_d = to_d + atk_a end
+    if vd == 1 or vd == 3 then to_a = to_a + atk_d end
+    a_dead, d_dead = to_a >= hp_a, to_d >= hp_d
+  end
+  return a_dead, d_dead
+end
+
 -- Avalia um conjunto de bloqueios: dano que chega ao jogador, bloqueadores que
 -- sobrevivem e atacantes que morrem.
 local function evaluate_block(g, p, cb, action)
@@ -74,13 +93,7 @@ local function evaluate_block(g, p, cb, action)
     local a = g:creature_at(cb.attacker, b.attacker)
     local d = g:creature_at(p, b.blocker)
     blocked[a] = true
-    -- Velocidade: quem golpeia antes pode matar o outro sem levar o golpe de volta.
-    local va, vd = g:speed(a, "attack"), g:speed(d, "block")
-    local d_dies = va >= 1 and g:atk(a) >= g:hp(d) - d.damage
-    local a_dies = vd >= 1 and g:atk(d) >= g:hp(a) - a.damage
-    if d_dies and a_dies then
-      if va > vd and va >= 2 then a_dies = false elseif vd > va and vd >= 2 then d_dies = false end
-    end
+    local a_dies, d_dies = duel(g, a, d)
     if not d_dies then survivors = survivors + 1 end
     if a_dies then kills = kills + 1 end
   end

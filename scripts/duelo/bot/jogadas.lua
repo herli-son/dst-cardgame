@@ -168,8 +168,8 @@ local function attack_candidates(g, p, out)
   if #slots > 1 then out[#out + 1] = { type = "attack", attackers = slots } end
 end
 
--- 6 atacantes contra 6 bloqueadores dão 2119 emparelhamentos: cabe inteiro.
-local BLOCK_LIMIT = 4096
+-- 6 atacantes contra 6 bloqueadores dão 13327 emparelhamentos: cabe inteiro.
+local BLOCK_LIMIT = 16384
 
 -- Emparelhamentos: cada atacante bloqueado por no máximo um bloqueador, cada
 -- bloqueador em no máximo um atacante. Devolve nil se passar do limite.
@@ -210,7 +210,18 @@ local function block_candidates(g, p, out)
   for _, d in ipairs(g:creatures(p)) do
     if not d.def.no_block then blockers[#blockers + 1] = d.slot end
   end
-  local sets = all_matchings(attackers, blockers) or { {} }
+  local sets = all_matchings(attackers, blockers)
+  if sets == nil then
+    -- Acima do limite (não acontece com 6 espaços de cada lado): nenhum, cada
+    -- par sozinho e o emparelhamento pela ordem dos espaços.
+    sets = { {} }
+    for _, a in ipairs(attackers) do
+      for _, b in ipairs(blockers) do sets[#sets + 1] = { { attacker = a, blocker = b } } end
+    end
+    local full = {}
+    for i = 1, math.min(#attackers, #blockers) do full[i] = { attacker = attackers[i], blocker = blockers[i] } end
+    if #full > 1 then sets[#sets + 1] = full end
+  end
   for _, blocks in ipairs(sets) do out[#out + 1] = { type = "block", blocks = blocks } end
 end
 
