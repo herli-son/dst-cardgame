@@ -87,7 +87,7 @@ return function(Game)
     }
     self.players[p].structures[slot] = st
     self:emit{ t = "structure", p = p, slot = slot, uid = st.uid, card_uid = st.card_uid, id = def.id }
-    if def.on_play then self:effect("entrar", def.id, def.on_play, self, st) end
+    self:run_entry(st, opts.entry)
     return st
   end
 
@@ -144,10 +144,10 @@ return function(Game)
       if s ~= nil and g.players[p].structures[s] ~= nil and first_free(g, p) ~= nil then
         return false, "há espaço livre: substituir só com a zona cheia"
       end
-      return true
+      return g:check_entry_targets(p, def, action)
     end,
     resolve = function(g, p, card, def, action)
-      g:put_structure(p, card, action.slot)
+      g:put_structure(p, card, action.slot, { entry = { locks = g:lock_targets(action), action = action } })
     end,
   }
 

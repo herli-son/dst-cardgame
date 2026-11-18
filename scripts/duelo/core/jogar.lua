@@ -86,7 +86,37 @@ return function(Game)
     return base + (c.hp_bonus or 0) + (self.equip_bonus and self:equip_bonus(c, "hp_bonus") or 0)
   end
 
-  -- Coloca uma criatura em campo. opts.ficha marca criaturas criadas por efeito.
+  -- Efeito de entrada com alvos escolhidos na jogada (def.play_targets; doc,
+  -- "Momento das escolhas"): opts.entry = { locks, action } vem da jogada; se um
+  -- alvo saiu de campo até a entrada, o efeito não acontece (alvo perdido). Sem
+  -- entry (a carta entrou por efeito), on_play recebe objects nil e escolhe na hora.
+  function Game:run_entry(src, entry)
+    local def = src.def
+    if def.on_play == nil then return end
+    if entry and def.play_targets then
+      local valid, objects = self:targets_still_valid(entry.locks)
+      if valid then valid = def.play_targets(self, src.owner, entry.action, objects) end
+      if not valid then
+        self:emit{ t = "fizzle", p = src.owner, id = def.id }
+        return
+      end
+      return self:effect("entrar", def.id, def.on_play, self, src, objects, entry.action)
+    end
+    self:effect("entrar", def.id, def.on_play, self, src)
+  end
+
+  -- Os alvos de entrada são conferidos na jogada, como os de um feitiço.
+  function Game:check_entry_targets(p, def, action)
+    if def.play_targets == nil then return true end
+    local ok, err = self:check_targets(action)
+    if not ok then return false, err end
+    local valid, why = def.play_targets(self, p, action, self:target_objects(action))
+    if not valid then return false, why or "alvo inválido" end
+    return true
+  end
+
+  -- Coloca uma criatura em campo. opts.ficha marca criaturas criadas por efeito;
+  -- opts.entry traz os alvos de entrada escolhidos na jogada (ver run_entry).
   -- Dispara o efeito de entrada da própria carta e as reações das outras.
   function Game:place_creature(p, card, slot, opts)
     opts = opts or {}
@@ -107,7 +137,7 @@ return function(Game)
     }
     self.players[p].field[slot] = c
     self:emit{ t = "summon", p = p, slot = slot, uid = c.uid, card_uid = c.card_uid, id = def.id, ficha = c.ficha }
-    if def.on_play then self:effect("entrar", def.id, def.on_play, self, c) end
+    self:run_entry(c, opts.entry)
     for _, other in ipairs(self:all_creatures()) do
       if other ~= c and other.def.on_any_enter and self.players[other.owner].field[other.slot] == other then
         self:effect("reagir", other.def.id, other.def.on_any_enter, self, other, c)
@@ -334,12 +364,15 @@ return function(Game)
         return false, "espaço ocupado: substituir só com o campo cheio"
       end
       if def.can_play and not def.can_play(g, p, action) then return false, "condição da carta não atendida" end
-      return true
+      return g:check_entry_targets(p, def, action)
     end,
     resolve = function(g, p, card, def, action)
+      -- Os alvos são travados antes da substituição: se o alvo era a substituída,
+      -- ele é perdido.
+      local entry = { locks = g:lock_targets(action), action = action }
       local old = g.players[p].field[action.slot]
       if old then g:remove_creature(old, "destroyed", "substituida", { equips = "inventory" }) end
-      g:place_creature(p, card, action.slot)
+      g:place_creature(p, card, action.slot, { entry = entry })
     end,
   }
 end
