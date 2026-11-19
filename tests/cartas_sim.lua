@@ -51,6 +51,9 @@ function CartasSim.define()
   Cards.define{ id = "sim_cao", kind = "criatura", cost = 2, atk = 2, hp = 2, kw = { agressivo = true } }
   Cards.define{ id = "sim_porco", kind = "criatura", cost = 2, atk = 2, hp = 3, types = { porco = true } }
   Cards.define{ id = "sim_cacador", kind = "criatura", cost = 3, atk = 3, hp = 2, kw = { rival = "porco" } }
+  -- Guarda: depois do par dela, salta para o próximo atacante sem bloqueador.
+  Cards.define{ id = "sim_porco_guarda", kind = "criatura", cost = 3, atk = 2, hp = 4,
+    types = { porco = true }, kw = { guarda = true } }
   -- Não ataca / não bloqueia.
   Cards.define{ id = "sim_muro", kind = "criatura", cost = 1, atk = 0, hp = 4, no_attack = true }
   Cards.define{ id = "sim_furtivo", kind = "criatura", cost = 2, atk = 3, hp = 1, no_block = true }
@@ -144,7 +147,7 @@ local DECKS = {
     sim_flecha = 2, sim_tocha = 1, sim_sobrevivente = 1, sim_machado = 1, sim_lanceiro = 1, sim_construtor = 1,
   },
   controle = {
-    sim_lesma = 2, sim_muro = 2, sim_porco = 3, sim_cacador = 2, sim_urso = 2, sim_curandeira = 1,
+    sim_lesma = 2, sim_muro = 2, sim_porco = 2, sim_porco_guarda = 1, sim_cacador = 2, sim_urso = 2, sim_curandeira = 1,
     sim_xama = 2, sim_construtor = 2, sim_sobrevivente = 2, sim_aranha = 1, sim_lanceiro = 1, sim_cura = 2,
     sim_raio = 1, sim_meteoro = 2, sim_altar = 1, sim_tocha = 1, sim_machado = 1, sim_armadura = 1, sim_lanterna = 1,
   },
