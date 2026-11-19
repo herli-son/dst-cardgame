@@ -87,9 +87,10 @@ end
 -- Vez e rodada: Game:begin_round põe active = attacker (1 ou 2), vez = 1,
 -- passes = 0 e round >= 1; Game:advance_vez e Game:hand_over só alternam
 -- active entre 1 e 2. Dois passes seguidos encerram a rodada na hora (act_impl),
--- então com a partida em andamento passes é 0 ou 1; a exceção é um gancho de
--- fim de rodada que abre uma escolha (Game:end_round espera por ela com
--- after_choices), quando passes fica em 2 até a escolha ser feita.
+-- então com a partida em andamento passes é 0 ou 1; a exceção é um efeito de
+-- fim de rodada (carta em campo ou gancho genérico) que abre uma escolha
+-- (Game:end_round espera por ela com after_choices), quando passes fica em 2
+-- até a escolha ser feita.
 checks[#checks + 1] = function(g)
   if g.phase ~= "playing" then return end
   if g.active ~= 1 and g.active ~= 2 then return "active inválido: " .. tostring(g.active) end
@@ -390,8 +391,9 @@ checks[#checks + 1] = function(g)
   if type(cb.attackers) ~= "table" or #cb.attackers == 0 then return "combate sem atacantes" end
 end
 
--- Fogueira: Game:light_fogueira acende as duas quando a noite começa (gancho do
--- período, que espera as escolhas abertas) e Game:begin_round apaga as duas; só
+-- Fogueira: Game:light_fogueira acende as duas quando a noite começa (regra do
+-- período, antes dos efeitos das cartas; tudo espera as escolhas abertas) e
+-- Game:begin_round apaga as duas; só
 -- Game:spend_fogueira gasta, e só com o contador acima de zero
 -- (Game:can_pay_fogueira), então acesa ela nunca fica negativa.
 checks[#checks + 1] = function(g)
