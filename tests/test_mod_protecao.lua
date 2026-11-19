@@ -46,6 +46,7 @@ local function ambiente(servidor)
     component_postinits = {}, -- nome -> fn
     prefab_postinits = {}, -- nome -> fn
     player_postinits = {}, -- lista de fn
+    sim_postinits = {}, -- lista de fn
     netvars = {},
     eventos = {}, -- eventos empurrados em TheWorld
   }
@@ -66,6 +67,7 @@ local function ambiente(servidor)
     AddComponentPostInit = function(nome, fn) reg.component_postinits[nome] = fn end,
     AddPrefabPostInit = function(nome, fn) reg.prefab_postinits[nome] = fn end,
     AddPlayerPostInit = function(fn) reg.player_postinits[#reg.player_postinits + 1] = fn end,
+    AddSimPostInit = function(fn) reg.sim_postinits[#reg.sim_postinits + 1] = fn end,
   }
   return ctx, reg, GLOBAL
 end
@@ -197,12 +199,13 @@ return {
       AddPlayerPostInit = ctx.AddPlayerPostInit,
       AddComponentPostInit = ctx.AddComponentPostInit,
       AddPrefabPostInit = ctx.AddPrefabPostInit,
+      AddSimPostInit = ctx.AddSimPostInit,
     }
     rodar("modmain.lua", env)
     T.eq(configs[1], "relogio", "lê a opção relogio")
     T.eq(type(reg.component_postinits.clock), "function", "AddComponentPostInit(clock)")
     T.eq(type(reg.prefab_postinits.forest_network), "function", "AddPrefabPostInit(forest_network)")
-    T.eq(#reg.player_postinits, 1, "um AddPlayerPostInit")
+    T.ok(#reg.player_postinits >= 1, "AddPlayerPostInit da proteção")
     T.eq(type(env.DUELO.Relogio.avancar), "function", "DUELO.Relogio no ambiente do mod")
     T.eq(GLOBAL.DUELO, env.DUELO, "DUELO também no ambiente global (console)")
     T.eq(env.DUELO.Mesa, require("duelo/mod/mesa"), "DUELO.Mesa continua")

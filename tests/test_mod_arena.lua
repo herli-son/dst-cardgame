@@ -106,6 +106,7 @@ return {
       AddPlayerPostInit = function() end,
       AddComponentPostInit = function() end,
       AddPrefabPostInit = function() end,
+      AddSimPostInit = function() end,
     }
     rodar("modmain.lua", env)
     T.eq(env.DUELO.Mesa, Mesa, "DUELO.Mesa é o módulo duelo/mod/mesa")
