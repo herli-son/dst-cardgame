@@ -22,7 +22,8 @@
 --   * WORLDGEN_GROUP.global: season_start (valores: default, winter, spring,
 --     summer e combinações; "default" é o outono, map/forest_map.lua).
 --   * WORLDGEN_GROUP.monsters/animals/resources: a lista de prefabs do mapa,
---     com never..insane (os itens ocean_* usam ocean_never..ocean_insane).
+--     com never..insane (ocean_waterplant e ocean_seastack usam a escala
+--     ocean_never..ocean_insane; os outros ocean_* usam never..insane).
 --   * WORLDGEN_MISC: has_ocean, layout_mode, keep_disconnected_tiles,
 --     no_joining_islands (não são itens da tela; são repassados ao gerador,
 --     map/forest_map.lua, e a location forest os define em map/locations.lua).
@@ -230,6 +231,8 @@ local overrides = {
   penguins = "never",
   bees_setting = "never",
   catcoons = "never",
+  pigs_setting = "never",
+  bunnymen_setting = "never",
   rabbits_setting = "never",
   wobsters = "never",
   gnarwail = "never",
@@ -270,7 +273,6 @@ local overrides = {
   rifts_frequency = "never",
   lunarhail_frequency = "never",
   wanderingtrader_enabled = "none",
-  disease_delay = "none",
 
   -- Configurações: eventos sazonais e estações. Com specialevent = "none" os
   -- eventos individuais ficam em "default" (= não forçados).
@@ -294,6 +296,8 @@ local overrides = {
   extrastartingitems = "none",
   seasonalstartingitems = "never",
   spawnprotection = "never",
+  lessdamagetaken = "none",
+  dropeverythingondespawn = "default",
 }
 
 AddLevel(LEVELTYPE.SURVIVAL, {
