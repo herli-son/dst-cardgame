@@ -220,4 +220,25 @@ return {
     assert(g:act(2, { type = "pass" }))
     T.eq(blocker_of(g, a), f.uid)
   end },
+
+  { "a Aranha criada pelo Webber vai para o descarte ao morrer, não volta ao baralho extra", function(T)
+    local g = new_game()
+    Cards.define{ id = "w_forte", kind = "criatura", cost = 0, atk = 5, hp = 9 }
+    put(g, 1, "w_forte", 1)
+    put(g, 2, "webber", 1)
+    local ficha = g:creature_at(2, 2)
+    T.eq(ficha.def.id, "aranha")
+    local extra = #g.players[2].extra
+    local discard = #g.players[2].discard
+    attack(g, { 1 })
+    T.ok(block(g, { { 1, 2 } }))
+    assert(g:act(2, { type = "pass" })); assert(g:act(1, { type = "pass" }))
+    T.eq(g:creature_at(2, 2), nil, "a Aranha morreu")
+    T.eq(#g.players[2].extra, extra, "o baralho extra não recebe a ficha")
+    T.eq(#g.players[2].discard, discard + 1, "ela vai para o descarte do dono")
+    T.eq(g.players[2].discard[#g.players[2].discard].id, "aranha")
+    local leave
+    for _, ev in ipairs(events(g, "leave")) do if ev.uid == ficha.uid then leave = ev end end
+    T.ok(leave ~= nil); T.eq(leave.dest, "discard")
+  end },
 }

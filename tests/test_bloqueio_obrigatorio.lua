@@ -268,4 +268,25 @@ return {
     T.eq(blocker_of(g, b), nil, "a Guarda não saltou")
     T.eq(g.players[2].life, life - 1)
   end },
+
+  { "cannot_be_blocked_by: a Guarda recusada por um atacante salta para o próximo elegível", function(T)
+    local g = new_game()
+    Cards.define{ id = "b_guarda_porco", kind = "criatura", cost = 0, atk = 1, hp = 9,
+      types = { porco = true }, kw = { guarda = true } }
+    Cards.define{ id = "b_antiporco", kind = "criatura", cost = 0, atk = 1, hp = 9,
+      cannot_be_blocked_by = function(gg, a, d) return d.def.types.porco == true end }
+    put(g, 1, "b_comum", 1)
+    local b = put(g, 1, "b_antiporco", 2)
+    local c = put(g, 1, "b_comum", 3)
+    local guarda = put(g, 2, "b_guarda_porco", 1)
+    local life = g.players[2].life
+    attack(g, { 1, 2, 3 })
+    T.ok(block(g, { { 1, 1 } }))
+    assert(g:act(2, { type = "pass" })); assert(g:act(1, { type = "pass" }))
+    T.eq(blocker_of(g, b), nil, "pula quem a recusa")
+    local blocker, auto = blocker_of(g, c)
+    T.eq(blocker, guarda.uid, "e salta para o terceiro atacante")
+    T.eq(auto, "guarda")
+    T.eq(g.players[2].life, life - 1, "só o atacante do meio chegou ao jogador")
+  end },
 }
