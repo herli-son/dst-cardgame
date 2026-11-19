@@ -6,8 +6,8 @@ local Cards = require("duelo/core/cards")
 -- O executor restaura o registro de cartas entre os casos, então o módulo é
 -- carregado de novo a cada caso.
 local function load_neutras()
-  package.loaded["duelo/cartas/neutras"] = nil
-  return require("duelo/cartas/neutras")
+  package.loaded["duelo/cartas/neutras/init"] = nil
+  return require("duelo/cartas/neutras/init")
 end
 
 local function define_test_cards()
