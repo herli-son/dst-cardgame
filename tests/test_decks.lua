@@ -57,4 +57,25 @@ local tests = {
   end },
 }
 
+-- Partidas inteiras com as cartas reais: cada combinação de decks, bot x bot
+-- e ao acaso, com várias sementes; nenhuma pode terminar em erro, travamento
+-- ou invariante quebrada.
+local combos = { { "wilson", "webber" }, { "webber", "wilson" }, { "wilson", "wilson" }, { "webber", "webber" } }
+for _, combo in ipairs(combos) do
+  for _, modo in ipairs({ "bot", "random" }) do
+    tests[#tests + 1] = { combo[1] .. " x " .. combo[2] .. " (" .. modo .. ") joga sem falhas", function(T)
+      local d1, e1 = Decks.build(combo[1])
+      local d2, e2 = Decks.build(combo[2])
+      for seed = 1, 3 do
+        local r = Simulador.run_game{ decks = { d1, d2 }, extra_decks = { e1, e2 }, seed = seed,
+          players = { modo, modo }, max_rounds = 40 }
+        local ok = r.resultado == "vitoria" or r.resultado == "empate" or r.resultado == "limite_rodadas"
+        T.ok(ok, combo[1] .. " x " .. combo[2] .. " " .. modo .. " seed " .. seed .. ": " .. r.resultado
+          .. " (" .. tostring(r.motivo) .. ", passo " .. tostring(r.passo) .. ")"
+          .. (r.erro and r.erro.traceback and ("\n" .. r.erro.traceback) or ""))
+      end
+    end }
+  end
+end
+
 return tests
