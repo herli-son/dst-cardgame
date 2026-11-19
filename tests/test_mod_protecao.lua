@@ -96,7 +96,13 @@ local function relogio_instalado(servidor, travado)
   local clock = clock_falso()
   local original = clock.OnUpdate
   reg.component_postinits.clock(clock, { GUID = 1 })
-  reg.prefab_postinits.forest_network({ GUID = 7 })
+  -- forest_network falso: as tarefas com atraso só rodam quando o teste
+  -- simula o primeiro passo depois da carga (rodar_tarefas).
+  local rede = { GUID = 7, tarefas = {} }
+  function rede:DoTaskInTime(t, fn) self.tarefas[#self.tarefas + 1] = fn end
+  reg.rede = rede
+  reg.prefab_postinits.forest_network(rede)
+  for _, fn in ipairs(rede.tarefas) do fn(rede) end
   if not servidor then
     -- No jogo o cliente recebe o valor do servidor junto com a entidade;
     -- aqui o "sync" é feito à mão (1 = travado, 2 = livre).
@@ -275,7 +281,7 @@ return {
       AddPrefabPostInit = ctx.AddPrefabPostInit, travado = true })
     local c = { OnUpdate = fake }
     reg.component_postinits.clock(c, {})
-    reg.prefab_postinits.forest_network({ GUID = 1 })
+    reg.prefab_postinits.forest_network({ GUID = 1, DoTaskInTime = function() end })
     R.avancar(1)
     T.eq(acumulado, SEG_TIME + 5, "a chamada interna passou com o dt dela")
     -- avancar aninhado (de dentro de um evento do clock) não encerra o de fora.
@@ -363,6 +369,23 @@ return {
 
     local _, _, _, reg_cliente = relogio_instalado(false, true)
     T.eq(#reg_cliente.eventos, 0, "cliente não empurra eventos no mundo")
+  end },
+
+  { "5/5/6 e estações só vão depois da carga do mundo (o save do seasons apagaria antes)", function(T)
+    local ctx, reg = ambiente(true)
+    local R = carregar("relogio")
+    R.instalar({ GLOBAL = ctx.GLOBAL, AddComponentPostInit = ctx.AddComponentPostInit,
+      AddPrefabPostInit = ctx.AddPrefabPostInit, travado = true })
+    local rede = { GUID = 3, tarefas = {} }
+    function rede:DoTaskInTime(t, fn) self.tarefas[#self.tarefas + 1] = { t = t, fn = fn } end
+    reg.prefab_postinits.forest_network(rede)
+    T.eq(#evento(reg, "ms_setseasonclocksegs"), 0, "nada no post init (antes do seasons:OnLoad)")
+    T.eq(#evento(reg, "ms_setseasonlength"), 0, "nem as durações")
+    T.eq(#rede.tarefas, 1, "uma tarefa agendada")
+    T.eq(rede.tarefas[1].t, 0, "para o primeiro passo")
+    rede.tarefas[1].fn(rede)
+    T.eq(#evento(reg, "ms_setseasonclocksegs"), 1, "5/5/6 depois da carga")
+    T.eq(#evento(reg, "ms_setseasonlength"), 4, "estações travadas depois da carga")
   end },
 
   { "PlayerPostInit no servidor liga invencibilidade, visão noturna, fome e sanidade paradas", function(T)

@@ -88,7 +88,7 @@ Os testes automáticos (`tests/test_mod_protecao.lua`) rodam `relogio.lua` e `pr
 - `c_skip()` com o relógio travado não anda o tempo (o `LongUpdate` passa pelo mesmo bloqueio); use `avancar`.
 - `DUELO.Relogio.avancar(5)` a partir do começo do dia troca para o entardecer (`TheWorld.state.phase` → `"dusk"`); mais 5 vai para a noite; mais 6 volta ao dia e `TheWorld.state.cycles` sobe 1. A estação continua `autumn` (`TheWorld.state.season`).
 - `DUELO.Relogio.liberar()` deixa o tempo correr nos dois lados; `DUELO.Relogio.travar()` para de novo. No cliente os três comandos só imprimem um aviso (`[duelo] ...`).
-- **Divisão 5/5/6:** o relógio da tela mostra 5 fatias de dia, 5 de entardecer e 6 de noite (no outono normal seriam 8/6/2). Depois de um ciclo completo (`avancar(16)`) a divisão continua 5/5/6, o que confirma que o `seasons` passou a reenviar os nossos segmentos.
+- **Divisão 5/5/6:** o relógio da tela mostra 5 fatias de dia, 5 de entardecer e 6 de noite (no outono normal seriam 8/6/2). Depois de um ciclo completo (`avancar(16)`) a divisão continua 5/5/6, o que confirma que o `seasons` passou a reenviar os nossos segmentos. Num mundo criado antes desta correção, o relógio volta a 5/5/6 na próxima vez que o servidor subir (o mod reaplica depois da carga).
 
 **Noite sem Charlie.**
 
