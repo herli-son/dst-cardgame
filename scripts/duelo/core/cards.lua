@@ -5,6 +5,10 @@
 --
 -- Campos comuns:
 --   id, name, kind ("criatura" | "feitico" | "estrutura" | "equipamento" | "turf" | "evento"), cost
+--   numero                             número permanente da carta (cartas/numeros.lua),
+--                                      usado no código do deck
+--   campeao = true, nivel = n          marcação de Campeão (kind continua "criatura")
+--                                      e o nível dele; só informativos por enquanto
 -- Criatura:
 --   atk, hp, speed (padrão 1), kw = { agressivo = true, fragil = true, ... },
 --   kw.rival = "tipo"                  Rival guarda o nome do tipo (ex.: "porco")
@@ -33,6 +37,8 @@
 --   speed_fn(game, criatura, role)     velocidade que depende do estado; role =
 --                                      "attack" | "block"
 --   on_strike(game, criatura, alvo)    Golpear: depois de um golpe com dano > 0
+--   on_attack(game, criatura)          Ao atacar: quando a criatura é declarada
+--                                      atacante (antes dos bloqueios)
 --   on_play(game, criatura, objects, action)  efeito ao entrar em campo; com
 --                                      play_targets, os alvos vêm da jogada (objects)
 --   play_targets(game, p, action, objects) -> ok, erro   alvos do efeito de
@@ -48,11 +54,17 @@
 --   creates_structure = true           cria estrutura: com a zona cheia, a jogada
 --                                      traz action.replace (espaço a substituir), que o
 --                                      efeito passa como opts.slot de create_token
--- Equipamento:
+-- Equipamento (campos de bônus em equipamentos.lua: slot, atk_bonus, hp_bonus,
+-- durability, damage_reduction):
 --   on_strike(game, portador, alvo, equip)  Golpear do equipamento
+--   on_attack(game, portador, equip)   Ao atacar do equipamento (o portador foi
+--                                      declarado atacante)
 --   activate(game, p, equip, action, objects)  efeito ativado; equip.holder é o
 --                                      portador e só existe durante o activate (não
---                                      em can_activate nem em targets)
+--                                      em can_activate nem em targets). O uso gasta
+--                                      1 de durabilidade, salvo activation.no_wear
+--   can_activate(game, p, fonte, action) -> ok, motivo   condição extra do efeito
+--                                      ativado (estrutura ou equipamento)
 
 local Cards = {}
 

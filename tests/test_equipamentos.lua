@@ -30,6 +30,23 @@ local function new_game(hand1)
   return g
 end
 
+-- Ataque do jogador 1 com bloqueios do jogador 2 ({ { atacante, bloqueador }, ... }).
+local function fight(g, attackers, blocks)
+  assert(g:act(1, { type = "attack", attackers = attackers }))
+  assert(g:act(1, { type = "pass" }))
+  if blocks then
+    local list = {}
+    for i, pr in ipairs(blocks) do list[i] = { attacker = pr[1], blocker = pr[2] } end
+    assert(g:act(2, { type = "block", blocks = list }))
+  end
+  assert(g:act(2, { type = "pass" }))
+  if blocks and #blocks > 0 then assert(g:act(1, { type = "pass" })) end
+end
+
+local function put(g, p, id, slot)
+  return g:place_creature(p, { id = id, uid = g:next_uid() }, slot)
+end
+
 local function idx(zone, id)
   for i, card in ipairs(zone) do if card.id == id then return i end end
 end
@@ -134,6 +151,141 @@ return {
     g:equip(g:creature_at(1, 1), { id = "t_lanca", uid = g:next_uid() })
     T.eq(#pl.inventory, 0)
     T.eq(pl.destroyed[#pl.destroyed].id, "t_machado")
+    clear_test_cards()
+  end },
+
+  { "a ferramenta na mão gasta 1 por golpe dado, contra criatura ou jogador", function(T)
+    local g = new_game()
+    local c = put(g, 1, "t_sobrevivente", 1)
+    g:equip(c, { id = "t_machado", uid = g:next_uid() })
+    fight(g, { 1 })
+    T.eq(c.equips.mao.durability, 3, "golpe no jogador gasta")
+    local g2 = new_game()
+    local c2 = put(g2, 1, "t_sobrevivente", 1)
+    g2:equip(c2, { id = "t_machado", uid = g2:next_uid() })
+    put(g2, 2, "t_sobrevivente", 1)
+    fight(g2, { 1 }, { { 1, 1 } })
+    T.eq(c2.equips.mao.durability, 3, "golpe na criatura gasta")
+    clear_test_cards()
+  end },
+
+  { "Velocidade 3 bloqueada gasta 2 da ferramenta e 2 da armadura do alvo; contra o jogador, 1", function(T)
+    Cards.define{ id = "t_veloz", kind = "criatura", cost = 0, atk = 1, hp = 9, speed = 3 }
+    local g = new_game()
+    local c = put(g, 1, "t_veloz", 1)
+    g:equip(c, { id = "t_lanca", uid = g:next_uid() })
+    local d = put(g, 2, "t_sobrevivente", 1)
+    g:equip(d, { id = "t_armadura", uid = g:next_uid() })
+    fight(g, { 1 }, { { 1, 1 } })
+    T.eq(c.equips.mao.durability, 4, "dois golpes, dois de desgaste")
+    T.eq(d.equips.peito, nil, "a armadura de 2 quebra com os dois golpes recebidos")
+    local g2 = new_game()
+    local c2 = put(g2, 1, "t_veloz", 1)
+    g2:equip(c2, { id = "t_lanca", uid = g2:next_uid() })
+    fight(g2, { 1 })
+    T.eq(c2.equips.mao.durability, 5, "contra o jogador golpeia uma vez só")
+    Cards.remove("t_veloz")
+    clear_test_cards()
+  end },
+
+  { "a armadura no peito gasta 1 por golpe recebido, mesmo com dano zero", function(T)
+    Cards.define{ id = "t_zero", kind = "criatura", cost = 0, atk = 0, hp = 3 }
+    local g = new_game()
+    put(g, 1, "t_zero", 1)
+    local d = put(g, 2, "t_sobrevivente", 1)
+    g:equip(d, { id = "t_armadura", uid = g:next_uid() })
+    fight(g, { 1 }, { { 1, 1 } })
+    T.eq(d.damage, 0)
+    T.eq(d.equips.peito.durability, 1, "golpe de dano zero ainda gasta a armadura")
+    T.eq(g:creature_at(1, 1).damage, 1, "o bloqueador golpeou de volta")
+    -- Armadura com 1 de durabilidade quebra no golpe recebido.
+    local g2 = new_game()
+    put(g2, 1, "t_zero", 1)
+    local d2 = put(g2, 2, "t_sobrevivente", 1)
+    g2:equip(d2, { id = "t_armadura", uid = g2:next_uid(), durability = 1 })
+    fight(g2, { 1 }, { { 1, 1 } })
+    T.eq(d2.equips.peito, nil, "quebrou")
+    T.eq(g2.players[2].discard[#g2.players[2].discard].id, "t_armadura")
+    Cards.remove("t_zero")
+    clear_test_cards()
+  end },
+
+  { "o equipamento que quebra no golpe ainda dispara o seu Golpear", function(T)
+    local hits = 0
+    Cards.define{ id = "t_pa", kind = "equipamento", slot = "mao", cost = 1, atk_bonus = 1, durability = 1,
+      on_strike = function() hits = hits + 1 end }
+    local g = new_game()
+    local c = put(g, 1, "t_sobrevivente", 1)
+    g:equip(c, { id = "t_pa", uid = g:next_uid() })
+    fight(g, { 1 })
+    T.eq(hits, 1)
+    T.eq(c.equips.mao, nil, "quebrou depois do Golpear")
+    Cards.remove("t_pa")
+    clear_test_cards()
+  end },
+
+  { "ao atacar dispara na declaração, para a criatura e os equipamentos dela", function(T)
+    local log = {}
+    Cards.define{ id = "t_bravo", kind = "criatura", cost = 0, atk = 1, hp = 3, sobrevivente = true,
+      on_attack = function(g, c) log[#log + 1] = "criatura" end }
+    Cards.define{ id = "t_picareta", kind = "equipamento", slot = "mao", cost = 1,
+      on_attack = function(g, c, e) log[#log + 1] = "equip:" .. e.def.id .. ":" .. c.def.id end }
+    local g = new_game()
+    local c = put(g, 1, "t_bravo", 1)
+    g:equip(c, { id = "t_picareta", uid = g:next_uid() })
+    put(g, 1, "t_sobrevivente", 2)
+    T.ok(g:act(1, { type = "attack", attackers = { 2, 1 } }))
+    T.eq(#log, 2, "só quem ataca dispara; o Sobrevivente sem efeito não entra")
+    T.eq(log[1], "criatura"); T.eq(log[2], "equip:t_picareta:t_bravo")
+    T.eq(g.combat ~= nil, true, "dispara antes dos bloqueios")
+    Cards.remove("t_bravo"); Cards.remove("t_picareta")
+    clear_test_cards()
+  end },
+
+  { "redução de dano tira 1 de cada fonte, no mínimo 0, e o golpe ainda gasta a armadura", function(T)
+    Cards.define{ id = "t_madeira", kind = "equipamento", slot = "peito", cost = 2, hp_bonus = 1, durability = 3,
+      damage_reduction = 1 }
+    Cards.define{ id = "t_forte", kind = "criatura", cost = 0, atk = 3, hp = 9 }
+    local g = new_game()
+    local c = put(g, 1, "t_sobrevivente", 1)
+    g:equip(c, { id = "t_madeira", uid = g:next_uid() })
+    T.eq(g:damage_creature(c, 3, nil, "teste"), 2)
+    T.eq(c.damage, 2)
+    local ev = g.events[#g.events]
+    T.eq(ev.t, "creature_damage"); T.eq(ev.amount, 2); T.eq(ev.reduced, 1)
+    T.eq(g:damage_creature(c, 1, nil, "teste"), 0, "1 de dano vira 0")
+    T.eq(c.damage, 2)
+    local ab = g.events[#g.events]
+    T.eq(ab.t, "damage_absorbed", "o dano absorvido deixa rastro em evento")
+    T.eq(ab.uid, c.uid); T.eq(ab.amount, 1); T.eq(ab.reason, "teste")
+    -- Em combate: o golpe de 1 do bloqueador não fere, mas gasta a armadura.
+    local g2 = new_game()
+    local a = put(g2, 1, "t_sobrevivente", 1)
+    g2:equip(a, { id = "t_madeira", uid = g2:next_uid() })
+    put(g2, 2, "t_comum", 1)
+    fight(g2, { 1 }, { { 1, 1 } })
+    T.eq(a.damage, 0)
+    T.eq(a.equips.peito.durability, 2)
+    Cards.remove("t_madeira"); Cards.remove("t_forte")
+    clear_test_cards()
+  end },
+
+  { "efeito ativado de equipamento gasta durabilidade, salvo com activation.no_wear", function(T)
+    local uses = 0
+    Cards.define{ id = "t_lanterna", kind = "equipamento", slot = "cabeca", cost = 1, durability = 2,
+      activation = { speed = "instantaneo" }, activate = function() uses = uses + 1 end }
+    Cards.define{ id = "t_apito", kind = "equipamento", slot = "mao", cost = 1, durability = 1,
+      activation = { speed = "instantaneo", no_wear = true }, activate = function() uses = uses + 1 end }
+    local g = new_game()
+    local c = put(g, 1, "t_sobrevivente", 1)
+    g:equip(c, { id = "t_lanterna", uid = g:next_uid() })
+    g:equip(c, { id = "t_apito", uid = g:next_uid() })
+    T.ok(g:act(1, { type = "activate", creature = 1, equip = "cabeca" }))
+    T.eq(c.equips.cabeca.durability, 1)
+    T.ok(g:act(1, { type = "activate", creature = 1, equip = "mao" }))
+    T.eq(c.equips.mao.durability, 1, "não gastou")
+    T.eq(uses, 2)
+    Cards.remove("t_lanterna"); Cards.remove("t_apito")
     clear_test_cards()
   end },
 }

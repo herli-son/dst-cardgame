@@ -46,6 +46,10 @@
 --     bloqueador saiu (morto por um "ao morrer" de um par anterior, por
 --     exemplo), o atacante não golpeia ninguém: o bloqueio declarado vale.
 --   * A partida decidida em qualquer fase para o combate.
+--   * Durabilidade (doc, "Equipamentos"): em cada fase, depois dos efeitos de
+--     Golpear, a ferramenta na mão de quem golpeou perde 1 e a armadura no peito
+--     de quem foi golpeado perde 1, por golpe, mesmo com dano zero
+--     (wear_from_strikes).
 --   * Guarda (kw.guarda; Porco guarda): só na defesa. Depois de resolver o par
 --     dela, se sobreviveu e ainda não saltou neste combate, passa a bloquear o
 --     próximo atacante à direita (espaço maior que o do atacante que ela
@@ -60,21 +64,41 @@
 --
 -- Campos da definição usados aqui (referência completa em cards.lua): no_attack,
 -- no_block, cannot_be_blocked_by, speed, block_speed, speed_fn, kw (fragil,
--- agressivo, rival, guarda), types e on_strike (criatura e equipamento).
+-- agressivo, rival, guarda), types, on_strike e on_attack (criatura e equipamento).
 
 return function(Game)
   ----------------------------------------------------------------------------
   -- Golpes e dano em criaturas
   ----------------------------------------------------------------------------
 
+  -- Redução de dano da criatura: a soma de def.damage_reduction dos equipamentos
+  -- dela (ex.: Armadura de madeira). Vale para cada fonte de dano, em separado.
+  function Game:damage_reduction(c)
+    local total = 0
+    for _, e in pairs(c.equips or {}) do total = total + (e.def.damage_reduction or 0) end
+    return total
+  end
+
   -- O dano fica marcado na criatura (é permanente). Devolve o dano aplicado
-  -- (0 se nenhum); redução de dano entra aqui.
+  -- (0 se nenhum). A redução de dano entra aqui: o dano de cada fonte perde a
+  -- redução, no mínimo 0; reduzido a zero, nada é marcado e sai o evento
+  -- "damage_absorbed" (para a tela mostrar que a armadura absorveu um dano de
+  -- feitiço ou efeito; em combate o golpe já saiu como "strike" e ainda gasta a
+  -- armadura).
   function Game:damage_creature(c, n, source, reason)
     if Game.check_amount(n) <= 0 then return 0 end
     if self.players[c.owner].field[c.slot] ~= c then return 0 end
+    local reduced = math.min(self:damage_reduction(c), n)
+    n = n - reduced
+    if n <= 0 then
+      self:emit{ t = "damage_absorbed", p = c.owner, slot = c.slot, uid = c.uid, amount = reduced,
+        source_uid = source and source.uid or nil, reason = reason }
+      return 0
+    end
     c.damage = c.damage + n
     self:emit{ t = "creature_damage", p = c.owner, slot = c.slot, uid = c.uid, amount = n,
-      damage = c.damage, source_uid = source and source.uid or nil, reason = reason }
+      damage = c.damage, source_uid = source and source.uid or nil, reason = reason,
+      reduced = reduced > 0 and reduced or nil }
     return n
   end
 
@@ -177,7 +201,24 @@ return function(Game)
     for i, c in ipairs(attackers) do uids[i] = c.uid end
     g:emit{ t = "attack", p = p, attackers = uids }
     g:push_stack(p, { label = "ataque", resolve = function(gg) gg:resolve_combat() end })
+    g:fire_attack_effects(attackers)
     return true, nil, false
+  end
+
+  -- "Ao atacar": dispara quando o ataque é declarado, na ordem declarada, para
+  -- cada atacante: def.on_attack(game, criatura) da criatura e depois
+  -- equip.def.on_attack(game, criatura, equip) de cada equipamento dela (ordem
+  -- dos espaços). Cada efeito é um efeito próprio para a vitória.
+  function Game:fire_attack_effects(attackers)
+    for _, c in ipairs(attackers) do
+      if self.winner ~= nil then return end
+      if c.def.on_attack then self:effect("atacar", c.def.id, c.def.on_attack, self, c) end
+      for _, slot in ipairs(Game.EQUIP_ORDER) do
+        if self.winner ~= nil then return end
+        local e = c.equips[slot]
+        if e and e.def.on_attack then self:effect("atacar", e.def.id, e.def.on_attack, self, c, e) end
+      end
+    end
   end
 
   ----------------------------------------------------------------------------
@@ -490,9 +531,25 @@ return function(Game)
     end
   end
 
+  -- Durabilidade (doc, "Equipamentos"): a ferramenta na mão perde 1 a cada golpe
+  -- que o portador dá; a armadura no peito perde 1 a cada golpe que o portador
+  -- recebe. Conta todo golpe de combate, mesmo com dano zero (um golpe reduzido
+  -- a zero pela armadura ainda gasta a armadura). Roda depois dos efeitos de
+  -- Golpear, para um equipamento que quebra no golpe (ex.: Pá, durabilidade 1)
+  -- ainda disparar o seu Golpear.
+  function Game:wear_from_strikes(strikes)
+    for _, s in ipairs(strikes) do
+      local src, target = s[1], s[2]
+      if self.players[src.owner].field[src.slot] == src then self:wear(src, "mao", 1) end
+      if not target.player and self.players[target.owner].field[target.slot] == target then
+        self:wear(target, "peito", 1)
+      end
+    end
+  end
+
   -- Uma fase de golpes: todos os golpes de `strikes` ao mesmo tempo (valores lidos
-  -- antes de qualquer dano), depois os efeitos de Golpear, depois a vitória e
-  -- depois as mortes. strikes = { { src, alvo }, ... }.
+  -- antes de qualquer dano), depois os efeitos de Golpear, depois a durabilidade,
+  -- depois a vitória e depois as mortes. strikes = { { src, alvo }, ... }.
   function Game:strike_phase(strikes)
     local amounts = {}
     for i, s in ipairs(strikes) do amounts[i] = self:atk(s[1]) end
@@ -511,6 +568,7 @@ return function(Game)
       self:fire_strike_effects(s[1], s[2])
     end
     if self.winner ~= nil then return end
+    self:wear_from_strikes(strikes)
     self:check_lethal(killers, "combate")
   end
 

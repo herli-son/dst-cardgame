@@ -3,6 +3,7 @@
 
 local ids = {
   "webber",
+  "wilson",
 }
 
 for _, id in ipairs(ids) do

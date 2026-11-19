@@ -46,7 +46,7 @@ Para rodar os testes: `lua tests\runner.lua`.
 
 A tela mostra, de cima para baixo: rodada, período (manhã, tarde, noite) e fogueira; vida e mana dos dois jogadores; quem tem o token de ataque e de quem é a vez; a pilha e o combate, quando existem; o campo do oponente (estruturas `oe1`/`oe2` e criaturas `o1`..`o6`); o seu campo (criaturas `c1`..`c6` e estruturas `e1`/`e2`); a sua mão numerada, o Inventário e as cartas separadas, se houver; e a escolha pendente, quando for sua.
 
-Cada criatura aparece com nome, ataque/vida, o dano marcado entre parênteses, a velocidade, as palavras-chave e os equipamentos entre chaves.
+Cada criatura aparece com nome, ataque/vida, o dano marcado entre parênteses, a velocidade, as palavras-chave e os equipamentos entre chaves, com a durabilidade ao lado do nome. Um equipamento com efeito ativado leva uma marca depois da durabilidade: `*` pode ser ativado, `!` está pronto (a Pá que golpeou nesta rodada), `x` já foi usado nesta rodada.
 
 Antes de cada tela vêm, uma por linha, as coisas que aconteceram desde a última: jogadas do bot, golpes, mortes, dano aos jogadores, mudanças de período e de rodada.
 

@@ -13,6 +13,13 @@ return {
   passaro = 5,
   borboleta = 6,
   cao_de_caca = 7,
+  wilson = 10,
+  maquina_de_ciencia = 11,
+  machado = 12,
+  lanca = 13,
+  pa = 14,
+  armadura_de_grama = 15,
+  armadura_de_madeira = 16,
   -- 20 a 22: deck do Webber (#21).
   webber = 20,
   aranha = 21,
