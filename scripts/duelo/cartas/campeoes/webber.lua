@@ -12,8 +12,10 @@ return Cards.define{
   campeao = true, sobrevivente = true,
   atk = 1, hp = 3,
   types = { aranha = true },
-  -- Ao jogar: cria 1 Aranha. A cópia sai do baralho extra do dono; sem cópia
-  -- ou sem espaço em campo, nada acontece (ver fichas.lua).
+  -- Ao jogar: cria 1 Aranha. No motor, on_play roda ao entrar em campo (também
+  -- por efeito, como reviver), igual às outras cartas com "Ao jogar". A cópia sai
+  -- do baralho extra do dono; sem cópia ou sem espaço em campo, nada acontece
+  -- (ver fichas.lua).
   on_play = function(game, c)
     game:create_token(c.owner, "aranha")
   end,

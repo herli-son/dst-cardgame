@@ -22,7 +22,9 @@
 --        do defensor que esteja livre (sem bloquear ninguém).
 --     O defensor declara os pares e o motor confere; se ele passar sem declarar,
 --     o motor completa os obrigatórios pela ordem declarada dos atacantes e pela
---     ordem dos espaços dos bloqueadores.
+--     ordem dos espaços dos bloqueadores. Um bloqueador que o atacante recusa
+--     (cannot_be_blocked_by; Webber e Aranhas adversárias) não conta, não é
+--     exigido nem atraído.
 --
 -- Resolução par a par (doc, "Combate" e "Velocidade"): o combate resolve na
 -- ordem dos espaços dos atacantes (não na ordem declarada), um par de cada vez.
@@ -48,7 +50,8 @@
 --     dela, se sobreviveu e ainda não saltou neste combate, passa a bloquear o
 --     próximo atacante à direita (espaço maior que o do atacante que ela
 --     bloqueou) que nunca teve bloqueador e ainda está em campo; não salta para
---     quem perdeu o bloqueador. Esse par resolve normalmente quando chegar a vez
+--     quem perdeu o bloqueador nem para um atacante que a recusa
+--     (cannot_be_blocked_by), e nesse caso segue para o próximo elegível. Esse par resolve normalmente quando chegar a vez
 --     dele, com o dano que ela já tem e revidando. Uma vez por Guarda por
 --     combate. O salto é decidido quando chega a vez de um atacante que nunca
 --     teve bloqueador: entre as Guardas já resolvidas e elegíveis, salta a do
@@ -336,6 +339,8 @@ return function(Game)
     for k = 1, #TIERS do declared[k] = 0 end
     for _, a in ipairs(obligated) do
       local k = tiers[a]
+      -- validate_block já recusou pares proibidos; o can_block aqui só protege
+      -- quem chamar este método direto.
       if block_of[a] and TIERS[k].fits(a, block_of[a]) and can_block(self, a, block_of[a]) then
         declared[k] = declared[k] + 1
       end
