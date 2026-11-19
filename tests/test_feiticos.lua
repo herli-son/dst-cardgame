@@ -179,8 +179,8 @@ return {
     local g = new_game()
     put(g, 2, "f_quatro", 1)
     T.ok(cast(g, 1, "dardo", { p = 2, slot = 1 }))
-    -- O alvo sai e outra criatura entra no mesmo espaço: não é mais o alvo.
-    g.players[2].field[1] = nil
+    -- O alvo morre e outra criatura entra no mesmo espaço: não é mais o alvo.
+    g:kill_many({ { g:creature_at(2, 1) } }, "teste")
     local outra = put(g, 2, "f_quatro", 1)
     assert(g:act(1, { type = "pass" }))
     assert(g:act(2, { type = "pass" }))
@@ -269,8 +269,9 @@ return {
     put(g, 2, "f_grande", 1)
     assert(g:act(1, { type = "attack", attackers = { 1 } }))
     assert(g:act(1, { type = "pass" }))
-    -- O defensor responde com um Dardo no atacante e, antes de resolver,
-    -- o atacante usa a Pomada para salvá-lo depois do dano.
+    -- O defensor responde com um Dardo no atacante. Com a pilha aberta, o
+    -- atacante usa a Pomada: ela resolve na hora, sem fechar a pilha, e o
+    -- Dardo ainda resolve depois (a cura de 1 não salva a criatura de 3 de vida).
     T.ok(cast(g, 2, "dardo", { p = 1, slot = 1 }))
     assert(g:act(2, { type = "pass" }))
     T.eq(g.active, 1)
@@ -336,6 +337,40 @@ return {
     T.eq(c.damage, 4)
   end },
 
+  { "Dardo do sono em resposta a um ataque, depois dos bloqueios: o atacante não golpeia", function(T)
+    local g = new_game()
+    local a = put(g, 1, "f_grande", 1)
+    local c = put(g, 2, "f_grande", 1)
+    assert(g:act(1, { type = "attack", attackers = { 1 } }))
+    assert(g:act(1, { type = "pass" }))
+    assert(g:act(2, { type = "block", blocks = { { attacker = 1, blocker = 1 } } }))
+    T.ok(cast(g, 2, "dardo_do_sono", { p = 1, slot = 1 }), "o defensor adormece o atacante já bloqueado")
+    T.eq(#g.stack, 2)
+    for _ = 1, 6 do
+      if not g:stack_open() then break end
+      assert(g:act(g.active, { type = "pass" }))
+    end
+    T.eq(g:stack_open(), false)
+    T.eq(c.damage, 0, "o atacante adormecido não golpeia em nenhuma fase")
+    T.eq(a.damage, 2, "o bloqueador golpeia normalmente")
+  end },
+
+  { "Dardo do sono sobrepõe modificadores de velocidade anteriores e cede a um set posterior", function(T)
+    local g = new_game()
+    local rapida = put(g, 2, "f_grande", 1)
+    local fixa = put(g, 2, "f_grande", 2)
+    g:add_speed_mod(rapida, { delta = 1 })
+    g:add_speed_mod(fixa, { set = 2 })
+    T.eq(g:speed(rapida, "attack"), 2); T.eq(g:speed(fixa, "attack"), 2)
+    T.ok(cast_and_resolve(g, 1, "dardo_do_sono", { p = 2, slot = 1 }))
+    assert(g:act(2, { type = "pass" }))
+    T.ok(cast_and_resolve(g, 1, "dardo_do_sono", { p = 2, slot = 2 }))
+    T.eq(g:speed(rapida, "attack"), 0, "o set 0 ignora o delta anterior")
+    T.eq(g:speed(fixa, "attack"), 0, "o set 0 vence o set anterior")
+    g:add_speed_mod(fixa, { set = 3 })
+    T.eq(g:speed(fixa, "attack"), 3, "o último set vale")
+  end },
+
   { "Dardo do sono deixa o Morcego (velocidade 2) em 0", function(T)
     local g = new_game()
     load_criaturas()
@@ -359,7 +394,7 @@ return {
     local g = new_game()
     put(g, 2, "f_grande", 1)
     T.ok(cast(g, 1, "dardo_do_sono", { p = 2, slot = 1 }))
-    g.players[2].field[1] = nil
+    g:kill_many({ { g:creature_at(2, 1) } }, "teste")
     local outra = put(g, 2, "f_grande", 1)
     assert(g:act(1, { type = "pass" }))
     assert(g:act(2, { type = "pass" }))
