@@ -34,9 +34,12 @@
 --     nível da Forja (map/levels/lavaarena.lua) usa e que o gerador repassa
 --     como override de tempo de execução; ficam aqui pelo mesmo motivo.
 --
--- As quatro estações em "noseason" mandam ms_setseasonlength com 0 para
--- todas; components/seasons.lua trata isso sem travar (GetNextSeason devolve
--- a própria estação quando nenhuma tem duração), então o mundo fica no outono.
+-- Estações: a tela de criação do mundo exige pelo menos uma estação com
+-- duração (as quatro em "noseason" são recusadas pela interface, confirmado no
+-- jogo), então o outono fica em "verylongseason" e as outras três em
+-- "noseason": o mundo fica no outono e components/seasons.lua nunca chega a
+-- trocar de estação na prática. A US #31 ainda trava a estação por
+-- ms_setseasonlength, para a virada de dia não contar.
 --
 -- O que NÃO é feito aqui: relógio e visão noturna (US #31), tiles e câmera
 -- (US #30). Cavernas não são chave de nível: basta o servidor não subir o
@@ -277,7 +280,7 @@ local overrides = {
   -- Configurações: eventos sazonais e estações. Com specialevent = "none" os
   -- eventos individuais ficam em "default" (= não forçados).
   specialevent = "none",
-  autumn = "noseason",
+  autumn = "verylongseason",
   winter = "noseason",
   spring = "noseason",
   summer = "noseason",

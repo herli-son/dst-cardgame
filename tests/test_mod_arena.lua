@@ -167,7 +167,9 @@ return {
     T.eq(o.petrification, "none", "petrification")
     T.eq(o.specialevent, "none", "specialevent")
     T.eq(o.wanderingtrader_enabled, "none", "wanderingtrader_enabled")
-    for _, estacao in ipairs({ "autumn", "winter", "spring", "summer" }) do
+    -- A tela do jogo exige pelo menos uma estação com duração.
+    T.eq(o.autumn, "verylongseason")
+    for _, estacao in ipairs({ "winter", "spring", "summer" }) do
       T.eq(o[estacao], "noseason", estacao)
     end
     T.eq(o.ghostenabled, "none", "sem fantasmas")
