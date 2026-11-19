@@ -77,6 +77,12 @@ return function(Game)
     return v
   end
 
+  -- Vida: base (ou stats), bônus da própria criatura, dos equipamentos e das
+  -- auras (aura_hp) das criaturas em campo do mesmo dono, a própria inclusa.
+  -- A vida máxima é sempre recalculada: quando a fonte de uma aura sai de
+  -- campo, uma criatura cujo dano marcado passa a ser letal morre no próximo
+  -- estado estável (check_lethal repete enquanto houver mortes, e settle roda
+  -- depois de cada ação, efeito e troca de vez), sem tratamento especial aqui.
   function Game:hp(c)
     local base = c.def.hp or 0
     if c.def.stats then
@@ -84,6 +90,26 @@ return function(Game)
       if h ~= nil then base = h end
     end
     return base + (c.hp_bonus or 0) + (self.equip_bonus and self:equip_bonus(c, "hp_bonus") or 0)
+      + self:aura_hp_bonus(c)
+  end
+
+  -- Soma de def.aura_hp(game, fonte, alvo) de cada criatura em campo do dono de c
+  -- (c inclusa). A aura não pode chamar Game:hp (laço); use só os atributos
+  -- impressos, os tipos e o dono.
+  --
+  -- Game:hp roda em caminhos quentes (in_play no bot, check_lethal em todo
+  -- settle), por isso percorre o campo direto, sem alocar a lista de creatures().
+  function Game:aura_hp_bonus(c)
+    local total = 0
+    local field = self.players[c.owner].field
+    for s = 1, Game.FIELD_SLOTS do
+      local f = field[s]
+      if f and f.def.aura_hp then
+        local n = self:run_card("aura", f.def.id, f.def.aura_hp, self, f, c)
+        total = total + (n or 0)
+      end
+    end
+    return total
   end
 
   -- Efeito de entrada com alvos escolhidos na jogada (def.play_targets; doc,

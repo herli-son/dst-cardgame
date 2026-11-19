@@ -205,4 +205,88 @@ return {
     f.damage = 9
     T.ok(block(g, {}), "a Frágil condenada não está livre para bloquear")
   end },
+
+  -- Restrição de bloqueio da atacante (def.cannot_be_blocked_by): aqui, uma
+  -- atacante que recusa bloqueadores do tipo "porco".
+  { "cannot_be_blocked_by recusa o bloqueio declarado, mas outra criatura pode bloquear", function(T)
+    local g = new_game()
+    Cards.define{ id = "b_antiporco", kind = "criatura", cost = 0, atk = 1, hp = 9,
+      cannot_be_blocked_by = function(gg, a, d) return d.def.types.porco == true end }
+    put(g, 1, "b_antiporco", 1)
+    put(g, 2, "b_porco", 1); put(g, 2, "b_comum", 2)
+    attack(g, { 1 })
+    local ok, err = block(g, { { 1, 1 } })
+    T.eq(ok, false)
+    T.eq(err, "essa criatura não pode bloquear esse atacante")
+    T.ok(block(g, { { 1, 2 } }))
+  end },
+
+  { "cannot_be_blocked_by: o bloqueio obrigatório não exige nem atrai um bloqueador proibido", function(T)
+    -- Frágil que recusa Agressivas do tipo porco: não é obrigada a ser bloqueada
+    -- por elas (e pode ficar sem bloqueio).
+    local g = new_game()
+    Cards.define{ id = "b_fragil_antiporco", kind = "criatura", cost = 0, atk = 1, hp = 9,
+      kw = { fragil = true },
+      cannot_be_blocked_by = function(gg, a, d) return d.def.types.porco == true end }
+    Cards.define{ id = "b_porco_agr", kind = "criatura", cost = 0, atk = 1, hp = 9,
+      types = { porco = true }, kw = { agressivo = true } }
+    put(g, 1, "b_fragil_antiporco", 1)
+    put(g, 2, "b_porco_agr", 1)
+    attack(g, { 1 })
+    T.ok(block(g, {}), "a única Agressiva é proibida: sem obrigação")
+    -- Agressiva que recusa porcos: a Frágil livre do tipo porco não é atraída,
+    -- nem ao declarar nem ao completar os bloqueios.
+    g = new_game()
+    Cards.define{ id = "b_agr_antiporco", kind = "criatura", cost = 0, atk = 1, hp = 9,
+      kw = { agressivo = true },
+      cannot_be_blocked_by = function(gg, a, d) return d.def.types.porco == true end }
+    Cards.define{ id = "b_porco_fragil", kind = "criatura", cost = 0, atk = 1, hp = 9,
+      types = { porco = true }, kw = { fragil = true } }
+    local a = put(g, 1, "b_agr_antiporco", 1)
+    put(g, 2, "b_porco_fragil", 1)
+    attack(g, { 1 })
+    T.ok(g:can_act(2, { type = "block", blocks = {} }), "a Frágil proibida não atrai")
+    local life = g.players[2].life
+    resolve_without_blocks(g)
+    T.eq(blocker_of(g, a), nil, "nenhum bloqueio automático")
+    T.eq(g.players[2].life, life - 1)
+  end },
+
+  { "cannot_be_blocked_by: a Guarda não salta para um atacante que a recusa", function(T)
+    local g = new_game()
+    Cards.define{ id = "b_guarda_porco", kind = "criatura", cost = 0, atk = 1, hp = 9,
+      types = { porco = true }, kw = { guarda = true } }
+    Cards.define{ id = "b_antiporco", kind = "criatura", cost = 0, atk = 1, hp = 9,
+      cannot_be_blocked_by = function(gg, a, d) return d.def.types.porco == true end }
+    put(g, 1, "b_comum", 1)
+    local b = put(g, 1, "b_antiporco", 2)
+    put(g, 2, "b_guarda_porco", 1)
+    local life = g.players[2].life
+    attack(g, { 1, 2 })
+    T.ok(block(g, { { 1, 1 } }))
+    assert(g:act(2, { type = "pass" })); assert(g:act(1, { type = "pass" }))
+    T.eq(blocker_of(g, b), nil, "a Guarda não saltou")
+    T.eq(g.players[2].life, life - 1)
+  end },
+
+  { "cannot_be_blocked_by: a Guarda recusada por um atacante salta para o próximo elegível", function(T)
+    local g = new_game()
+    Cards.define{ id = "b_guarda_porco", kind = "criatura", cost = 0, atk = 1, hp = 9,
+      types = { porco = true }, kw = { guarda = true } }
+    Cards.define{ id = "b_antiporco", kind = "criatura", cost = 0, atk = 1, hp = 9,
+      cannot_be_blocked_by = function(gg, a, d) return d.def.types.porco == true end }
+    put(g, 1, "b_comum", 1)
+    local b = put(g, 1, "b_antiporco", 2)
+    local c = put(g, 1, "b_comum", 3)
+    local guarda = put(g, 2, "b_guarda_porco", 1)
+    local life = g.players[2].life
+    attack(g, { 1, 2, 3 })
+    T.ok(block(g, { { 1, 1 } }))
+    assert(g:act(2, { type = "pass" })); assert(g:act(1, { type = "pass" }))
+    T.eq(blocker_of(g, b), nil, "pula quem a recusa")
+    local blocker, auto = blocker_of(g, c)
+    T.eq(blocker, guarda.uid, "e salta para o terceiro atacante")
+    T.eq(auto, "guarda")
+    T.eq(g.players[2].life, life - 1, "só o atacante do meio chegou ao jogador")
+  end },
 }

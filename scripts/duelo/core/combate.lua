@@ -22,7 +22,9 @@
 --        do defensor que esteja livre (sem bloquear ninguém).
 --     O defensor declara os pares e o motor confere; se ele passar sem declarar,
 --     o motor completa os obrigatórios pela ordem declarada dos atacantes e pela
---     ordem dos espaços dos bloqueadores.
+--     ordem dos espaços dos bloqueadores. Um bloqueador que o atacante recusa
+--     (cannot_be_blocked_by; Webber e Aranhas adversárias) não conta, não é
+--     exigido nem atraído.
 --
 -- Resolução par a par (doc, "Combate" e "Velocidade"): o combate resolve na
 -- ordem dos espaços dos atacantes (não na ordem declarada), um par de cada vez.
@@ -44,11 +46,16 @@
 --     bloqueador saiu (morto por um "ao morrer" de um par anterior, por
 --     exemplo), o atacante não golpeia ninguém: o bloqueio declarado vale.
 --   * A partida decidida em qualquer fase para o combate.
+--   * Durabilidade (doc, "Equipamentos"): em cada fase, depois dos efeitos de
+--     Golpear, a ferramenta na mão de quem golpeou perde 1 e a armadura no peito
+--     de quem foi golpeado perde 1, por golpe, mesmo com dano zero
+--     (wear_from_strikes).
 --   * Guarda (kw.guarda; Porco guarda): só na defesa. Depois de resolver o par
 --     dela, se sobreviveu e ainda não saltou neste combate, passa a bloquear o
 --     próximo atacante à direita (espaço maior que o do atacante que ela
 --     bloqueou) que nunca teve bloqueador e ainda está em campo; não salta para
---     quem perdeu o bloqueador. Esse par resolve normalmente quando chegar a vez
+--     quem perdeu o bloqueador nem para um atacante que a recusa
+--     (cannot_be_blocked_by), e nesse caso segue para o próximo elegível. Esse par resolve normalmente quando chegar a vez
 --     dele, com o dano que ela já tem e revidando. Uma vez por Guarda por
 --     combate. O salto é decidido quando chega a vez de um atacante que nunca
 --     teve bloqueador: entre as Guardas já resolvidas e elegíveis, salta a do
@@ -56,23 +63,71 @@
 --     auto = "guarda".
 --
 -- Campos da definição usados aqui (referência completa em cards.lua): no_attack,
--- no_block, speed, block_speed, speed_fn, kw (fragil, agressivo, rival, guarda),
--- types e on_strike (criatura e equipamento).
+-- no_block, cannot_be_blocked_by, speed, block_speed, speed_fn, kw (fragil,
+-- agressivo, rival, guarda), types, on_strike e on_attack (criatura e equipamento).
 
 return function(Game)
   ----------------------------------------------------------------------------
   -- Golpes e dano em criaturas
   ----------------------------------------------------------------------------
 
+  -- Redução de dano da criatura: a soma de def.damage_reduction dos equipamentos
+  -- dela (ex.: Armadura de madeira). Vale para cada fonte de dano, em separado.
+  function Game:damage_reduction(c)
+    local total = 0
+    for _, e in pairs(c.equips or {}) do total = total + (e.def.damage_reduction or 0) end
+    return total
+  end
+
   -- O dano fica marcado na criatura (é permanente). Devolve o dano aplicado
-  -- (0 se nenhum); redução de dano entra aqui.
+  -- (0 se nenhum). A redução de dano entra aqui: o dano de cada fonte perde a
+  -- redução, no mínimo 0; reduzido a zero, nada é marcado e sai o evento
+  -- "damage_absorbed" (para a tela mostrar que a armadura absorveu um dano de
+  -- feitiço ou efeito; em combate o golpe já saiu como "strike" e ainda gasta a
+  -- armadura).
   function Game:damage_creature(c, n, source, reason)
     if Game.check_amount(n) <= 0 then return 0 end
     if self.players[c.owner].field[c.slot] ~= c then return 0 end
+    local reduced = math.min(self:damage_reduction(c), n)
+    n = n - reduced
+    if n <= 0 then
+      self:emit{ t = "damage_absorbed", p = c.owner, slot = c.slot, uid = c.uid, amount = reduced,
+        source_uid = source and source.uid or nil, reason = reason }
+      return 0
+    end
     c.damage = c.damage + n
     self:emit{ t = "creature_damage", p = c.owner, slot = c.slot, uid = c.uid, amount = n,
-      damage = c.damage, source_uid = source and source.uid or nil, reason = reason }
+      damage = c.damage, source_uid = source and source.uid or nil, reason = reason,
+      reduced = reduced > 0 and reduced or nil }
+    if c.damage < self:hp(c) then self:fire_survive_effects(c, n, source) end
     return n
+  end
+
+  -- "Sobreviveu a dano": a criatura recebeu dano de uma fonte (dano marcado > 0;
+  -- dano reduzido a zero não conta) e, logo depois dele, o dano marcado ainda é
+  -- menor que a vida. Dispara na hora, dentro de damage_creature, para cada
+  -- fonte de dano, em def.on_survive_damage(game, ouvinte, criatura, amount,
+  -- source) de cada criatura em campo do mesmo dono (a própria inclusa), na
+  -- ordem dos espaços. Cada um é um efeito próprio para a vitória.
+  --
+  -- Escolha do momento: na hora, e não no estado estável (settle). Em combate,
+  -- os golpes de uma fase são simultâneos e as mortes só saem em check_lethal,
+  -- mas quem morre já tem dano >= vida ao receber o golpe, então nunca dispara;
+  -- quem sobrevive dispara antes dos efeitos de Golpear e da verificação de
+  -- mortes da fase. Consequência aceita: se na mesma fase morre a fonte de uma
+  -- aura de vida, a sobrevivente é curada com a vida que tinha no golpe, e só
+  -- depois a vida cai. Um ouvinte só roda se estiver em jogo (em campo e com
+  -- dano < vida, o mesmo critério de in_play); a sobrevivente é reconferida
+  -- antes de cada ouvinte, então se um deles a deixar letal, ou a tirar de
+  -- campo, ou decidir a partida, os seguintes não rodam.
+  function Game:fire_survive_effects(c, amount, source)
+    local pl = self.players[c.owner]
+    for _, l in ipairs(self:creatures(c.owner)) do
+      if self.winner ~= nil or pl.field[c.slot] ~= c or c.damage >= self:hp(c) then return end
+      if l.def.on_survive_damage and pl.field[l.slot] == l and l.damage < self:hp(l) then
+        self:effect("sobreviver", l.def.id, l.def.on_survive_damage, self, l, c, amount, source)
+      end
+    end
   end
 
   -- Cura tira marcadores de dano; nunca mais do que o dano que a criatura tem.
@@ -174,7 +229,24 @@ return function(Game)
     for i, c in ipairs(attackers) do uids[i] = c.uid end
     g:emit{ t = "attack", p = p, attackers = uids }
     g:push_stack(p, { label = "ataque", resolve = function(gg) gg:resolve_combat() end })
+    g:fire_attack_effects(attackers)
     return true, nil, false
+  end
+
+  -- "Ao atacar": dispara quando o ataque é declarado, na ordem declarada, para
+  -- cada atacante: def.on_attack(game, criatura) da criatura e depois
+  -- equip.def.on_attack(game, criatura, equip) de cada equipamento dela (ordem
+  -- dos espaços). Cada efeito é um efeito próprio para a vitória.
+  function Game:fire_attack_effects(attackers)
+    for _, c in ipairs(attackers) do
+      if self.winner ~= nil then return end
+      if c.def.on_attack then self:effect("atacar", c.def.id, c.def.on_attack, self, c) end
+      for _, slot in ipairs(Game.EQUIP_ORDER) do
+        if self.winner ~= nil then return end
+        local e = c.equips[slot]
+        if e and e.def.on_attack then self:effect("atacar", e.def.id, e.def.on_attack, self, c, e) end
+      end
+    end
   end
 
   ----------------------------------------------------------------------------
@@ -198,6 +270,15 @@ return function(Game)
   ----------------------------------------------------------------------------
 
   local function kw(c, k) return c.def.kw[k] end
+
+  -- Restrição de bloqueio da carta atacante (def.cannot_be_blocked_by, ver
+  -- cards.lua): d não pode bloquear a. Vale para o bloqueio declarado, para os
+  -- obrigatórios (nem atrai nem exige um bloqueador proibido) e para o salto
+  -- da Guarda.
+  local function can_block(g, a, d)
+    local deny = a.def.cannot_be_blocked_by
+    return deny == nil or not deny(g, a, d)
+  end
 
   -- Critério único de quem está no combate, usado nos bloqueios obrigatórios e
   -- nos golpes: em campo, do mesmo lado, e sem dano letal esperando uma escolha
@@ -234,11 +315,11 @@ return function(Game)
 
   -- O nível que vale para o atacante: o primeiro a que ele está sujeito e que o
   -- defensor pode atender com alguma criatura (Rival tem prioridade sobre Frágil).
-  local function tier_of(a, defenders)
+  local function tier_of(g, a, defenders)
     for i, t in ipairs(TIERS) do
       if t.applies(a) then
         for _, d in ipairs(defenders) do
-          if t.fits(a, d) then return i end
+          if t.fits(a, d) and can_block(g, a, d) then return i end
         end
       end
     end
@@ -256,7 +337,7 @@ return function(Game)
   -- Melhor emparelhamento dos obrigatórios: atende o máximo de Rivais e, entre
   -- esses, o máximo de Frágeis. Busca completa (no máximo 6 contra 6); no empate
   -- fica o primeiro achado, pela ordem dos atacantes e dos espaços.
-  local function best_forced(obligated, tiers, defenders)
+  local function best_forced(g, obligated, tiers, defenders)
     local best_score, best_pairs = nil, nil
     local used, cur, score = {}, {}, {}
     for k = 1, #TIERS do score[k] = 0 end
@@ -272,7 +353,7 @@ return function(Game)
       local a = obligated[i]
       local k = tiers[a]
       for _, d in ipairs(defenders) do
-        if not used[d] and TIERS[k].fits(a, d) then
+        if not used[d] and TIERS[k].fits(a, d) and can_block(g, a, d) then
           used[d] = true; cur[#cur + 1] = { a, d }; score[k] = score[k] + 1
           go(i + 1)
           used[d] = nil; cur[#cur] = nil; score[k] = score[k] - 1
@@ -296,7 +377,7 @@ return function(Game)
     local obligated, tiers = {}, {}
     local key = {}
     for _, a in ipairs(attackers) do
-      tiers[a] = tier_of(a, defenders)
+      tiers[a] = tier_of(g, a, defenders)
       if tiers[a] then obligated[#obligated + 1] = a end
       key[#key + 1] = a.uid
     end
@@ -305,7 +386,7 @@ return function(Game)
     key = table.concat(key, ",")
     local cached = forced_cache[cb]
     if cached == nil or cached.key ~= key then
-      local score, pairs = best_forced(obligated, tiers, defenders)
+      local score, pairs = best_forced(g, obligated, tiers, defenders)
       cached = { key = key, score = score, pairs = pairs }
       forced_cache[cb] = cached
     end
@@ -327,7 +408,11 @@ return function(Game)
     for k = 1, #TIERS do declared[k] = 0 end
     for _, a in ipairs(obligated) do
       local k = tiers[a]
-      if block_of[a] and TIERS[k].fits(a, block_of[a]) then declared[k] = declared[k] + 1 end
+      -- validate_block já recusou pares proibidos; o can_block aqui só protege
+      -- quem chamar este método direto.
+      if block_of[a] and TIERS[k].fits(a, block_of[a]) and can_block(self, a, block_of[a]) then
+        declared[k] = declared[k] + 1
+      end
     end
     local best = forced.score
     for k = 1, #TIERS do
@@ -337,7 +422,7 @@ return function(Game)
     for _, a in ipairs(attackers) do
       if kw(a, "agressivo") and not block_of[a] then
         for _, d in ipairs(defenders) do
-          if kw(d, "fragil") and not blocking[d] then
+          if kw(d, "fragil") and not blocking[d] and can_block(self, a, d) then
             return false, "atacante Agressivo sem bloqueio deve ser bloqueado por uma Frágil livre"
           end
         end
@@ -360,7 +445,7 @@ return function(Game)
     for _, a in ipairs(attackers) do
       if kw(a, "agressivo") and not cb.blocked[a] then
         for _, d in ipairs(defenders) do
-          if not used[d] and kw(d, "fragil") then set(a, d); break end
+          if not used[d] and kw(d, "fragil") and can_block(g, a, d) then set(a, d); break end
         end
       end
     end
@@ -386,6 +471,7 @@ return function(Game)
       if a == nil or not in_combat(cb, a) then return false, "essa criatura não está atacando" end
       if d == nil then return false, "não há criatura sua nesse espaço" end
       if d.def.no_block then return false, "essa criatura não bloqueia" end
+      if not can_block(g, a, d) then return false, "essa criatura não pode bloquear esse atacante" end
       if atk_used[a] then return false, "cada atacante é bloqueado por uma criatura só" end
       if blk_used[d] then return false, "cada criatura bloqueia um atacante só" end
       atk_used[a], blk_used[d] = true, true
@@ -473,9 +559,25 @@ return function(Game)
     end
   end
 
+  -- Durabilidade (doc, "Equipamentos"): a ferramenta na mão perde 1 a cada golpe
+  -- que o portador dá; a armadura no peito perde 1 a cada golpe que o portador
+  -- recebe. Conta todo golpe de combate, mesmo com dano zero (um golpe reduzido
+  -- a zero pela armadura ainda gasta a armadura). Roda depois dos efeitos de
+  -- Golpear, para um equipamento que quebra no golpe (ex.: Pá, durabilidade 1)
+  -- ainda disparar o seu Golpear.
+  function Game:wear_from_strikes(strikes)
+    for _, s in ipairs(strikes) do
+      local src, target = s[1], s[2]
+      if self.players[src.owner].field[src.slot] == src then self:wear(src, "mao", 1) end
+      if not target.player and self.players[target.owner].field[target.slot] == target then
+        self:wear(target, "peito", 1)
+      end
+    end
+  end
+
   -- Uma fase de golpes: todos os golpes de `strikes` ao mesmo tempo (valores lidos
-  -- antes de qualquer dano), depois os efeitos de Golpear, depois a vitória e
-  -- depois as mortes. strikes = { { src, alvo }, ... }.
+  -- antes de qualquer dano), depois os efeitos de Golpear, depois a durabilidade,
+  -- depois a vitória e depois as mortes. strikes = { { src, alvo }, ... }.
   function Game:strike_phase(strikes)
     local amounts = {}
     for i, s in ipairs(strikes) do amounts[i] = self:atk(s[1]) end
@@ -494,6 +596,7 @@ return function(Game)
       self:fire_strike_effects(s[1], s[2])
     end
     if self.winner ~= nil then return end
+    self:wear_from_strikes(strikes)
     self:check_lethal(killers, "combate")
   end
 
@@ -556,7 +659,7 @@ return function(Game)
       local a = cb.order[m]
       local d = cb.blocked[a] and cb.blocks[a] or nil
       if d and kw(d, "guarda") and not cb.guarded[d] and in_play(g, d, cb.defender)
-        and (best == nil or d.slot < best.slot) then
+        and can_block(g, b, d) and (best == nil or d.slot < best.slot) then
         best = d
       end
     end

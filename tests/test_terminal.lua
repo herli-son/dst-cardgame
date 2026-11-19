@@ -97,6 +97,22 @@ return {
     T.ok(coelho ~= nil)
   end },
 
+  { "render marca o equipamento ativável, pronto e usado", function(T)
+    local Cards = require("duelo/core/cards")
+    Cards.define{ id = "demo_apito", kind = "equipamento", slot = "cabeca", cost = 1, durability = 2,
+      activation = { speed = "instantaneo", once_per_round = true }, activate = function() end }
+    local g = bare()
+    local c = put(g, 1, "demo_lenhador", 1)
+    local e = g:equip(c, { id = "demo_apito", uid = g:next_uid() })
+    assert_contains(T, Tela.render(g, 1), "{demo_apito 2*}")
+    e.pronta = g.round
+    assert_contains(T, Tela.render(g, 1), "{demo_apito 2!}")
+    e.pronta = nil
+    e.card.used_round = g.round
+    assert_contains(T, Tela.render(g, 1), "{demo_apito 2x}")
+    Cards.remove("demo_apito")
+  end },
+
   { "render mostra as estruturas dos dois lados", function(T)
     local g = bare()
     g:put_structure(1, { id = "demo_tocha", uid = g:next_uid() })
