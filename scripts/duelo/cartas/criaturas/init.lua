@@ -6,6 +6,7 @@ local ids = {
   "aranha_guerreira",
   "borboleta",
   "cao_de_caca",
+  "curandeira",
   "morcego",
   "passaro",
   "porco",

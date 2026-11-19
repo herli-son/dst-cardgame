@@ -99,7 +99,35 @@ return function(Game)
     self:emit{ t = "creature_damage", p = c.owner, slot = c.slot, uid = c.uid, amount = n,
       damage = c.damage, source_uid = source and source.uid or nil, reason = reason,
       reduced = reduced > 0 and reduced or nil }
+    if c.damage < self:hp(c) then self:fire_survive_effects(c, n, source) end
     return n
+  end
+
+  -- "Sobreviveu a dano": a criatura recebeu dano de uma fonte (dano marcado > 0;
+  -- dano reduzido a zero não conta) e, logo depois dele, o dano marcado ainda é
+  -- menor que a vida. Dispara na hora, dentro de damage_creature, para cada
+  -- fonte de dano, em def.on_survive_damage(game, ouvinte, criatura, amount,
+  -- source) de cada criatura em campo do mesmo dono (a própria inclusa), na
+  -- ordem dos espaços. Cada um é um efeito próprio para a vitória.
+  --
+  -- Escolha do momento: na hora, e não no estado estável (settle). Em combate,
+  -- os golpes de uma fase são simultâneos e as mortes só saem em check_lethal,
+  -- mas quem morre já tem dano >= vida ao receber o golpe, então nunca dispara;
+  -- quem sobrevive dispara antes dos efeitos de Golpear e da verificação de
+  -- mortes da fase. Consequência aceita: se na mesma fase morre a fonte de uma
+  -- aura de vida, a sobrevivente é curada com a vida que tinha no golpe, e só
+  -- depois a vida cai. Um ouvinte só roda se estiver em jogo (em campo e com
+  -- dano < vida, o mesmo critério de in_play); a sobrevivente é reconferida
+  -- antes de cada ouvinte, então se um deles a deixar letal, ou a tirar de
+  -- campo, ou decidir a partida, os seguintes não rodam.
+  function Game:fire_survive_effects(c, amount, source)
+    local pl = self.players[c.owner]
+    for _, l in ipairs(self:creatures(c.owner)) do
+      if self.winner ~= nil or pl.field[c.slot] ~= c or c.damage >= self:hp(c) then return end
+      if l.def.on_survive_damage and pl.field[l.slot] == l and l.damage < self:hp(l) then
+        self:effect("sobreviver", l.def.id, l.def.on_survive_damage, self, l, c, amount, source)
+      end
+    end
   end
 
   -- Cura tira marcadores de dano; nunca mais do que o dano que a criatura tem.
