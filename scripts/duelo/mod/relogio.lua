@@ -74,6 +74,9 @@ local estado = {
   clock = nil, -- componente clock deste lado
   original = nil, -- OnUpdate original do clock
   em_passo = false, -- true enquanto `avancar` roda
+  -- Diagnóstico (Relogio.diagnostico): o que já aconteceu neste lado.
+  rede = false, -- o post init do forest_network rodou
+  estacoes = 0, -- vezes que o 5/5/6 foi enviado
 }
 
 local function mundo()
@@ -119,6 +122,8 @@ end
 local function post_init_rede(inst)
   local G = estado.GLOBAL
   estado.netvar = G.net_tinybyte(inst.GUID, NETVAR, NETVAR_DIRTY)
+  estado.rede = true
+  avisar("relógio: rede do mundo pronta (" .. (servidor() and "servidor" or "cliente") .. ")")
   if not servidor() then return end
 
   estado.netvar:set(estado.travado_inicial == true and TRAVADO or LIVRE)
@@ -144,6 +149,21 @@ function Relogio.configurar_estacoes()
   for _, estacao in ipairs(Relogio.ESTACOES) do
     w:PushEvent("ms_setseasonlength", { season = estacao, length = 0 })
   end
+  estado.estacoes = estado.estacoes + 1
+  avisar("relógio: 5/5/6 e estações travadas enviados")
+end
+
+-- Console: o que este lado já fez, para achar falhas no jogo.
+function Relogio.diagnostico()
+  local partes = {
+    "clock interceptado=" .. tostring(estado.original ~= nil),
+    "rede=" .. tostring(estado.rede),
+    "netvar=" .. tostring(estado.netvar ~= nil and estado.netvar:value() or "nil"),
+    "5/5/6 enviados=" .. tostring(estado.estacoes),
+    "travado=" .. tostring(Relogio.travado()),
+    "servidor=" .. tostring(servidor()),
+  }
+  return table.concat(partes, " ")
 end
 
 -- Liga o módulo no ambiente do mod.
@@ -154,6 +174,7 @@ function Relogio.instalar(ctx)
   estado.GLOBAL = ctx.GLOBAL
   estado.travado_inicial = ctx.travado ~= false
   estado.netvar, estado.clock, estado.original, estado.em_passo = nil, nil, nil, false
+  estado.rede, estado.estacoes = false, 0
   ctx.AddComponentPostInit("clock", post_init_clock)
   ctx.AddPrefabPostInit("forest_network", post_init_rede)
   return Relogio
