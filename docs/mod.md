@@ -66,7 +66,7 @@ Os testes automáticos (`tests/test_mod_arena.lua`) só verificam que os arquivo
 - **Portal:** o `multiplayer_portal` fica na margem da mesa (coluna 3, fora do caminho das criaturas) e o jogador nasce ao lado dele. Se o portal aparecer na margem **leste** em vez da oeste, o gerador espelhou o eixo x (`flip_x` em `map/object_layout.lua`); isso não quebra a mesa, mas a US #30 precisa passar `espelhado = true` para `Mesa.origem_pelo_portal`/`Mesa.posicao`.
 - **Orientação dos eixos:** conferir que a coluna do tile cresce com o `x` do mundo e a linha com o `z` (`TheWorld.Map:GetTileCoordsAtPoint` no console), que é o que `mesa.lua` assume.
 - **Sem cavernas:** o servidor sobe só o shard Master; não há buracos (`cave_entrance`) na mesa.
-- **Relógio e clima:** o tempo ainda corre normalmente (o travamento é a US #31). Deve ficar no outono para sempre (as quatro estações em `noseason`) e sem chuva, raios nem geada.
+- **Relógio e clima:** o tempo ainda corre normalmente (o travamento é a US #31). Deve ficar no outono (outono muito longo, as outras três estações em `noseason`; a tela exige pelo menos uma estação) e sem chuva, raios nem geada.
 - **Console útil:** `c_select()` em cima do portal e `TheWorld.Map:GetTileCoordsAtPoint(c_sel().Transform:GetWorldPosition())` dão a posição do portal; `TheWorld.Map:GetTile(x, y)` confirma o tile.
 - **Meio tile de diferença:** o gerador pode deslocar os objetos do layout em meio tile (2 unidades) em relação à grade do chão (`map/object_layout.lua` centra objetos e tiles de formas diferentes). Se a posição do portal não bater exatamente com `Mesa.PORTAL`, a US #30 deve achar a origem da mesa pelos próprios tiles (`GetTileCoordsAtPoint` sobre o carpete central) e usar o portal só para decidir `espelhado`.
 
