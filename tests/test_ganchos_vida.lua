@@ -1,9 +1,13 @@
 -- Ganchos do motor ligados à vida das criaturas (US #129): aura_hp (bônus de
--- vida contínuo por aura). Testados com cartas de teste próprias.
+-- vida contínuo por aura) e on_survive_damage ("sobreviveu a dano"). Testados
+-- com cartas de teste próprias.
 local Game = require("duelo/core/game")
 local Cards = require("duelo/core/cards")
 
+local log
+
 local function define_test_cards()
+  log = {}
   Cards.define{ id = "v_rato", kind = "criatura", cost = 0, atk = 1, hp = 1 }
   Cards.define{ id = "v_tipo", kind = "criatura", cost = 0, atk = 1, hp = 1, types = { bicho = true } }
   Cards.define{ id = "v_muro", kind = "criatura", cost = 0, atk = 1, hp = 5 }
@@ -16,6 +20,13 @@ local function define_test_cards()
   -- Aura para todas as criaturas do dono, sem filtro.
   Cards.define{ id = "v_aura_geral", kind = "criatura", cost = 0, atk = 0, hp = 1,
     aura_hp = function() return 2 end }
+  -- Ouvinte: anota quem sobreviveu a quanto dano e cura 1 dela.
+  Cards.define{ id = "v_ouvinte", kind = "criatura", cost = 0, atk = 0, hp = 3,
+    on_survive_damage = function(g, ouvinte, c, amount, source)
+      log[#log + 1] = ouvinte.slot .. ":" .. c.def.id .. "@" .. c.slot .. "-" .. amount
+        .. (source and ("<" .. source.def.id) or "")
+      g:heal_creature(c, 1, ouvinte, "ouvinte")
+    end }
 end
 
 local function new_game()
@@ -115,5 +126,83 @@ return {
     T.eq(g:hp(tipo), 1)
     put(g, 1, "v_aura", 1)
     T.eq(g:hp(tipo), 2)
+  end },
+
+  { "on_survive_damage dispara nas criaturas do dono quando uma sobrevive a dano, a própria inclusa", function(T)
+    local g = new_game()
+    local muro = put(g, 1, "v_muro", 1)
+    local ouv = put(g, 1, "v_ouvinte", 2)
+    put(g, 2, "v_ouvinte", 1)
+    T.eq(g:damage_creature(muro, 2, nil, "teste"), 2)
+    T.eq(#log, 1, "só o ouvinte do dono")
+    T.eq(log[1], "2:v_muro@1-2")
+    T.eq(muro.damage, 1, "curado em 1 pelo ouvinte")
+    T.eq(#events(g, "creature_heal"), 1)
+    log = {}
+    g:damage_creature(ouv, 1, muro, "teste")
+    T.eq(log[1], "2:v_ouvinte@2-1<v_muro", "a própria ouvinte, com a fonte")
+    T.eq(ouv.damage, 0)
+  end },
+
+  { "dano letal não conta como sobreviver", function(T)
+    local g = new_game()
+    local rato = put(g, 1, "v_rato", 1)
+    put(g, 1, "v_ouvinte", 2)
+    g:damage_creature(rato, 1, nil, "teste")
+    T.eq(#log, 0)
+    g:settle()
+    T.eq(g:creature_at(1, 1), nil)
+    local muro = put(g, 1, "v_muro", 1)
+    g:damage_creature(muro, 9, nil, "teste")
+    T.eq(#log, 0, "dano acima da vida")
+  end },
+
+  { "dano reduzido a zero não é sofrer dano", function(T)
+    local g = new_game()
+    Cards.define{ id = "v_sobrev", kind = "criatura", cost = 0, atk = 1, hp = 5, sobrevivente = true }
+    Cards.define{ id = "v_placa", kind = "equipamento", cost = 0, slot = "peito", damage_reduction = 1 }
+    local c = put(g, 1, "v_sobrev", 1)
+    g:equip(c, { id = "v_placa", uid = g:next_uid() })
+    put(g, 1, "v_ouvinte", 2)
+    T.eq(g:damage_creature(c, 1, nil, "teste"), 0)
+    T.eq(#events(g, "damage_absorbed"), 1)
+    T.eq(#log, 0)
+    T.eq(g:damage_creature(c, 2, nil, "teste"), 1)
+    T.eq(log[1], "2:v_sobrev@1-1", "o dano informado é o marcado, depois da redução")
+  end },
+
+  { "a aura conta para sobreviver: 1 de dano em 1 de vida base com +1 de aura", function(T)
+    local g = new_game()
+    local tipo = put(g, 1, "v_tipo", 1)
+    put(g, 1, "v_aura", 2)
+    put(g, 1, "v_ouvinte", 3)
+    g:damage_creature(tipo, 1, nil, "teste")
+    T.eq(#log, 1)
+    T.eq(tipo.damage, 0, "curada")
+    g:settle()
+    T.eq(g:creature_at(1, 1), tipo)
+  end },
+
+  { "em combate, dispara por golpe, na hora, antes das mortes da fase", function(T)
+    local g = new_game()
+    Cards.define{ id = "v_lobo", kind = "criatura", cost = 0, atk = 2, hp = 1 }
+    put(g, 1, "v_lobo", 1)
+    local muro = put(g, 2, "v_muro", 1)
+    put(g, 2, "v_ouvinte", 2)
+    T.ok(g:act(1, { type = "attack", attackers = { 1 } }))
+    T.ok(g:act(1, { type = "pass" }))
+    T.ok(g:act(2, { type = "block", blocks = { { attacker = 1, blocker = 1 } } }))
+    T.ok(g:act(2, { type = "pass" }))
+    T.ok(g:act(1, { type = "pass" }))
+    T.eq(#log, 1, "o lobo morreu e é do adversário: só o muro conta")
+    T.eq(log[1], "2:v_muro@1-2<v_lobo")
+    T.eq(muro.damage, 1, "curado em 1 na hora do golpe")
+    T.eq(g:creature_at(1, 1), nil, "o lobo (2/1) morreu com o revide")
+    local evs = {}
+    for _, ev in ipairs(g.events) do
+      if ev.t == "creature_heal" or ev.t == "death" then evs[#evs + 1] = ev.t end
+    end
+    T.eq(evs[1], "creature_heal", "a cura vem antes da morte da fase")
+    T.eq(evs[2], "death")
   end },
 }
