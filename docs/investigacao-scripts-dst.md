@@ -23,7 +23,7 @@ User Story: #28 · Feature: #27
 | Animação por comando | Confirmado | `stategraph.lua` (`GoToState`), `stategraphs/SGspider.lua`, `modutil.lua` (`AddStategraphState`, `AddStategraphPostInit`) | O mod leva a criatura a um estado do stategraph dela ou toca a animação direto no `AnimState` e espera `animover` (ver "Animações por comando"). |
 | Jogadores protegidos no duelo | Confirmado | `components/health.lua` (`SetInvincible`), `components/hunger.lua` (`Pause`), `components/sanity.lua` (`ignore`) | Invulnerabilidade, fome pausada e sanidade ignorada durante a partida. |
 | Mover criatura até o alvo | Confirmado | `components/locomotor.lua` | O movimento existe; a ida e a volta ao tile serão comandadas pelo mod. |
-| Reduzir criaturas grandes | A testar no jogo | Motor do jogo (`Transform:SetScale`) | A escala funciona no modelo; efeitos presos ao modelo precisam ser conferidos dentro do jogo. |
+| Reduzir criaturas grandes | A testar no jogo | `prefabs/deerclops.lua`, `prefabs/bearger.lua` (`Transform:SetScale`, `DynamicShadow:SetSize`, `Follower:FollowSymbol`), `components/scaler.lua` | O próprio jogo escala os Chefes com `SetScale` (Deerclops usa 1,65). Sombra, física e efeitos presos não acompanham sozinhos (ver "Escala dos Chefes"). |
 
 ## Decisões
 
@@ -95,6 +95,20 @@ Riscos e escolhas para o mod:
 - **`hit` é seguro**: só anima e volta para `idle`. Pode ser chamado direto com `GoToState("hit")`.
 - **`death` remove a criatura** (vai para `corpse`, solta loot em `CommonStates.AddDeathState`). Para a morte das cartas, o mod toca `death` como animação (`PlayAnimation("death")`) e remove a entidade depois do `animover`, sem passar por `health:Kill`, já que as criaturas ficam invulneráveis.
 - Nomes de animação variam por criatura (`atk`, `attack`, `hit`, `death`, `idle`, `idle_loop`); o mod lê o estado do stategraph de cada criatura em vez de fixar o nome da animação. `AnimState:GetCurrentAnimationNumFrames` e `FRAMES` (`constants.lua`) servem para cronometrar.
+
+## Escala dos Chefes
+
+O que os scripts confirmam:
+
+- `Transform:SetScale(s, s, s)` é o jeito oficial: `prefabs/deerclops.lua` aplica 1,65 no próprio prefab, e `components/scaler.lua` (usado em criaturas que crescem) só faz isso e guarda o valor no save. Como a escala é definida no construtor do prefab, o mod a troca num `AddPrefabPostInit` da criatura, que roda no servidor e nos clientes.
+- Entidades filhas (`entity:SetParent`) herdam a escala do pai: `prefabs/abigail.lua` divide a própria escala por `target.Transform:GetScale()` ao se prender a um alvo justamente para compensar isso. [provável] Efeitos presos por `SetParent` encolhem junto com o Chefe.
+
+Riscos concretos (continua "a testar no jogo"):
+
+- **Sombra**: `DynamicShadow:SetSize(6, 3.5)` é fixo em `deerclops.lua` e `bearger.lua`, independente da escala. Se não acompanhar, o mod ajusta a sombra junto com a escala.
+- **Física e alcance**: `MakeGiantCharacterPhysics(inst, 1000, .5)` e `combat:SetRange(TUNING.DEERCLOPS_ATTACK_RANGE)` não dependem da escala. Um Chefe menor continua empurrando e "alcançando" como grande; para o mod isso só importa no posicionamento da criatura no tile (raio de colisão) e na distância de parada do `locomotor`.
+- **Efeitos presos por símbolo**: `Follower:FollowSymbol(guid, símbolo, ...)` (`deerclops.lua`, Deerclops mutado: `swap_gestalt_flame`, `swap_fire_*`; `bearger.lua`: `flameL`, `flameR`) segue a posição do símbolo; não está claro no Lua se o efeito herda a escala. Em `deerclops.lua` o efeito é também filho (`SetParent`) do Chefe, o que [provável] faz a escala acompanhar; nos casos só com `FollowSymbol` precisa de teste.
+- **Efeitos soltos no chão**: os golpes dos Chefes criam prefabs independentes (`deerclops_icespike_fx`, `groundpounder` em `components/groundpounder.lua`, que tem o próprio `fxscale`). Não encolhem com a criatura; como o mod não usa os golpes reais, isso só aparece se alguma animação disparar esses efeitos pela `timeline` do stategraph.
 
 ## Pendências para os próximos passos
 
