@@ -1,7 +1,7 @@
 # Investigação dos scripts do DST
 
 Verificação, no código do próprio jogo, dos pontos que o design do mod tratava como "a verificar".
-Fonte: `scripts.zip` da instalação local do Don't Starve Together (`data/databundles`), lido em 16/11/2026.
+Fonte: `scripts.zip` da instalação local do Don't Starve Together (`data/databundles`), lido em 16/11/2026 e relido em 19/11/2026.
 Os scripts da Klei não são copiados para este repositório; abaixo ficam só as referências de arquivo e o que cada uma confirma.
 
 User Story: #28 · Feature: #27
@@ -120,7 +120,7 @@ Riscos concretos (continua "a testar no jogo"):
 Como um nível é montado (lido em `map/levels.lua`, `map/levels/lavaarena.lua`, `map/locations.lua`, `map/tasksets/lavaarena.lua`, `map/tasks/lavaarena.lua`, `map/rooms.lua`, `map/startlocations.lua`, `map/layouts.lua`, `map/storygen.lua`, `map/forest_map.lua`):
 
 - **Nível** (`AddLevel(LEVELTYPE.SURVIVAL, { id, name, desc, location, version, overrides, required_prefabs })`): `AddModLevel` em `map/levels.lua` divide `overrides` em duas listas usando `map/customize.lua`: o que é configuração de mundo vira um "settings preset" e o resto vira o nível de geração. O `id` não pode começar com `CUSTOM_`. O nível aparece na tela de criação de mundo como predefinição e pode ser escolhido num servidor dedicado por `worldgenoverride.lua` (`saveindex.lua` lê esse arquivo).
-- **Location** é o prefab do mundo (`location = "lavaarena" -- this is actually the prefab name`). A Forja e a Garganta têm prefab de mundo próprio (`prefabs/lavaarena.lua`, `prefabs/quagmire.lua`); a floresta é `forest` e exige `multiplayer_portal` no mapa (`required_prefabs` em `map/locations.lua`; `forest_map.lua` aborta a geração sem um ponto de início). [provável] Para o mod, o mais simples é manter `location = "forest"` (fica com `clock`, `seasons`, luz e clima prontos) e desligar o resto por `overrides`; um prefab de mundo próprio (`MakeWorld` em `prefabs/world.lua` + `MakeWorldNetwork`) é a alternativa se a floresta trouxer coisa demais.
+- **Location** é o nome do prefab do mundo (o próprio `map/levels/lavaarena.lua` avisa isso num comentário ao lado de `location`). A Forja e a Garganta têm prefab de mundo próprio (`prefabs/lavaarena.lua`, `prefabs/quagmire.lua`); a floresta é `forest` e exige `multiplayer_portal` no mapa (`required_prefabs` em `map/locations.lua`; `forest_map.lua` aborta a geração sem um ponto de início). [provável] Para o mod, o mais simples é manter `location = "forest"` (fica com `clock`, `seasons`, luz e clima prontos) e desligar o resto por `overrides`; um prefab de mundo próprio (`MakeWorld` em `prefabs/world.lua` + `MakeWorldNetwork`) é a alternativa se a floresta trouxer coisa demais.
 - **Task set → task → sala → layout**: `AddTaskSet(nome, { location, tasks = {...}, valid_start_tasks = {...} })`; `AddTask(nome, { room_choices = { Blank = 1 }, background_room = "Blank", room_bg = WORLD_TILES.IMPASSABLE, locks = {}, keys_given = {} })`; a sala `Blank` (`map/rooms.lua`) é vazia e intransitável. `AddStartLocation(nome, { location, start_setpeice = "NomeDoLayout", start_node = "Blank" })` coloca o layout no nó de início (`storygen.lua`, `start_setpeice` → `countstaticlayouts`). As salas também aceitam `contents.countstaticlayouts = { NomeDoLayout = 1 }` (`map/rooms/forest/DLCrooms.lua`, arena da Libélula). O `modworldgenmain.lua` do mod registra tudo isso (`mods.lua` carrega esse arquivo na geração), e as chaves `task_set` e `start_location` dos `overrides` apontam para os nomes registrados.
 - **Static layout**: arquivo Lua exportado do Tiled (`map/static_layouts/events/lava_arena.lua`: camada `BG_TILES` com o chão e camadas de objetos com os prefabs). `StaticLayout.Get(caminho, { start_mask, fill_mask, layout_position = LAYOUT_POSITION.CENTER, disable_transform })` em `map/static_layout.lua` converte; a ordem dos tiles do Tiled está em `GROUND_TYPES` do mesmo arquivo (inclui `CHECKER`, `CARPET`, `MOSAIC_*`, `LAVAARENA_FLOOR`). Os layouts são achados por nome em `map/object_layout.lua` (`LayoutForDefinition`) na tabela `Layouts` de `map/layouts.lua`. [provável] O mod registra o seu inserindo na tabela devolvida por `require("map/layouts").Layouts` no `modworldgenmain.lua`, que é o que mods de mapa fazem; não há função `AddLayout` em `modutil.lua`.
 - Chaves de geração da location que a Forja usa e servem de modelo (`map/locations.lua`): `world_size = "small"`, `layout_mode = "RestrictNodesByKey"`, `roads = "never"`, `wormhole_prefab = nil`, `keep_disconnected_tiles = true`, `no_joining_islands = true`. `has_ocean` controla o oceano na floresta.
@@ -176,5 +176,10 @@ Inventário (como as cartas aparecem):
 
 ## Pendências para os próximos passos
 
-- Testar dentro do jogo a escala dos Chefes e os efeitos presos a eles.
-- Desenhar como o mod intercepta o relógio sem quebrar as outras partes que dependem dele.
+Os pontos marcados [provável] acima são leituras do código que ainda precisam de confirmação no jogo. Em ordem de uso:
+
+- **Relógio (US da partida):** confirmar que o `OnUpdate` trocado com `dt = 0` mantém `uiclock` e a luz paradas sem tremer, e que o passo de 50% sincroniza os clientes na troca de segmento. Confirmar que `ms_setseasonclocksegs` enviado num `AddPrefabPostInit("forest_network")` chega depois do `PushSeasonClockSegs` inicial.
+- **Mapa (US #29):** confirmar o registro do static layout pela tabela `Layouts` de `map/layouts.lua` no `modworldgenmain.lua` e que a floresta com `overrides` zerados fica mesmo vazia (sem spawners residuais do `prefabs/forest.lua`).
+- **Animações:** confirmar que um estado próprio registrado com `AddStategraphState` toca a animação sem o `idle` atropelar, em uma criatura comum e em um Chefe.
+- **Escala:** testar dentro do jogo a escala dos Chefes, a sombra (`DynamicShadow`) e os efeitos presos por `FollowSymbol`.
+- **Inventário (US #37):** confirmar que os atlas do Álbum funcionam como imagem de item de inventário.
