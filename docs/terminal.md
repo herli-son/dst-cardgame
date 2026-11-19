@@ -92,7 +92,7 @@ Rodada 2: token de ataque com você.
 Você ataca com Coelho.
 O bot bloqueia: Aranha bloqueia Coelho.
 > passar
-Fase rápida:
+Fase rápida: Coelho contra Aranha.
   Aranha golpeia Coelho por 2.
 Coelho (sua) morre por Aranha.
 ```

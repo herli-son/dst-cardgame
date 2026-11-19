@@ -156,11 +156,16 @@ function Partida.describe_events(g, from_index, p)
       else
         local list = {}
         for _, b in ipairs(ev.blocks) do list[#list + 1] = nome(b.blocker) .. " bloqueia " .. nome(b.attacker) end
-        add(quem(ev.p, true) .. " bloqueia" .. (ev.auto and " (obrigatório)" or "")
+        local como = ""
+        if ev.auto == "guarda" then como = " (Guarda)" elseif ev.auto then como = " (obrigatório)" end
+        add(quem(ev.p, true) .. " bloqueia" .. como
           .. ": " .. table.concat(list, "; ") .. ".")
       end
     elseif t == "strike_phase" then
-      add(ev.phase == "rapida" and "Fase rápida:" or "Fase normal:")
+      -- Cada par (atacante e bloqueador, ou atacante sozinho) tem as suas fases.
+      local par = ev.attacker_uid and (" " .. nome(ev.attacker_uid)
+        .. (ev.blocker_uid and (" contra " .. nome(ev.blocker_uid)) or "") .. ".") or ""
+      add((ev.phase == "rapida" and "Fase rápida:" or "Fase normal:") .. par)
     elseif t == "strike" then
       if ev.target_player then
         add("  " .. nome(ev.uid) .. " golpeia " .. quem(ev.target_player) .. " por " .. ev.amount .. ".")

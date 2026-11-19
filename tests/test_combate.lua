@@ -282,6 +282,24 @@ return {
 
   { "vitória é verificada antes das mortes: o efeito ao morrer não decide a partida", function(T)
     local g = new_game()
+    -- O par resolve inteiro antes do seguinte, então a vitória que precede as
+    -- mortes tem de vir do mesmo par: aqui, do Golpear do atacante.
+    Cards.define{ id = "c_lobo_fim", kind = "criatura", cost = 0, atk = 3, hp = 2,
+      on_strike = function(gg) gg:damage_player(2, 3, "teste") end }
+    put(g, 1, "c_lobo_fim", 1)
+    put(g, 2, "c_rato", 1)
+    g.players[1].life = 1
+    g.players[2].life = 3
+    g:on("death", function(gg) gg:damage_player(1, 1, "teste") end)
+    attack(g, { 1 }); g:act(1, { type = "pass" })
+    g:act(2, { type = "block", blocks = { { attacker = 1, blocker = 1 } } })
+    g:act(2, { type = "pass" }); g:act(1, { type = "pass" })
+    T.eq(g.winner, 1)
+    T.eq(g.players[1].life, 1, "o efeito de morte não rodou depois da vitória")
+  end },
+
+  { "as mortes e os efeitos do par anterior acontecem antes do golpe do par seguinte", function(T)
+    local g = new_game()
     put(g, 1, "c_lobo", 1); put(g, 1, "c_lobo", 2)
     put(g, 2, "c_rato", 1)
     g.players[1].life = 1
@@ -290,8 +308,8 @@ return {
     attack(g, { 1, 2 }); g:act(1, { type = "pass" })
     g:act(2, { type = "block", blocks = { { attacker = 1, blocker = 1 } } })
     g:act(2, { type = "pass" }); g:act(1, { type = "pass" })
-    T.eq(g.winner, 1)
-    T.eq(g.players[1].life, 1, "o efeito de morte não rodou depois da vitória")
+    T.eq(g.winner, 2, "o ao morrer do rato decide antes de o segundo lobo golpear")
+    T.eq(g.players[2].life, 3)
   end },
 
   { "golpe com dano zero também é registrado", function(T)

@@ -8,6 +8,11 @@
 -- Criatura:
 --   atk, hp, speed (padrão 1), kw = { agressivo = true, fragil = true, ... },
 --   kw.rival = "tipo"                  Rival guarda o nome do tipo (ex.: "porco")
+--   kw.guarda = true                   Guarda (Porco guarda): só na defesa, depois
+--                                      de bloquear o atacante dela e sobreviver,
+--                                      passa a bloquear o próximo atacante à
+--                                      direita que nunca teve bloqueador; uma vez
+--                                      por combate (ver combate.lua)
 --   types = { aranha = true, ... }, sobrevivente (boolean)
 --   returns_to_extra = true            como ficha, volta ao baralho extra em vez do
 --                                      descarte (Fantasmas criados, Alimentos)
