@@ -89,6 +89,8 @@ return {
       machado = { "Machado", "equipamento", 2, 12 },
       lanca = { "Lança", "equipamento", 3, 13 },
       pa = { "Pá", "equipamento", 1, 14 },
+      armadura_de_grama = { "Armadura de grama", "equipamento", 1, 15 },
+      armadura_de_madeira = { "Armadura de madeira", "equipamento", 2, 16 },
     }
     for id, e in pairs(esperado) do
       local def = Cards.get(id)
@@ -261,5 +263,61 @@ return {
     T.ok(g:act(1, { type = "play", hand_index = idx, from = "inventory", target = 1 }))
     T.eq(c.equips.mao.def.id, "pa")
     T.eq(c.equips.mao.pronta, nil, "reequipada sem a marca")
+  end },
+
+  { "Armadura de grama: peito, +2 de vida, durabilidade 2, gasta 1 por golpe recebido", function(T)
+    local g = new_game()
+    put(g, 1, "w_comum", 1)
+    local d = put(g, 2, "w_sobrev", 1)
+    local e = equip(g, d, "armadura_de_grama")
+    T.eq(e.def.slot, "peito"); T.eq(g:hp(d), 11); T.eq(e.durability, 2)
+    fight(g, { 1 }, { { 1, 1 } })
+    T.eq(d.damage, 1, "sem redução de dano")
+    T.eq(e.durability, 1)
+    T.eq(g:creature_at(1, 1).damage, 1, "golpear de volta não gasta a própria armadura")
+  end },
+
+  { "Armadura de grama quebra no segundo golpe e a vida extra some", function(T)
+    local g = new_game()
+    Cards.define{ id = "w_tres", kind = "criatura", cost = 0, atk = 3, hp = 1, sobrevivente = true }
+    put(g, 1, "w_comum", 1); put(g, 1, "w_comum", 2)
+    local d = put(g, 2, "w_tres", 1)
+    equip(g, d, "armadura_de_grama")
+    T.eq(g:hp(d), 3)
+    -- O primeiro golpe recebido fica por conta do desgaste direto.
+    g:wear(d, "peito", 1)
+    fight(g, { 1 }, { { 1, 1 } })
+    T.eq(d.equips.peito, nil, "quebrou")
+    T.eq(g:creature_at(2, 1), nil, "com 1 de dano e 1 de vida, morreu quando a armadura saiu")
+    T.eq(g.players[2].discard[#g.players[2].discard - 1].id, "armadura_de_grama")
+    Cards.remove("w_tres")
+  end },
+
+  { "Armadura de madeira: peito, +1 de vida, durabilidade 3, 1 de dano a menos de cada fonte", function(T)
+    local g = new_game()
+    Cards.define{ id = "w_dois", kind = "criatura", cost = 0, atk = 2, hp = 9 }
+    put(g, 1, "w_dois", 1)
+    local d = put(g, 2, "w_sobrev", 1)
+    local e = equip(g, d, "armadura_de_madeira")
+    T.eq(e.def.slot, "peito"); T.eq(g:hp(d), 10); T.eq(e.durability, 3)
+    fight(g, { 1 }, { { 1, 1 } })
+    T.eq(d.damage, 1, "2 de dano vira 1")
+    T.eq(e.durability, 2)
+    T.eq(g:damage_creature(d, 1, nil, "teste"), 0, "1 vira 0")
+    T.eq(g:damage_creature(d, 3, nil, "teste"), 2, "cada fonte perde 1")
+    T.eq(d.damage, 3)
+    Cards.remove("w_dois")
+  end },
+
+  { "Armadura de madeira: golpe reduzido a zero ainda gasta a durabilidade", function(T)
+    local g = new_game()
+    put(g, 1, "w_comum", 1)
+    local d = put(g, 2, "w_sobrev", 1)
+    local e = equip(g, d, "armadura_de_madeira")
+    fight(g, { 1 }, { { 1, 1 } })
+    T.eq(d.damage, 0)
+    T.eq(e.durability, 2)
+    local strikes = events(g, "strike")
+    T.ok(#strikes >= 1, "o golpe aconteceu")
   end },
 }
