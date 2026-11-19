@@ -55,7 +55,7 @@ return {
 }
 ```
 
-e o mod é ativado em `modoverrides.lua` com `["workshop-..."]` ou, para o mod local, `["dst-cardgame"] = { enabled = true }`. Não configure o shard Caves.
+e o mod é ativado em `modoverrides.lua` com `["workshop-..."]` ou, para o mod local, `["dst-cardgame"] = { enabled = true }` (o nome é o da pasta). Para mod local, a pasta precisa estar no `mods/` da instalação do **servidor dedicado**, não na do cliente; `dedicated_server_mods_setup.lua` só é necessário para mods da Workshop. Não configure o shard Caves.
 
 ## O que conferir no primeiro teste
 
@@ -68,5 +68,6 @@ Os testes automáticos (`tests/test_mod_arena.lua`) só verificam que os arquivo
 - **Sem cavernas:** o servidor sobe só o shard Master; não há buracos (`cave_entrance`) na mesa.
 - **Relógio e clima:** o tempo ainda corre normalmente (o travamento é a US #31). Deve ficar no outono para sempre (as quatro estações em `noseason`) e sem chuva, raios nem geada.
 - **Console útil:** `c_select()` em cima do portal e `TheWorld.Map:GetTileCoordsAtPoint(c_sel().Transform:GetWorldPosition())` dão a posição do portal; `TheWorld.Map:GetTile(x, y)` confirma o tile.
+- **Meio tile de diferença:** o gerador pode deslocar os objetos do layout em meio tile (2 unidades) em relação à grade do chão (`map/object_layout.lua` centra objetos e tiles de formas diferentes). Se a posição do portal não bater exatamente com `Mesa.PORTAL`, a US #30 deve achar a origem da mesa pelos próprios tiles (`GetTileCoordsAtPoint` sobre o carpete central) e usar o portal só para decidir `espelhado`.
 
 Resultado esperado: um mundo só com a mesa e o portal, sem nada para coletar, sem noite perigosa fora o escuro, e um log limpo de erros do mod (`server_log.txt` do shard Master).
