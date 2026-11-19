@@ -112,10 +112,7 @@ function Game:run_card(kind, id, fn, ...)
   return unpack(r, 1, r.n)
 end
 
--- rng(n) deve devolver um inteiro entre 1 e n. O padrão usa math.random.
-local function default_rng(n)
-  return math.random(n)
-end
+local Rng = require("duelo/core/rng")
 
 local function new_player(deck, extra)
   return {
@@ -143,6 +140,7 @@ local function deep_copy(v)
   for k, x in pairs(v) do c[k] = deep_copy(x) end
   return c
 end
+Game.deep_copy = deep_copy
 
 -- Copia o baralho recebido e dá a cada carta um identificador próprio desta partida.
 local function copy_deck(g, deck)
@@ -155,10 +153,41 @@ local function copy_deck(g, deck)
   return copy
 end
 
+-- Lista dos ids de um baralho, na ordem dada, para o registro da partida.
+local function deck_ids(deck)
+  local ids = {}
+  for i, card in ipairs(deck or {}) do ids[i] = card.id end
+  return ids
+end
+
+-- Sorteio (US #82): com opts.seed, o rng é o determinístico do motor
+-- (duelo/core/rng) e a partida pode ser reproduzida pelo registro. Sem seed nem
+-- rng, uma semente é sorteada com math.random, e a partida continua
+-- reproduzível. Com opts.rng (uma função rng(n) -> 1..n, usada pelos testes), o
+-- registro fica sem semente e não é reproduzível.
+local function make_rng(opts)
+  if opts.rng then return opts.rng, nil end
+  local seed = opts.seed or math.random(Rng.MAX_SEED)
+  return Rng.make(seed), seed
+end
+
 function Game.new(opts)
   opts = opts or {}
   local g = setmetatable({}, Game)
-  g.rng = opts.rng or default_rng
+  local seed
+  g.rng, seed = make_rng(opts)
+  -- Registro da partida (US #82): o que basta para reproduzi-la com
+  -- Game.replay. first é o pedido (nil quando sorteado, para o sorteio se
+  -- repetir); as ações são só as aceitas, com cópia, na ordem; a troca inicial
+  -- entra como { type = "mulligan", indices = {...} }.
+  g.log = {
+    seed = seed,
+    first = opts.first,
+    mulligan = opts.mulligan ~= false,
+    decks = { deck_ids(opts.decks and opts.decks[1]), deck_ids(opts.decks and opts.decks[2]) },
+    extra_decks = { deck_ids(opts.extra_decks and opts.extra_decks[1]), deck_ids(opts.extra_decks and opts.extra_decks[2]) },
+    actions = {},
+  }
   g.uid_counter = 0
   g.hooks = { period = {}, round_start = {}, round_end = {}, death = {} }
   -- Modificadores do limite de mão; use Game:add_hand_limit_mod.
@@ -790,13 +819,27 @@ function Game:start()
   return self:guarded(settled_call, start_impl)
 end
 
+-- Entrada registrada (US #82): roda a entrada protegida e guarda a ação no
+-- registro quando ela foi aceita, com cópia profunda (a tabela do chamador pode
+-- ser alterada depois). A ação que encerrou a partida por erro também entra: a
+-- reprodução precisa dela para parar no mesmo ponto, com o mesmo erro.
+local function recorded_call(self, p, action, core, ...)
+  local was_error = self.phase == "error"
+  local ok, err = self:guarded(settled_call, core, ...)
+  if ok == true or (self.phase == "error" and not was_error) then
+    local actions = self.log.actions
+    actions[#actions + 1] = { p = p, action = deep_copy(action) }
+  end
+  return ok, err
+end
+
 function Game:mulligan(p, indices)
-  return self:guarded(settled_call, mulligan_impl, p, indices)
+  return recorded_call(self, p, { type = "mulligan", indices = indices or {} }, mulligan_impl, p, indices)
 end
 
 -- Ponto único de entrada das jogadas.
 function Game:act(p, action)
-  return self:guarded(settled_call, act_impl, p, action)
+  return recorded_call(self, p, action, act_impl, p, action)
 end
 
 require("duelo/core/pilha")(Game)
