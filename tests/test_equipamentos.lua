@@ -248,4 +248,23 @@ return {
     Cards.remove("t_madeira"); Cards.remove("t_forte")
     clear_test_cards()
   end },
+
+  { "efeito ativado de equipamento gasta durabilidade, salvo com activation.no_wear", function(T)
+    local uses = 0
+    Cards.define{ id = "t_lanterna", kind = "equipamento", slot = "cabeca", cost = 1, durability = 2,
+      activation = { speed = "instantaneo" }, activate = function() uses = uses + 1 end }
+    Cards.define{ id = "t_apito", kind = "equipamento", slot = "mao", cost = 1, durability = 1,
+      activation = { speed = "instantaneo", no_wear = true }, activate = function() uses = uses + 1 end }
+    local g = new_game()
+    local c = put(g, 1, "t_sobrevivente", 1)
+    g:equip(c, { id = "t_lanterna", uid = g:next_uid() })
+    g:equip(c, { id = "t_apito", uid = g:next_uid() })
+    T.ok(g:act(1, { type = "activate", creature = 1, equip = "cabeca" }))
+    T.eq(c.equips.cabeca.durability, 1)
+    T.ok(g:act(1, { type = "activate", creature = 1, equip = "mao" }))
+    T.eq(c.equips.mao.durability, 1, "não gastou")
+    T.eq(uses, 2)
+    Cards.remove("t_lanterna"); Cards.remove("t_apito")
+    clear_test_cards()
+  end },
 }

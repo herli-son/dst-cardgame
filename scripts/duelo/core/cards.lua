@@ -57,7 +57,10 @@
 --                                      declarado atacante)
 --   activate(game, p, equip, action, objects)  efeito ativado; equip.holder é o
 --                                      portador e só existe durante o activate (não
---                                      em can_activate nem em targets)
+--                                      em can_activate nem em targets). O uso gasta
+--                                      1 de durabilidade, salvo activation.no_wear
+--   can_activate(game, p, fonte, action) -> ok, motivo   condição extra do efeito
+--                                      ativado (estrutura ou equipamento)
 
 local Cards = {}
 

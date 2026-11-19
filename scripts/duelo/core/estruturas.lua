@@ -3,7 +3,8 @@
 -- Instala os métodos no Game: require("duelo/core/estruturas")(Game)
 --
 -- Campos da definição de uma estrutura:
---   activation = { once_per_round = bool, speed = "instantaneo" | "rapido" | "lento" }
+--   activation = { once_per_round = bool, speed = "instantaneo" | "rapido" | "lento",
+--                  no_wear = bool }  no_wear: num equipamento, o uso não gasta durabilidade
 --   activate(game, p, fonte, action, objects)   efeito ativado; objects são os alvos
 --                                               travados; pode abrir uma escolha
 --   on_break(game, estrutura)              ao ser quebrada
@@ -359,8 +360,10 @@ return function(Game)
     card.used_round = g.round
     card.used_period = period_key
     g:emit{ t = "activate", p = p, uid = src.uid, card_uid = src.card_uid, id = def.id, speed = spec.speed }
-    -- Equipamentos com efeito de uso perdem 1 de durabilidade ao usar o efeito.
-    if src.holder and src.durability then g:wear(src.holder, def.slot, 1) end
+    -- Equipamentos com efeito de uso perdem 1 de durabilidade ao usar o efeito,
+    -- salvo os que dizem o contrário (activation.no_wear; ex.: Pá, que gasta uma
+    -- marca própria em vez da durabilidade).
+    if src.holder and src.durability and not spec.no_wear then g:wear(src.holder, def.slot, 1) end
     local locks = g:lock_targets(action)
     return true, nil, g:use_speed(p, spec.speed, def.id, function(gg)
       -- Alvo perdido: se o alvo saiu de campo até a resolução, o efeito não acontece.
