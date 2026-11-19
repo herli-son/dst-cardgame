@@ -204,4 +204,22 @@ return {
     Cards.remove("t_pa")
     clear_test_cards()
   end },
+
+  { "ao atacar dispara na declaração, para a criatura e os equipamentos dela", function(T)
+    local log = {}
+    Cards.define{ id = "t_bravo", kind = "criatura", cost = 0, atk = 1, hp = 3, sobrevivente = true,
+      on_attack = function(g, c) log[#log + 1] = "criatura" end }
+    Cards.define{ id = "t_picareta", kind = "equipamento", slot = "mao", cost = 1,
+      on_attack = function(g, c, e) log[#log + 1] = "equip:" .. e.def.id .. ":" .. c.def.id end }
+    local g = new_game()
+    local c = put(g, 1, "t_bravo", 1)
+    g:equip(c, { id = "t_picareta", uid = g:next_uid() })
+    put(g, 1, "t_sobrevivente", 2)
+    T.ok(g:act(1, { type = "attack", attackers = { 2, 1 } }))
+    T.eq(#log, 2, "só quem ataca dispara; o Sobrevivente sem efeito não entra")
+    T.eq(log[1], "criatura"); T.eq(log[2], "equip:t_picareta:t_bravo")
+    T.eq(g.combat ~= nil, true, "dispara antes dos bloqueios")
+    Cards.remove("t_bravo"); Cards.remove("t_picareta")
+    clear_test_cards()
+  end },
 }

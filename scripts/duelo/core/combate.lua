@@ -64,7 +64,7 @@
 --
 -- Campos da definição usados aqui (referência completa em cards.lua): no_attack,
 -- no_block, cannot_be_blocked_by, speed, block_speed, speed_fn, kw (fragil,
--- agressivo, rival, guarda), types e on_strike (criatura e equipamento).
+-- agressivo, rival, guarda), types, on_strike e on_attack (criatura e equipamento).
 
 return function(Game)
   ----------------------------------------------------------------------------
@@ -181,7 +181,24 @@ return function(Game)
     for i, c in ipairs(attackers) do uids[i] = c.uid end
     g:emit{ t = "attack", p = p, attackers = uids }
     g:push_stack(p, { label = "ataque", resolve = function(gg) gg:resolve_combat() end })
+    g:fire_attack_effects(attackers)
     return true, nil, false
+  end
+
+  -- "Ao atacar": dispara quando o ataque é declarado, na ordem declarada, para
+  -- cada atacante: def.on_attack(game, criatura) da criatura e depois
+  -- equip.def.on_attack(game, criatura, equip) de cada equipamento dela (ordem
+  -- dos espaços). Cada efeito é um efeito próprio para a vitória.
+  function Game:fire_attack_effects(attackers)
+    for _, c in ipairs(attackers) do
+      if self.winner ~= nil then return end
+      if c.def.on_attack then self:effect("atacar", c.def.id, c.def.on_attack, self, c) end
+      for _, slot in ipairs(Game.EQUIP_ORDER) do
+        if self.winner ~= nil then return end
+        local e = c.equips[slot]
+        if e and e.def.on_attack then self:effect("atacar", e.def.id, e.def.on_attack, self, c, e) end
+      end
+    end
   end
 
   ----------------------------------------------------------------------------

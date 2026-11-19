@@ -33,6 +33,8 @@
 --   speed_fn(game, criatura, role)     velocidade que depende do estado; role =
 --                                      "attack" | "block"
 --   on_strike(game, criatura, alvo)    Golpear: depois de um golpe com dano > 0
+--   on_attack(game, criatura)          Ao atacar: quando a criatura é declarada
+--                                      atacante (antes dos bloqueios)
 --   on_play(game, criatura, objects, action)  efeito ao entrar em campo; com
 --                                      play_targets, os alvos vêm da jogada (objects)
 --   play_targets(game, p, action, objects) -> ok, erro   alvos do efeito de
@@ -50,6 +52,8 @@
 --                                      efeito passa como opts.slot de create_token
 -- Equipamento:
 --   on_strike(game, portador, alvo, equip)  Golpear do equipamento
+--   on_attack(game, portador, equip)   Ao atacar do equipamento (o portador foi
+--                                      declarado atacante)
 --   activate(game, p, equip, action, objects)  efeito ativado; equip.holder é o
 --                                      portador e só existe durante o activate (não
 --                                      em can_activate nem em targets)
