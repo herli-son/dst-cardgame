@@ -8,7 +8,7 @@ local Cards = require("duelo/core/cards")
 local MORCEGO = { manha = { 0, 1 }, tarde = { 1, 1 }, noite = { 2, 1 } }
 
 return Cards.define{
-  id = "morcego", name = "Morcego", kind = "criatura", cost = 1,
+  id = "morcego", name = "Morcego", kind = "criatura", cost = 1, numero = 4,
   atk = 0, hp = 1, speed = 2,
   kw = { agressivo = true },
   stats = function(game, c)

@@ -5,7 +5,7 @@
 local Cards = require("duelo/core/cards")
 
 return Cards.define{
-  id = "passaro", name = "Pássaro", kind = "criatura", cost = 1,
+  id = "passaro", name = "Pássaro", kind = "criatura", cost = 1, numero = 5,
   atk = 0, hp = 1,
   kw = { fragil = true },
   -- Reage à entrada de qualquer criatura Agressiva, de qualquer jogador, jogada

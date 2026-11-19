@@ -5,7 +5,7 @@
 local Cards = require("duelo/core/cards")
 
 return Cards.define{
-  id = "porco", name = "Porco", kind = "criatura", cost = 4,
+  id = "porco", name = "Porco", kind = "criatura", cost = 4, numero = 1,
   atk = 4, hp = 5,
   types = { porco = true },
   text = "Porco. Sem efeito.",

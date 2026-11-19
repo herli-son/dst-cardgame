@@ -33,7 +33,7 @@ local function roubar(game, alvo, e)
 end
 
 return Cards.define{
-  id = "sapo", name = "Sapo", kind = "criatura", cost = 1,
+  id = "sapo", name = "Sapo", kind = "criatura", cost = 1, numero = 3,
   atk = 1, hp = 2,
   kw = { agressivo = true },
   -- Golpear uma criatura com equipamentos: com um só, ele vai direto; com mais,

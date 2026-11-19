@@ -5,7 +5,7 @@
 local Cards = require("duelo/core/cards")
 
 return Cards.define{
-  id = "borboleta", name = "Borboleta", kind = "criatura", cost = 1,
+  id = "borboleta", name = "Borboleta", kind = "criatura", cost = 1, numero = 6,
   atk = 0, hp = 1,
   kw = { fragil = true },
   on_death = function(game, c)

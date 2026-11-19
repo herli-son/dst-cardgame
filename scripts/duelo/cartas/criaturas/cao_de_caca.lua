@@ -6,7 +6,7 @@ local Cards = require("duelo/core/cards")
 
 -- As variantes por estação ficam para a US #45.
 return Cards.define{
-  id = "cao_de_caca", name = "Cão de caça", kind = "criatura", cost = 2,
+  id = "cao_de_caca", name = "Cão de caça", kind = "criatura", cost = 2, numero = 7,
   atk = 2, hp = 2,
   kw = { agressivo = true },
   text = "Agressivo.",

@@ -7,7 +7,7 @@ local Cards = require("duelo/core/cards")
 -- A Guarda (o salto para o próximo atacante sem bloqueador) é regra do motor:
 -- ver combate.lua. A carta só carrega a palavra-chave.
 return Cards.define{
-  id = "porco_guarda", name = "Porco guarda", kind = "criatura", cost = 5,
+  id = "porco_guarda", name = "Porco guarda", kind = "criatura", cost = 5, numero = 2,
   atk = 2, hp = 7,
   types = { porco = true },
   kw = { guarda = true },
