@@ -21,7 +21,7 @@ local Cards = require("duelo/core/cards")
 
 local Decks = {}
 
-Decks.NOMES = { "wilson" }
+Decks.NOMES = { "wilson", "webber" }
 Decks.TAMANHO = 40
 Decks.COPIAS = 3
 
