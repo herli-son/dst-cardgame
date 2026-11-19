@@ -115,6 +115,25 @@ return {
     T.eq(g:creature_at(2, 2), nil, "a aura morreu")
     T.eq(g:creature_at(2, 1), nil, "a criatura do tipo morreu junto, sem outro dano")
     T.eq(g:creature_at(1, 1), urso)
+    -- As duas mortes saem na verificação da fase, antes do fim do combate.
+    local fim, mortes = nil, 0
+    for i, ev in ipairs(g.events) do
+      if ev.t == "combat_end" and fim == nil then fim = i end
+      if ev.t == "death" and ev.uid == tipo.uid then mortes = i end
+    end
+    T.ok(fim ~= nil and mortes > 0 and mortes < fim, "morte da aliada antes de combat_end")
+  end },
+
+  { "um ouvinte com dano letal pendente não roda", function(T)
+    local g = new_game()
+    local ouvinte = put(g, 1, "v_ouvinte", 1)
+    local muro = put(g, 1, "v_muro", 2)
+    -- Dano letal no ouvinte sem passar por settle: ele ainda está em campo,
+    -- mas fora de jogo (dano >= vida), igual ao critério de in_play.
+    ouvinte.damage = 3
+    g:damage_creature(muro, 1, nil, "teste")
+    T.eq(#log, 0, "não cura nem anota")
+    T.eq(muro.damage, 1)
   end },
 
   { "uma criatura que sai e volta ganha a aura de novo (vida máxima sempre recalculada)", function(T)

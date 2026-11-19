@@ -49,7 +49,8 @@
 --                                      do mesmo dono (esta inclusa) recebeu dano
 --                                      de uma fonte e seguiu com dano < vida;
 --                                      dispara na hora, por fonte, com o dano
---                                      marcado e a fonte (criatura ou nil). Dano
+--                                      marcado e a fonte (criatura, carta de
+--                                      feitiço ou nil). Dano
 --                                      reduzido a zero não conta (ver combate.lua)
 --   stats(game, criatura) -> atk, hp   atributos que dependem do estado (ex.: Morcego)
 --   aura_hp(game, fonte, alvo) -> n    bônus de vida contínuo que a fonte, em campo,

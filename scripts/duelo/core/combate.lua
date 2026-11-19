@@ -116,13 +116,15 @@ return function(Game)
   -- quem sobrevive dispara antes dos efeitos de Golpear e da verificação de
   -- mortes da fase. Consequência aceita: se na mesma fase morre a fonte de uma
   -- aura de vida, a sobrevivente é curada com a vida que tinha no golpe, e só
-  -- depois a vida cai. Um ouvinte que sair de campo durante a passada não roda;
-  -- se a criatura sair (ou a partida for decidida), os seguintes não rodam.
+  -- depois a vida cai. Um ouvinte só roda se estiver em jogo (em campo e com
+  -- dano < vida, o mesmo critério de in_play); a sobrevivente é reconferida
+  -- antes de cada ouvinte, então se um deles a deixar letal, ou a tirar de
+  -- campo, ou decidir a partida, os seguintes não rodam.
   function Game:fire_survive_effects(c, amount, source)
     local pl = self.players[c.owner]
     for _, l in ipairs(self:creatures(c.owner)) do
-      if self.winner ~= nil or pl.field[c.slot] ~= c then return end
-      if l.def.on_survive_damage and pl.field[l.slot] == l then
+      if self.winner ~= nil or pl.field[c.slot] ~= c or c.damage >= self:hp(c) then return end
+      if l.def.on_survive_damage and pl.field[l.slot] == l and l.damage < self:hp(l) then
         self:effect("sobreviver", l.def.id, l.def.on_survive_damage, self, l, c, amount, source)
       end
     end
