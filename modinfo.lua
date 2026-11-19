@@ -24,4 +24,20 @@ client_only_mod = false
 
 server_filter_tags = { "card game", "duelo", "pvp" }
 
-configuration_options = {}
+-- Opções do mod (lidas em modmain.lua por GetModConfigData; formato de
+-- modindex.lua / screens/redux/modconfigurationscreen.lua).
+configuration_options = {
+  {
+    -- Estado inicial do relógio do mundo enquanto não há partida (US #31).
+    -- "travado": o tempo só anda por DUELO.Relogio.avancar(n) no console.
+    -- "livre": o relógio corre como no jogo normal, para comparar.
+    name = "relogio",
+    label = "Relógio do mundo",
+    hover = "Travado: o tempo só anda quando a partida avança. Livre: corre como no jogo normal.",
+    options = {
+      { description = "Travado", data = "travado", hover = "O relógio nasce parado." },
+      { description = "Livre", data = "livre", hover = "O relógio corre sozinho." },
+    },
+    default = "travado",
+  },
+}
