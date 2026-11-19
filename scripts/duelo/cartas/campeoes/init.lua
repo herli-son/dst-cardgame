@@ -2,6 +2,7 @@
 -- Carregar este módulo registra todas no motor (Cards.define) e devolve os ids.
 
 local ids = {
+  "webber",
 }
 
 for _, id in ipairs(ids) do
