@@ -55,6 +55,35 @@ define{
 }
 
 ----------------------------------------------------------------------------
+-- Pássaro e Borboleta
+----------------------------------------------------------------------------
+
+define{
+  id = "passaro", name = "Pássaro", kind = "criatura", cost = 1,
+  atk = 0, hp = 1,
+  kw = { fragil = true },
+  -- Reage à entrada de qualquer criatura Agressiva, de qualquer jogador, jogada
+  -- ou criada. O abate dispara o "ao morrer" normalmente; a compra vem depois.
+  on_any_enter = function(game, passaro, nova)
+    if not nova.def.kw.agressivo then return end
+    game:kill(passaro, "passaro")
+    game:draw(passaro.owner, 1)
+  end,
+  text = "Frágil. Quando uma criatura Agressiva entra em jogo, abata o Pássaro "
+    .. "e o dono dele compra 1 carta.",
+}
+
+define{
+  id = "borboleta", name = "Borboleta", kind = "criatura", cost = 1,
+  atk = 0, hp = 1,
+  kw = { fragil = true },
+  on_death = function(game, c)
+    game:heal_player(c.owner, 2, "borboleta")
+  end,
+  text = "Frágil. Ao morrer, o dono recupera 2 de vida.",
+}
+
+----------------------------------------------------------------------------
 -- Cão de caça
 ----------------------------------------------------------------------------
 
