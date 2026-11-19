@@ -111,6 +111,18 @@ return {
     rodar("modmain.lua", env)
     T.eq(env.DUELO.Mesa, Mesa, "DUELO.Mesa é o módulo duelo/mod/mesa")
     T.ok(servidor, "consulta se é servidor")
+    -- US #30: prefab do marcador e os módulos da mesa.
+    T.eq(type(env.PrefabFiles), "table", "PrefabFiles")
+    local tem = false
+    for _, nome in ipairs(env.PrefabFiles) do
+      if nome == "duelo_marcador" then tem = true end
+      local fn = loadfile(RAIZ .. "scripts/prefabs/" .. nome .. ".lua")
+      T.ok(fn, "scripts/prefabs/" .. nome .. ".lua existe e compila")
+    end
+    T.ok(tem, "PrefabFiles registra duelo_marcador")
+    T.eq(type(env.DUELO.Calibracao.calibrar), "function", "DUELO.Calibracao")
+    T.eq(type(env.DUELO.Marcadores.criar), "function", "DUELO.Marcadores")
+    T.eq(type(env.DUELO.Camera.aplicar), "function", "DUELO.Camera")
   end },
 
   { "modworldgenmain.lua registra layout, task, task set, start e nível", function(T)
