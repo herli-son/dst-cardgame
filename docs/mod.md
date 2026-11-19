@@ -76,7 +76,7 @@ Resultado esperado: um mundo só com a mesa e o portal, sem nada para coletar, s
 
 ## O que conferir na US #31 (nada do mundo interfere no duelo)
 
-Os testes automáticos (`tests/test_mod_protecao.lua`) rodam `relogio.lua` e `protecao.lua` com um ambiente falso: conferem que o wrapper do relógio chama o original com `dt = 0` travado e com o `dt` real livre, que `avancar(n)` anda `n × SEG_TIME`, que `travar`/`liberar` escrevem na variável de rede, que o servidor manda 5/5/6 e as quatro estações com duração 0, e que o post init do jogador faz as chamadas certas em cada lado. O que segue só se confirma no jogo, de preferência com **host + um cliente** (o cliente precisa do mod: `all_clients_require_mod`).
+Os testes automáticos (`tests/test_mod_protecao.lua`) rodam `relogio.lua` e `protecao.lua` com um ambiente falso: conferem que o wrapper do relógio chama o original com `dt = 0` travado e com o `dt` real livre, que `avancar(n)` anda `n × SEG_TIME`, que `travar`/`liberar` escrevem na variável de rede, que o servidor manda 5/5/6 e as quatro estações com duração 0 (o nível deixa o outono longo, e aqui ele também trava), e que o post init do jogador faz as chamadas certas em cada lado. O que segue só se confirma no jogo, de preferência com **host + um cliente** (o cliente precisa do mod: `all_clients_require_mod`).
 
 **Opção do mod.** Em **Mods → DST Card Game → Configurar**, a opção **Relógio do mundo** tem `Travado` (padrão) e `Livre`. Com `Livre` o mundo se comporta como o jogo normal (serve de comparação); o resto desta lista assume `Travado`.
 
@@ -84,7 +84,8 @@ Os testes automáticos (`tests/test_mod_protecao.lua`) rodam `relogio.lua` e `pr
 
 - O ponteiro do relógio no canto da tela não anda, nem no host nem no cliente. A luz não muda. `TheWorld.state.time` e `TheWorld.state.timeinphase` no console devolvem sempre o mesmo valor.
 - `DUELO.Relogio.avancar(1)` no console do **host** anda exatamente um segmento (1/16 do relógio): o ponteiro pula uma fatia nos dois lados, sem tremer, e `TheWorld.state.time` sobe 1/16 = 0,0625. Se o cliente ficar para trás ou pular de forma diferente, a sincronia pelas netvars do `clock` não aconteceu como a investigação previu.
-- `DUELO.Relogio.avancar(0.5)` anda meio segmento (é o passo que a partida vai usar: meio período = 2,5 segmentos de dia).
+- `DUELO.Relogio.avancar(0.5)` anda meio segmento no host. **No cliente** ele só aparece no próximo passo que atravessar um segmento: o `clock` só sincroniza os clientes na troca de segmento. Os passos da partida (meio período = 2,5 ou 3 segmentos) sempre atravessam.
+- `c_skip()` com o relógio travado não anda o tempo (o `LongUpdate` passa pelo mesmo bloqueio); use `avancar`.
 - `DUELO.Relogio.avancar(5)` a partir do começo do dia troca para o entardecer (`TheWorld.state.phase` → `"dusk"`); mais 5 vai para a noite; mais 6 volta ao dia e `TheWorld.state.cycles` sobe 1. A estação continua `autumn` (`TheWorld.state.season`).
 - `DUELO.Relogio.liberar()` deixa o tempo correr nos dois lados; `DUELO.Relogio.travar()` para de novo. No cliente os três comandos só imprimem um aviso (`[duelo] ...`).
 - **Divisão 5/5/6:** o relógio da tela mostra 5 fatias de dia, 5 de entardecer e 6 de noite (no outono normal seriam 8/6/2). Depois de um ciclo completo (`avancar(16)`) a divisão continua 5/5/6, o que confirma que o `seasons` passou a reenviar os nossos segmentos.
@@ -93,12 +94,12 @@ Os testes automáticos (`tests/test_mod_protecao.lua`) rodam `relogio.lua` e `pr
 
 - Com o relógio na noite (`avancar` até `TheWorld.state.phase == "night"`), ficar parado no escuro, longe do portal, não dá o aviso nem o ataque do Charlie, no host e no cliente.
 - A noite continua com cara de noite (escura, sem o filtro verde do chapéu de toupeira), mas dá para ver a mesa.
-- Para comparar: `ThePlayer.components.playervision:ForceNightVision(false)` no host (só no host; o componente não tem rede) volta o Charlie para o jogador do host.
+- O Charlie fica parado por dois motivos ao mesmo tempo: visão noturna e invencibilidade (`components/grue.lua` respeita as duas). Desligar só a visão noturna não o traz de volta; não há comparação simples sem desligar a proteção inteira.
 
 **Vida, fome e sanidade paradas.**
 
 - As três barras não se mexem com o tempo (deixe o relógio livre por alguns minutos para ter certeza).
-- Bater em si: `c_select(ThePlayer)` e depois `c_sel().components.health:DoDelta(-50)` não tira vida (`DoDelta` ignora o dano com `invincible`); `c_sel().components.hunger:DoDelta(-50)` tira fome (é uma chamada direta), mas ela não volta a cair sozinha; `c_sel().components.sanity:DoDelta(-50)` idem. `c_godmode()` **alterna** a invencibilidade (`consolecommands.lua`): ele imprime `God mode: false`, mas no instante seguinte o mod a religa e `IsInvincible()` volta a `true`; é uma forma de testar a reaplicação.
+- Bater em si (no console do **host**; no cliente `components.health` não existe): `ThePlayer.components.health:DoDelta(-50)` não tira vida (`DoDelta` ignora o dano com `invincible`); `ThePlayer.components.hunger:DoDelta(-50)` tira fome (é uma chamada direta), mas ela não volta a cair sozinha; `ThePlayer.components.sanity:DoDelta(-50)` não muda nada (`sanity.ignore` faz o `DoDelta` retornar antes). `c_godmode()` **alterna** a invencibilidade (`consolecommands.lua`): ele imprime `God mode: false`, mas no instante seguinte o mod a religa e `IsInvincible()` volta a `true`; é uma forma de testar a reaplicação.
 - `ThePlayer.components.health:IsInvincible()` devolve `true` no host. Depois de sair e entrar de novo com o mesmo jogador, continua `true` (o jogo desliga a invencibilidade 1,5 s depois da ativação ao recarregar um jogador salvo; o mod a religa pelo evento `invincibletoggle`).
 - `ThePlayer.components.temperature:GetCurrent()` fica em 35 mesmo de noite.
 - Com `Livre` e o relógio correndo, as barras também não mexem: a proteção não depende do relógio.
