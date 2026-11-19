@@ -22,19 +22,25 @@
 -- avulsos (feitiços, regras de teste) que ficam por último.
 --
 -- Cada efeito é uma ação própria para a vitória (Game:effect); com a partida
--- decidida, os que faltam não rodam. Depois de cada efeito o estado estabiliza
--- (Game:settle): quem ficou com dano letal morre antes do efeito seguinte.
+-- decidida, os que faltam não rodam, e o que vem depois do momento (then_fn)
+-- pode não rodar se a decisão veio numa passada retomada depois de uma escolha
+-- (o efeito aninhado encerra a continuação). Depois de cada efeito o estado
+-- estabiliza (Game:settle): quem ficou com dano letal morre antes do efeito
+-- seguinte, inclusive entre uma criatura e os equipamentos dela.
 --
 -- Quem roda: a lista de objetos é fixada no início da passada (pelos uids) e
 -- lida objeto a objeto. Quem saiu de campo até a sua vez (morreu, foi devolvido à
 -- mão) não roda; quem entrou em campo durante a passada não roda nesta passada
 -- (uid novo, fora da lista). Uma criatura que trocou de espaço roda na posição
--- que tinha no início. Os equipamentos são lidos na hora em que o portador roda.
+-- que tinha no início. Os equipamentos entram no plano como entradas próprias
+-- (mão, peito, cabeça de cada criatura) e são lidos na vez deles: o que estiver
+-- naquele espaço do portador na hora roda, mesmo que tenha sido equipado durante
+-- a passada; sem portador em campo, não roda.
 --
 -- Escolhas: se um efeito abre uma escolha, a passada para ali e o resto (os
--- objetos seguintes, os ganchos genéricos e o que vem depois do momento: a
--- manhã, o fim da rodada) fica como continuação (Game:after_choices) e retoma
--- quando a escolha for feita.
+-- objetos seguintes, inclusive os equipamentos da criatura que abriu a escolha,
+-- os ganchos genéricos e o que vem depois do momento: a manhã, o fim da rodada)
+-- fica como continuação (Game:after_choices) e retoma quando a escolha for feita.
 
 return function(Game)
   -- Nome do campo da definição e do contexto de erro para cada momento.
@@ -51,7 +57,12 @@ return function(Game)
     for _, p in ipairs({ first, Game.other(first) }) do
       for s = 1, Game.FIELD_SLOTS do
         local c = g.players[p].field[s]
-        if c then plan[#plan + 1] = { zone = "criatura", uid = c.uid } end
+        if c then
+          plan[#plan + 1] = { zone = "criatura", uid = c.uid }
+          for _, slot in ipairs(Game.EQUIP_ORDER) do
+            plan[#plan + 1] = { zone = "equipamento", uid = c.uid, slot = slot }
+          end
+        end
       end
       for s = 1, Game.STRUCTURE_SLOTS do
         local st = g.players[p].structures[s]
@@ -71,13 +82,12 @@ return function(Game)
     end
     local c = g:find_creature(entry.uid)
     if c == nil then return end
-    if c.def[field] then g:effect(kind, c.def.id, c.def[field], g, c, arg) end
-    for _, slot in ipairs(Game.EQUIP_ORDER) do
-      -- O portador precisa continuar em campo para os equipamentos dele rodarem.
-      if g.winner ~= nil or g:find_creature(entry.uid) ~= c then return end
-      local e = c.equips[slot]
+    if entry.zone == "equipamento" then
+      local e = c.equips[entry.slot]
       if e and e.def[field] then g:effect(kind, e.def.id, e.def[field], g, c, e, arg) end
+      return
     end
+    if c.def[field] then g:effect(kind, c.def.id, c.def[field], g, c, arg) end
   end
 
   -- Momento da rodada: a passada pelo campo, os ganchos genéricos e, depois de
