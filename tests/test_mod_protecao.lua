@@ -383,7 +383,10 @@ return {
     T.eq(#evento(reg, "ms_setseasonlength"), 0, "nem as durações")
     T.eq(#rede.tarefas, 1, "uma tarefa agendada")
     T.eq(rede.tarefas[1].t, 0, "para o primeiro passo")
+    T.ok(R.diagnostico():find("5/5/6 enviados=0", 1, true), R.diagnostico())
     rede.tarefas[1].fn(rede)
+    T.ok(R.diagnostico():find("rede=true", 1, true), R.diagnostico())
+    T.ok(R.diagnostico():find("5/5/6 enviados=1", 1, true), R.diagnostico())
     T.eq(#evento(reg, "ms_setseasonclocksegs"), 1, "5/5/6 depois da carga")
     T.eq(#evento(reg, "ms_setseasonlength"), 4, "estações travadas depois da carga")
   end },

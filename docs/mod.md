@@ -59,6 +59,13 @@ return {
 
 e o mod é ativado em `modoverrides.lua` com `["workshop-..."]` ou, para o mod local, `["dst-cardgame"] = { enabled = true }` (o nome é o da pasta). Para mod local, a pasta precisa estar no `mods/` da instalação do **servidor dedicado**, não na do cliente; `dedicated_server_mods_setup.lua` só é necessário para mods da Workshop. Não configure o shard Caves.
 
+**Depois de atualizar os arquivos do mod, feche o DST por completo e abra de novo.** O jogo pode continuar com a versão antiga dos scripts carregada ao voltar para o menu ou criar outro mundo (visto no teste da US #31: um comando novo do mod não existia até reabrir). `print(DUELO.Relogio.diagnostico())` no console mostra se a versão carregada tem o diagnóstico e o que o relógio já fez.
+
+Mensagens esperadas no console, que não são do mod nem atrapalham:
+
+- `ERROR: hermitcrab_relocation_manager expected to be able to calculate the set piece angle...` e `ERROR: wagpunk_arena_manager expected...`: dois componentes da floresta (`prefabs/forest.lua`) procuram as ilhas da Rainha dos macacos e da Ermitã, que o nosso mundo não tem; eles só imprimem o aviso e param (`components/hermitcrab_relocation_manager.lua`). Removê-los do mundo arriscaria quebrar outro código que os consulta.
+- `ValidateCharacterData failed ... skillxp`: validação da árvore de habilidades do perfil do jogador, do próprio jogo.
+
 ## O que conferir no primeiro teste
 
 Os testes automáticos (`tests/test_mod_arena.lua`) só verificam que os arquivos do mod compilam, o que eles registram e os dados do layout. **O código do mod não roda nos testes**, então estes pontos só se confirmam no jogo:
