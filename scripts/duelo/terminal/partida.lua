@@ -16,8 +16,10 @@
 --   Partida.describe_events(g, from_index, p) -> lista de frases
 --       traduz g.events[from_index..] para o jogador p
 --
--- A semente alimenta um gerador próprio (Park e Miller), então a mesma semente
--- dá a mesma partida, com as mesmas jogadas do bot para as mesmas entradas.
+-- A semente vai ao motor (duelo/core/rng, Park e Miller), que embaralha e
+-- registra a partida; Partida.make_rng alimenta só o bot. A mesma semente dá a
+-- mesma partida, com as mesmas jogadas do bot para as mesmas entradas. Semente
+-- 0 é tratada como 1 pelo motor.
 
 local Game = require("duelo/core/game")
 local Bot = require("duelo/bot/bot")
@@ -46,11 +48,11 @@ function Partida.new(opts)
   local self = setmetatable({}, Partida)
   self.human = opts.human or 1
   self.bot_player = Game.other(self.human)
-  self.seed = opts.seed or 1
-  local rng = Partida.make_rng(self.seed)
+  self.seed = tonumber(opts.seed) or 1
+  -- A semente vai ao motor: a partida fica registrada em g.log (US #82).
   self.g = Game.new{
     decks = opts.decks, extra_decks = opts.extra_decks,
-    first = opts.first, mulligan = false, rng = rng,
+    first = opts.first, mulligan = false, seed = self.seed,
   }
   self.bot = Bot.new{ rng = Partida.make_rng(self.seed + 1) }
   self.last_event = 0
