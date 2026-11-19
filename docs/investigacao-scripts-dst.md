@@ -17,6 +17,8 @@ User Story: #28 · Feature: #27
 | Períodos 5/5/6 sem a estação desfazer | Confirmado | `components/seasons.lua` (`ms_setseasonclocksegs`, `PushSeasonClockSegs`), `components/clock.lua` (`ms_setclocksegs`) | O componente `seasons` reenvia os segmentos ao relógio a cada dia novo. Para os 5/5/6 ficarem, o mod informa a divisão ao `seasons`, não só ao `clock`. |
 | Mapa próprio só com a arena | Confirmado | `map/levels/lavaarena.lua`, `map/levels/quagmire.lua`, `modutil.lua` (`AddLevel`) | A Forja e a Garganta já usam níveis próprios; mods podem registrar um nível com `AddLevel`. |
 | Mapa com uma única sala | Confirmado | `map/tasks/lavaarena.lua`, `map/tasksets/lavaarena.lua`, `map/startlocations.lua`, `map/layouts.lua` (`LavaArenaLayout`), `map/static_layouts/events/lava_arena.lua` | A Forja é uma tarefa com a sala `Blank` e um "static layout" no centro. O mod repete a receita com a própria mesa (ver "Mapa customizado"). |
+| Tiles no chão da mesa | Confirmado | `components/map.lua` (`Map:SetTile`), `tiledefs.lua`, `tilemanager.lua`, `modutil.lua` (`AddTile`), `constants.lua` (`WORLD_TILES`, `TILE_SCALE`) | Os tiles entram pelo layout na geração ou por `SetTile` em jogo; um tile novo com textura própria entra por `AddTile` (ver "Tiles e câmera"). |
+| Câmera presa à mesa | Confirmado | `cameras/followcamera.lua` (`SetTarget`, `SetDistance`, `SetHeadingTarget`, `Snap`) | A câmera segue um alvo; o mod aponta para o centro da mesa e fixa distância e direção. |
 | Desligar chefes, invasões e eventos | Confirmado | `map/customize.lua` (`WORLDSETTINGS_GROUP`, `WORLDGEN_GROUP`), `worldsettings_overrides.lua` | Tudo entra em `overrides` do nível; `AddLevel` separa o que é geração do que é configuração de mundo. |
 | Imagens do Álbum para as cartas | Confirmado | `simutil.lua` (`GetScrapbookIconAtlas`) | Os ícones do Álbum ficam em `images/scrapbook_icons1.xml` a `scrapbook_icons3.xml`. |
 | Mão escondida no inventário | Confirmado | `components/inventory_replica.lua` (`SetClassifiedTarget`) | Os dados do inventário só são enviados ao próprio dono. |
@@ -133,6 +135,20 @@ Chaves de `overrides` relevantes (nomes em `map/customize.lua`; efeitos em `worl
 - **Cavernas** não são chave de nível: são outro shard; para não existirem, o servidor simplesmente não sobe o shard das cavernas. O nível do mod é só da floresta (`world = {"forest"}` nas opções).
 
 Decisão para a US #29: nível `AddLevel(LEVELTYPE.SURVIVAL, ...)` com `location = "forest"`, task set e task próprios com a sala `Blank`, start location apontando para um static layout da mesa (com `multiplayer_portal` dentro), e `overrides` zerando chefes, invasões, clima, eventos e estações pela lista acima.
+
+## Tiles e câmera (para a US #30)
+
+Tiles:
+
+- **Identificadores**: `WORLD_TILES` (`constants.lua`) é a tabela atual; `GROUND` é a antiga, mantida por compatibilidade (`GetWorldTileMap` junta as duas). Cada tile tem 4 unidades de mundo (`TILE_SCALE = 4`). Tiles prontos que servem para uma mesa: `CHECKER`, `CARPET`, `CARPET2`, `WOODFLOOR`, `MOSAIC_GREY`, `MOSAIC_RED`, `MOSAIC_BLUE`, `LAVAARENA_FLOOR`, `LAVAARENA_TRIM`, `BRICK`, `TILES`, `TRIM` (`tiledefs.lua`).
+- **Na geração**: o chão vem da camada `BG_TILES` do static layout (ver "Mapa customizado"); é o caminho natural para o tabuleiro fixo.
+- **Em jogo** (servidor): `TheWorld.Map:SetTile(tile_x, tile_y, WORLD_TILES.X)` (`components/map.lua` envolve a função do motor e dispara `onterraform`). Para converter posição em tile: `Map:GetTileCoordsAtPoint(x, y, z)` e `Map:GetTileCenterPoint(tile_x, tile_y)`; `Map:GetTileAtPoint` lê o tile. Exemplos: `components/terraformer.lua` (pá), `prefabs/wurt_swamp_terraformer.lua`, `prefabs/atrium_markers.lua`. O `components/undertile.lua` guarda o tile que ficou por baixo quando se troca um piso.
+- **Tile novo com textura própria**: `AddTile(nome, "LAND", { ground_name }, ground_tile_def, minimap_tile_def, turf_def)` em `modutil.lua` chama `TileManager.AddTile` (`tilemanager.lua`). `ground_tile_def` exige `name` (atlas e textura `levels/tiles/<name>.xml`/`.tex`, resolvidos por `GroundImage`/`GroundAtlas`) e `noise_texture` (`levels/textures/<noise>.tex`); aceita `runsound`, `walksound`, `flooring`, `hard`, `cannotbedug`, `nogroundoverlays`. `minimap_tile_def` exige `name` e `noise_texture`; `turf_def` é opcional (só se o tile virar item). O id é alocado na faixa `LAND` (`WORLD_TILES_LAND_START = 256` em diante). Como o id é gerado por ordem de registro, todos os clientes precisam do mod (`all_clients_require_mod`). O exemplo mais próximo de uma mesa é `CARPET` em `tiledefs.lua`. [provável] Para o primeiro protótipo os tiles prontos (`CHECKER`, `MOSAIC_*`) bastam; o tile próprio fica para quando houver arte.
+
+Câmera (`cameras/followcamera.lua`, complementa a seção "Câmera" das decisões):
+
+- `TheCamera:SetTarget(inst)` segue uma entidade; passar uma entidade invisível no centro da mesa prende a câmera ali. `TheCamera:SetDistance(d)`, `SetMinDistance`, `SetMaxDistance` controlam o zoom; `SetHeadingTarget(graus)` a direção; `Snap()` aplica sem interpolar. Tudo é do cliente, então cada jogador tem a sua.
+- `components/playercontroller.lua` é quem reage a `RotLeft`/`RotRight` e ao zoom; o bloqueio só da rotação já está decidido acima.
 
 ## Pendências para os próximos passos
 
