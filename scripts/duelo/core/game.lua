@@ -35,6 +35,9 @@ Game.period_hooks = {}
 
 -- Ganchos por partida, para efeitos de cartas. Eventos:
 --   "period" (g, periodo), "round_start" (g), "round_end" (g), "death" (g, criatura)
+-- Cartas em campo (criaturas, estruturas, equipamentos) têm campos próprios para
+-- os três primeiros momentos, com ordem fixa pelo campo (ver rodada.lua); os
+-- ganchos daqui rodam depois da passada pelo campo, na ordem de registro.
 local HOOK_EVENTS = { period = true, round_start = true, round_end = true, death = true }
 
 -- id: a carta dona do gancho, para o registro de erro.
@@ -408,10 +411,12 @@ function Game:update_period()
     -- A vida pode mudar com o período (atributos que dependem dele): o estado
     -- estabiliza antes dos ganchos do novo período.
     self:settle()
-    -- Se uma morte abrir uma escolha, os ganchos do período esperam por ela.
+    -- Se uma morte abrir uma escolha, os efeitos do período esperam por ela.
+    -- Primeiro as regras do motor (a fogueira acende), depois os efeitos de
+    -- início de período das cartas em campo e os ganchos genéricos (rodada.lua).
     self:after_choices(function(g)
       for _, hook in ipairs(Game.period_hooks) do g:effect("regra", per, hook, g, per) end
-      g:run_hooks("period", per)
+      g:run_moment("period", per)
     end)
   end
 end
@@ -584,15 +589,15 @@ function Game:begin_round()
   for p = 1, 2 do self:round_upkeep(p) end
   self:check_winner()
   if self.winner ~= nil then return end
-  self:run_hooks("round_start")
-  -- Um gancho de início de rodada pode abrir escolhas; a manhã só começa depois.
-  self:after_choices(function(g) g:update_period() end)
+  -- Efeitos de início de rodada das cartas em campo e ganchos genéricos
+  -- (rodada.lua). Um deles pode abrir escolhas; a manhã só começa depois.
+  self:run_moment("round_start", nil, function(g) g:update_period() end)
 end
 
 function Game:end_round()
-  self:run_hooks("round_end")
-  -- Um gancho de fim de rodada pode abrir escolhas; a rodada só termina depois.
-  self:after_choices(function(g) g:finish_round() end)
+  -- Efeitos de fim de rodada das cartas em campo e ganchos genéricos
+  -- (rodada.lua). Um deles pode abrir escolhas; a rodada só termina depois.
+  self:run_moment("round_end", nil, function(g) g:finish_round() end)
 end
 
 function Game:finish_round()
@@ -805,5 +810,6 @@ require("duelo/core/estruturas")(Game)
 require("duelo/core/equipamentos")(Game)
 require("duelo/core/fichas")(Game)
 require("duelo/core/combate")(Game)
+require("duelo/core/rodada")(Game)
 
 return Game
