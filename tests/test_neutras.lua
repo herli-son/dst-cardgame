@@ -71,9 +71,8 @@ local function go_to(g, period)
 end
 
 return {
-  { "o módulo registra as 7 cartas com os números do documento", function(T)
+  { "o módulo registra as 7 neutras com os atributos do documento", function(T)
     local ids = load_neutras()
-    T.eq(#ids, 7)
     local esperado = {
       porco = { "Porco", 4, 4, 5 },
       porco_guarda = { "Porco guarda", 5, 2, 7 },
@@ -83,20 +82,26 @@ return {
       borboleta = { "Borboleta", 1, 0, 1 },
       cao_de_caca = { "Cão de caça", 2, 2, 2 },
     }
+    -- A pasta também tem criaturas de outras US (ex.: as Aranhas do Webber):
+    -- aqui só as neutras são conferidas.
+    local listed = {}
+    for _, id in ipairs(ids) do listed[id] = true end
+    for id in pairs(esperado) do T.ok(listed[id], id .. " está na lista da pasta") end
     for _, id in ipairs(ids) do
       local e = esperado[id]
-      T.ok(e ~= nil, "carta inesperada: " .. id)
-      local def = Cards.get(id)
-      T.ok(def ~= nil, id .. " registrada")
-      T.eq(def.kind, "criatura", id)
-      T.eq(def.name, e[1], id .. " nome")
-      T.eq(def.cost, e[2], id .. " custo")
-      T.eq(def.atk, e[3], id .. " ataque")
-      T.eq(def.hp, e[4], id .. " vida")
-      T.eq(type(def.text), "string", id .. " texto")
-      esperado[id] = nil
+      if e then
+        local def = Cards.get(id)
+        T.ok(def ~= nil, id .. " registrada")
+        T.eq(def.kind, "criatura", id)
+        T.eq(def.name, e[1], id .. " nome")
+        T.eq(def.cost, e[2], id .. " custo")
+        T.eq(def.atk, e[3], id .. " ataque")
+        T.eq(def.hp, e[4], id .. " vida")
+        T.eq(type(def.text), "string", id .. " texto")
+        esperado[id] = nil
+      end
     end
-    T.eq(next(esperado), nil, "todas as cartas foram registradas")
+    T.eq(next(esperado), nil, "todas as neutras foram registradas")
   end },
 
   { "palavras-chave, tipos e velocidade", function(T)
