@@ -181,7 +181,7 @@ end
 
 -- Ambiente de um lado: servidor (host ou dedicado) ou cliente.
 --   opcoes.servidor, opcoes.dedicado, opcoes.desl (deslocamento das linhas),
---   opcoes.sem_carpete, opcoes.sem_portal.
+--   opcoes.sem_carpete, opcoes.sem_portal, opcoes.tamanho (Map:GetSize).
 local function ambiente_jogo(opcoes)
   local reg = { netvars = {}, log = {}, spawns = {}, sim_postinits = {}, prefab_postinits = {},
     player_postinits = {}, component_postinits = {} }
@@ -203,11 +203,18 @@ local function ambiente_jogo(opcoes)
     GetTileCoordsAtPoint = function(_, x, _, z) return tile_no_ponto(x, z) end,
     GetTileCenterPoint = function(_, tx, ty) local x, z = centro_mundo(tx, ty); return x, 0, z end,
     GetTile = function(_, tx, ty)
+      if opcoes.tamanho then
+        reg.fora_do_mapa = (reg.fora_do_mapa or 0)
+          + ((tx < 0 or ty < 0 or tx >= opcoes.tamanho or ty >= opcoes.tamanho) and 1 or 0)
+      end
       local uso = grade[tx] and grade[tx][ty] or "fora"
       if opcoes.sem_carpete and uso == "centro" then uso = "chao" end
       return TILE_POR_USO[uso]
     end,
   }
+  if opcoes.tamanho then
+    G.TheWorld.Map.GetSize = function() return opcoes.tamanho, opcoes.tamanho end
+  end
   G.TheWorld.Map.GetTileAtPoint = function(m, x, _, z) return m:GetTile(tile_no_ponto(x, z)) end
   local portal = entidade(reg, "multiplayer_portal")
   portal.entity.AddTransform()
@@ -571,6 +578,15 @@ return {
       amb.Calibracao.quando_calibrar(function(c) tarde = c end)
       T.eq(tarde, calib, "inscrito tardio")
     end
+  end },
+
+  { "a busca do carpete não sai do mapa", function(T)
+    -- Mapa de 40 x 40 tiles: a mesa (tiles 18..38) encosta na borda leste e
+    -- a busca em volta do portal (35 +- 20) passaria dela.
+    local amb = instalar_tudo(ambiente_jogo({ servidor = true, tamanho = 40 }))
+    carregar_mundo(amb)
+    T.eq(amb.reg.fora_do_mapa, 0, "nenhum GetTile fora do mapa")
+    T.eq(amb.Mesa.calibracao.fonte, "carpete", "e o carpete foi achado")
   end },
 
   { "sem carpete a origem sai do portal, com aviso; sem portal não calibra", function(T)
