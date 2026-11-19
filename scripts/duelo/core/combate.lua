@@ -56,8 +56,8 @@
 --     auto = "guarda".
 --
 -- Campos da definição usados aqui (referência completa em cards.lua): no_attack,
--- no_block, speed, block_speed, speed_fn, kw (fragil, agressivo, rival, guarda),
--- types e on_strike (criatura e equipamento).
+-- no_block, cannot_be_blocked_by, speed, block_speed, speed_fn, kw (fragil,
+-- agressivo, rival, guarda), types e on_strike (criatura e equipamento).
 
 return function(Game)
   ----------------------------------------------------------------------------
@@ -199,6 +199,15 @@ return function(Game)
 
   local function kw(c, k) return c.def.kw[k] end
 
+  -- Restrição de bloqueio da carta atacante (def.cannot_be_blocked_by, ver
+  -- cards.lua): d não pode bloquear a. Vale para o bloqueio declarado, para os
+  -- obrigatórios (nem atrai nem exige um bloqueador proibido) e para o salto
+  -- da Guarda.
+  local function can_block(g, a, d)
+    local deny = a.def.cannot_be_blocked_by
+    return deny == nil or not deny(g, a, d)
+  end
+
   -- Critério único de quem está no combate, usado nos bloqueios obrigatórios e
   -- nos golpes: em campo, do mesmo lado, e sem dano letal esperando uma escolha
   -- para morrer.
@@ -234,11 +243,11 @@ return function(Game)
 
   -- O nível que vale para o atacante: o primeiro a que ele está sujeito e que o
   -- defensor pode atender com alguma criatura (Rival tem prioridade sobre Frágil).
-  local function tier_of(a, defenders)
+  local function tier_of(g, a, defenders)
     for i, t in ipairs(TIERS) do
       if t.applies(a) then
         for _, d in ipairs(defenders) do
-          if t.fits(a, d) then return i end
+          if t.fits(a, d) and can_block(g, a, d) then return i end
         end
       end
     end
@@ -256,7 +265,7 @@ return function(Game)
   -- Melhor emparelhamento dos obrigatórios: atende o máximo de Rivais e, entre
   -- esses, o máximo de Frágeis. Busca completa (no máximo 6 contra 6); no empate
   -- fica o primeiro achado, pela ordem dos atacantes e dos espaços.
-  local function best_forced(obligated, tiers, defenders)
+  local function best_forced(g, obligated, tiers, defenders)
     local best_score, best_pairs = nil, nil
     local used, cur, score = {}, {}, {}
     for k = 1, #TIERS do score[k] = 0 end
@@ -272,7 +281,7 @@ return function(Game)
       local a = obligated[i]
       local k = tiers[a]
       for _, d in ipairs(defenders) do
-        if not used[d] and TIERS[k].fits(a, d) then
+        if not used[d] and TIERS[k].fits(a, d) and can_block(g, a, d) then
           used[d] = true; cur[#cur + 1] = { a, d }; score[k] = score[k] + 1
           go(i + 1)
           used[d] = nil; cur[#cur] = nil; score[k] = score[k] - 1
@@ -296,7 +305,7 @@ return function(Game)
     local obligated, tiers = {}, {}
     local key = {}
     for _, a in ipairs(attackers) do
-      tiers[a] = tier_of(a, defenders)
+      tiers[a] = tier_of(g, a, defenders)
       if tiers[a] then obligated[#obligated + 1] = a end
       key[#key + 1] = a.uid
     end
@@ -305,7 +314,7 @@ return function(Game)
     key = table.concat(key, ",")
     local cached = forced_cache[cb]
     if cached == nil or cached.key ~= key then
-      local score, pairs = best_forced(obligated, tiers, defenders)
+      local score, pairs = best_forced(g, obligated, tiers, defenders)
       cached = { key = key, score = score, pairs = pairs }
       forced_cache[cb] = cached
     end
@@ -327,7 +336,9 @@ return function(Game)
     for k = 1, #TIERS do declared[k] = 0 end
     for _, a in ipairs(obligated) do
       local k = tiers[a]
-      if block_of[a] and TIERS[k].fits(a, block_of[a]) then declared[k] = declared[k] + 1 end
+      if block_of[a] and TIERS[k].fits(a, block_of[a]) and can_block(self, a, block_of[a]) then
+        declared[k] = declared[k] + 1
+      end
     end
     local best = forced.score
     for k = 1, #TIERS do
@@ -337,7 +348,7 @@ return function(Game)
     for _, a in ipairs(attackers) do
       if kw(a, "agressivo") and not block_of[a] then
         for _, d in ipairs(defenders) do
-          if kw(d, "fragil") and not blocking[d] then
+          if kw(d, "fragil") and not blocking[d] and can_block(self, a, d) then
             return false, "atacante Agressivo sem bloqueio deve ser bloqueado por uma Frágil livre"
           end
         end
@@ -360,7 +371,7 @@ return function(Game)
     for _, a in ipairs(attackers) do
       if kw(a, "agressivo") and not cb.blocked[a] then
         for _, d in ipairs(defenders) do
-          if not used[d] and kw(d, "fragil") then set(a, d); break end
+          if not used[d] and kw(d, "fragil") and can_block(g, a, d) then set(a, d); break end
         end
       end
     end
@@ -386,6 +397,7 @@ return function(Game)
       if a == nil or not in_combat(cb, a) then return false, "essa criatura não está atacando" end
       if d == nil then return false, "não há criatura sua nesse espaço" end
       if d.def.no_block then return false, "essa criatura não bloqueia" end
+      if not can_block(g, a, d) then return false, "essa criatura não pode bloquear esse atacante" end
       if atk_used[a] then return false, "cada atacante é bloqueado por uma criatura só" end
       if blk_used[d] then return false, "cada criatura bloqueia um atacante só" end
       atk_used[a], blk_used[d] = true, true
@@ -556,7 +568,7 @@ return function(Game)
       local a = cb.order[m]
       local d = cb.blocked[a] and cb.blocks[a] or nil
       if d and kw(d, "guarda") and not cb.guarded[d] and in_play(g, d, cb.defender)
-        and (best == nil or d.slot < best.slot) then
+        and can_block(g, b, d) and (best == nil or d.slot < best.slot) then
         best = d
       end
     end
