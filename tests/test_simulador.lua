@@ -50,9 +50,10 @@ return {
     local a, ga = Simulador.run_game(opts{ seed = 42, log = true })
     local b, gb = Simulador.run_game(opts{ seed = 42, log = true })
     T.eq(summarize(a), summarize(b))
-    T.eq(#a.log, #b.log)
-    for i = 1, #a.log do
-      T.eq(Simulador.describe_action(a.log[i].action), Simulador.describe_action(b.log[i].action), "jogada " .. i)
+    T.eq(#a.log.actions, #b.log.actions)
+    T.eq(a.log.seed, 42)
+    for i = 1, #a.log.actions do
+      T.eq(Simulador.describe_action(a.log.actions[i].action), Simulador.describe_action(b.log.actions[i].action), "jogada " .. i)
     end
     T.eq(#ga.events, #gb.events)
     T.ok(a.resultado == "vitoria" or a.resultado == "empate" or a.resultado == "limite_rodadas", a.resultado)

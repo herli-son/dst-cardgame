@@ -14,7 +14,8 @@
 --     first = 1 | 2 | nil,       quem começa (nil: sorteado pela semente)
 --     mulligan = false,          com true, a troca inicial é feita (ao acaso
 --                                para "random", sem trocar para "bot")
---     log = false,               com true, o relatório traz a lista de jogadas
+--     log = false,               com true, o relatório traz o registro da
+--                                partida (g.log) mesmo quando ela não falha
 --   } -> relatório, g
 --
 --   O relatório traz:
@@ -31,6 +32,8 @@
 --     erro        g.error do motor (message, traceback, context), em "erro"
 --     invariante  a mensagem da invariante violada, em "invariante"
 --     ultima      { p, action } da última jogada tentada
+--     log         o registro da partida (g.log, US #82): basta para reproduzir
+--                 a falha com Replay.run(rep.log)
 --
 --   Simulador.run_many{ n = 100, seed_base = 0, alternar = false, ... }
 --     roda n partidas com seeds seed_base + i (i de 1 a n) e os outros campos
@@ -44,24 +47,17 @@
 --       falhas = { { seed, resultado, motivo, lados_trocados, ... }, ... },
 --       tempo (segundos de relógio da CPU)
 --   Simulador.format_report(agg) -> texto curto
---   Simulador.make_rng(seed) -> rng(n) determinístico, como o Game espera
+--   Simulador.make_rng(seed) -> rng(n) determinístico (o do motor, duelo/core/rng)
 
 local Game = require("duelo/core/game")
+local Rng = require("duelo/core/rng")
 local Jogadas = require("duelo/bot/jogadas")
 local Bot = require("duelo/bot/bot")
 local Invariantes = require("duelo/sim/invariantes")
 
 local Simulador = {}
 
--- Gerador determinístico (Park e Miller), só com inteiros exatos em doubles.
-function Simulador.make_rng(seed)
-  local s = seed % 2147483647
-  if s == 0 then s = 1 end
-  return function(n)
-    s = (s * 48271) % 2147483647
-    return (s % n) + 1
-  end
-end
+Simulador.make_rng = Rng.make
 
 ----------------------------------------------------------------------------
 -- Jogadores
@@ -157,15 +153,16 @@ function Simulador.run_game(opts)
   local check = opts.invariants ~= false
   local kinds = opts.players or { "random", "random" }
 
+  -- A semente vai ao motor, que registra a partida em g.log (reproduzível).
   local g = Game.new{
     decks = opts.decks, extra_decks = opts.extra_decks,
-    rng = Simulador.make_rng(seed), first = opts.first, mulligan = opts.mulligan == true,
+    seed = seed, first = opts.first, mulligan = opts.mulligan == true,
   }
   local players = { make_player(kinds[1], Simulador.make_rng(seed + 1)), make_player(kinds[2], Simulador.make_rng(seed + 2)) }
 
   local report = { seed = seed, players = { kinds[1] or "random", kinds[2] or "random" }, jogadas = 0, rodadas = 0,
     por_tipo = {} }
-  if opts.log then report.log = {} end
+  if opts.log then report.log = g.log end
   local card_total = Invariantes.count_cards(g)
 
   local function finish(resultado, extra)
@@ -181,6 +178,7 @@ function Simulador.run_game(opts)
     extra.passo = step
     extra.motivo = motivo
     if g.phase == "error" and g.error then extra.erro = g.error end
+    extra.log = g.log
     return finish(resultado, extra)
   end
 
@@ -229,7 +227,6 @@ function Simulador.run_game(opts)
     if not chose then return fail("erro_simulador", step, "erro ao escolher a jogada: " .. tostring(a)) end
     if a == nil then return fail("travamento", step, "o jogador " .. p .. " não escolheu nenhuma jogada") end
     step = step + 1
-    if report.log then report.log[#report.log + 1] = { p = p, action = a } end
     report.ultima = { p = p, action = a }
     ok, err = g:act(p, a)
     if not ok then
@@ -303,7 +300,7 @@ function Simulador.run_many(opts)
       agg.falhas[#agg.falhas + 1] = {
         seed = rep.seed, resultado = rep.resultado, motivo = rep.motivo, passo = rep.passo,
         players = rep.players, lados_trocados = swapped, mulligan = opts.mulligan == true,
-        erro = rep.erro, invariante = rep.invariante, ultima = rep.ultima,
+        erro = rep.erro, invariante = rep.invariante, ultima = rep.ultima, log = rep.log,
       }
     end
   end
