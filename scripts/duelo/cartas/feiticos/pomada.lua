@@ -31,5 +31,5 @@ return Cards.define{
       game:heal_creature(alvo, 3, card, "pomada")
     end
   end,
-  text = "Instantâneo. Cure 3 de uma criatura ou recupere 3 de vida.",
+  text = "Instantâneo. Cure 3 de dano de uma criatura ou um jogador recupera 3 de vida.",
 }
