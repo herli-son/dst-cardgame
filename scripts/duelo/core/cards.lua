@@ -46,6 +46,12 @@
 --                                      na jogada e de novo na entrada
 --   on_any_enter(game, criatura, nova) reage a qualquer criatura que entrar
 --   stats(game, criatura) -> atk, hp   atributos que dependem do estado (ex.: Morcego)
+--   aura_hp(game, fonte, alvo) -> n    bônus de vida contínuo que a fonte, em campo,
+--                                      dá a cada criatura do mesmo dono (ela
+--                                      inclusa); somado em Game:hp. Não pode
+--                                      chamar Game:hp (laço). Quando a fonte sai,
+--                                      a vida cai e o dano marcado pode virar
+--                                      letal no próximo estado estável
 -- Feitiço:
 --   speed ("instantaneo" | "rapido" | "lento")
 --   targets(game, p, action, objects) -> ok, erro   confere os alvos; objects traz os
