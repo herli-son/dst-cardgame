@@ -10,30 +10,40 @@
 --     `OnUpdate` do relógio por um wrapper. Com o relógio travado, o wrapper
 --     chama o original com `dt = 0`: nada anda, mas `clocktick` e os eventos
 --     de mudança continuam saindo, então worldstate, luz e o relógio da tela
---     seguem coerentes. Livre, repassa o `dt` real. `OnStaticUpdate` e
---     `LongUpdate` do clock continuam apontando para o original (o
---     construtor copia `self.OnUpdate` para eles antes do post init).
---   * O estado "travado" fica numa variável de rede (`net_bool`, netvars.lua)
+--     seguem coerentes. Livre, repassa o `dt` real. `LongUpdate` (usado por
+--     `c_skip` e pelos eventos `ms_setphase`/`ms_nextphase`, estes com 0)
+--     passa pelo mesmo wrapper: travado, `c_skip` não anda o tempo; use
+--     `DUELO.Relogio.avancar`. `OnStaticUpdate` continua no original: o jogo
+--     só o chama com `dt = 0` (update.lua, jogo pausado).
+--   * O estado "travado" fica numa variável de rede (`net_tinybyte`,
+--     netvars.lua: 0 = ainda não chegou do servidor, 1 = travado, 2 = livre)
 --     declarada no `forest_network` (prefabs/world_network.lua cria o
 --     `clock` e o `seasons` nessa entidade; prefabs/forest_network.lua é a
 --     versão da floresta) por `AddPrefabPostInit("forest_network", ...)`.
---     O servidor é o dono (`set`); os clientes só leem (`value`). Como o
---     clock também roda nos clientes, os dois lados precisam do wrapper
---     (modinfo.lua: all_clients_require_mod = true).
+--     O servidor é o dono (`set`); os clientes só leem (`value`). Enquanto
+--     o cliente lê 0 (o valor do servidor ainda não chegou), vale o estado
+--     inicial da opção do mod, para o relógio do cliente não andar sozinho
+--     nos primeiros frames. Como o clock também roda nos clientes, os dois
+--     lados precisam do wrapper (modinfo.lua: all_clients_require_mod = true).
 --   * No mesmo post init o servidor manda ao mundo a divisão 5/5/6 por
 --     `ms_setseasonclocksegs` (components/seasons.lua, OnSetSeasonClockSegs:
---     uma única entrada vale para todas as estações; o `seasons` reenvia a
---     divisão ao clock a cada dia novo por PushSeasonClockSegs, então um
---     `ms_setclocksegs` direto seria desfeito) e trava as quatro estações
---     com `ms_setseasonlength` e `length = 0` (components/seasons.lua,
---     OnSetSeasonLength; é o que worldsettings_overrides.lua faz para as
---     opções autumn/winter/spring/summer = "noseason").
+--     uma única entrada vale para todas as estações; o `seasons` guarda a
+--     divisão em `_segs`, salva e reenvia ao clock a cada dia novo por
+--     PushSeasonClockSegs, então um `ms_setclocksegs` direto seria desfeito)
+--     e trava as quatro estações com `ms_setseasonlength` e `length = 0`
+--     (components/seasons.lua, OnSetSeasonLength; é o que
+--     worldsettings_overrides.lua faz para "noseason"). Não é redundante: o
+--     nível deixa o outono em "verylongseason", porque a tela de criação do
+--     mundo exige uma estação com duração; aqui o outono também trava.
 --   * `Relogio.avancar(segmentos)` (só servidor) chama o `OnUpdate` original
 --     com `dt = segmentos * TUNING.SEG_TIME` (tuning.lua: SEG_TIME = 30 s).
 --     Durante o passo o wrapper repassa qualquer `dt`, porque o próprio
 --     clock se chama de novo (`self:OnUpdate(-restante)`) quando o passo
---     atravessa a troca de período. A troca de segmento faz o servidor
---     sincronizar os clientes pelas netvars do clock.
+--     atravessa a troca de período. O clock só sincroniza os clientes na
+--     troca de segmento (dentro de um segmento usa `set_local`), então um
+--     passo que não atravessa um segmento só aparece no cliente no próximo
+--     passo que atravessar; os passos da partida (2,5 ou 3 segmentos)
+--     sempre atravessam.
 --
 -- Enquanto não existe partida (a US #37 liga o motor), o relógio nasce no
 -- estado da opção "relogio" do mod (modinfo.lua), e os comandos de console
@@ -54,10 +64,12 @@ local NETVAR = "duelo.relogio_travado"
 local NETVAR_DIRTY = "duelo.relogio_travadodirty"
 
 -- Estado deste lado (servidor ou cliente). Um mundo por processo.
+local DESCONHECIDO, TRAVADO, LIVRE = 0, 1, 2
+
 local estado = {
-  GLOBAL = nil, -- ambiente global do jogo (TheWorld, TUNING, net_bool)
+  GLOBAL = nil, -- ambiente global do jogo (TheWorld, TUNING, net_tinybyte)
   travado_inicial = true, -- vale até a netvar existir
-  netvar = nil, -- net_bool no forest_network
+  netvar = nil, -- net_tinybyte no forest_network
   clock = nil, -- componente clock deste lado
   original = nil, -- OnUpdate original do clock
   em_passo = false, -- true enquanto `avancar` roda
@@ -77,12 +89,12 @@ local function avisar(msg)
   p("[duelo] " .. msg)
 end
 
--- O relógio está travado neste lado? Antes de a netvar existir, vale o
--- estado inicial da opção do mod.
+-- O relógio está travado neste lado? Antes de a netvar existir ou de o valor
+-- do servidor chegar, vale o estado inicial da opção do mod.
 function Relogio.travado()
-  if estado.netvar ~= nil then
-    return estado.netvar:value() == true
-  end
+  local v = estado.netvar ~= nil and estado.netvar:value() or DESCONHECIDO
+  if v == TRAVADO then return true end
+  if v == LIVRE then return false end
   return estado.travado_inicial == true
 end
 
@@ -98,16 +110,17 @@ local function post_init_clock(clock)
   estado.clock = clock
   estado.original = clock.OnUpdate
   clock.OnUpdate = on_update
+  clock.LongUpdate = on_update
 end
 
 -- Post init do forest_network: declara a netvar nos dois lados e, no
 -- servidor, define o estado inicial e configura o `seasons`.
 local function post_init_rede(inst)
   local G = estado.GLOBAL
-  estado.netvar = G.net_bool(inst.GUID, NETVAR, NETVAR_DIRTY)
+  estado.netvar = G.net_tinybyte(inst.GUID, NETVAR, NETVAR_DIRTY)
   if not servidor() then return end
 
-  estado.netvar:set(estado.travado_inicial == true)
+  estado.netvar:set(estado.travado_inicial == true and TRAVADO or LIVRE)
 
   local w = mundo()
   -- Uma única entrada: OnSetSeasonClockSegs usa a primeira como padrão
@@ -143,9 +156,12 @@ function Relogio.avancar(segmentos)
   end
   segmentos = tonumber(segmentos) or 1
   local dt = segmentos * estado.GLOBAL.TUNING.SEG_TIME
+  -- Guarda o valor anterior: um avancar chamado de dentro de um evento do
+  -- clock, no meio de outro, não pode encerrar o passo de fora.
+  local antes = estado.em_passo
   estado.em_passo = true
   local ok, err = pcall(estado.original, estado.clock, dt)
-  estado.em_passo = false
+  estado.em_passo = antes
   if not ok then error(err, 0) end
   return true
 end
@@ -157,7 +173,7 @@ local function definir(travado)
   end
   estado.travado_inicial = travado
   if estado.netvar ~= nil then
-    estado.netvar:set(travado)
+    estado.netvar:set(travado and TRAVADO or LIVRE)
   end
   return true
 end

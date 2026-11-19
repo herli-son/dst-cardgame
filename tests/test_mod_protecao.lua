@@ -3,7 +3,7 @@
 -- O jogo não roda aqui. O que dá para conferir é que os módulos
 -- scripts/duelo/mod/relogio.lua e scripts/duelo/mod/protecao.lua compilam e,
 -- com um ambiente falso (stubs de AddPlayerPostInit, AddComponentPostInit,
--- AddPrefabPostInit, TheWorld, TheNet, net_bool, TUNING e um clock cujo
+-- AddPrefabPostInit, TheWorld, TheNet, net_tinybyte, TUNING e um clock cujo
 -- OnUpdate acumula o dt), fazem as chamadas certas em cada lado. O resto
 -- (Charlie, luz, relógio da tela) só se confirma no jogo (docs/mod.md).
 --
@@ -28,10 +28,11 @@ local function carregar(nome)
   return fn()
 end
 
--- net_bool falso: registra set/value e os argumentos da declaração.
-local function net_bool_falso(registro)
+-- net_tinybyte falso: registra set/value e os argumentos da declaração. Nasce
+-- em 0, como no jogo antes de o valor do servidor chegar.
+local function net_tinybyte_falso(registro)
   return function(guid, nome, dirty)
-    local nv = { guid = guid, nome = nome, dirty = dirty, valor = false, sets = 0 }
+    local nv = { guid = guid, nome = nome, dirty = dirty, valor = 0, sets = 0 }
     function nv:set(v) self.valor = v; self.sets = self.sets + 1 end
     function nv:value() return self.valor end
     registro[#registro + 1] = nv
@@ -56,7 +57,7 @@ local function ambiente(servidor)
     },
     TheNet = { GetIsServer = function() return servidor end },
     TUNING = { SEG_TIME = SEG_TIME, STARTING_TEMP = 35 },
-    net_bool = net_bool_falso(reg.netvars),
+    net_tinybyte = net_tinybyte_falso(reg.netvars),
     print = function() end,
     require = require,
   }
@@ -98,8 +99,8 @@ local function relogio_instalado(servidor, travado)
   reg.prefab_postinits.forest_network({ GUID = 7 })
   if not servidor then
     -- No jogo o cliente recebe o valor do servidor junto com a entidade;
-    -- aqui o "sync" é feito à mão.
-    reg.netvars[1].valor = travado
+    -- aqui o "sync" é feito à mão (1 = travado, 2 = livre).
+    reg.netvars[1].valor = travado and 1 or 2
   end
   return Relogio, clock, original, reg
 end
@@ -206,7 +207,10 @@ return {
       local Relogio, clock, original = relogio_instalado(servidor, true)
       T.ok(clock.OnUpdate ~= original, "OnUpdate trocado")
       T.eq(clock.OnStaticUpdate, original, "OnStaticUpdate continua o original")
-      T.eq(clock.LongUpdate, original, "LongUpdate continua o original")
+      T.eq(clock.LongUpdate, clock.OnUpdate, "LongUpdate (c_skip) passa pelo wrapper")
+      clock:LongUpdate(30)
+      T.eq(clock.acumulado, 0, "c_skip não anda com o relógio travado")
+      clock.chamadas = 0
       T.eq(Relogio.travado(), true, "nasce travado")
       clock:OnUpdate(0.5)
       clock:OnUpdate(1)
@@ -274,6 +278,21 @@ return {
     reg.prefab_postinits.forest_network({ GUID = 1 })
     R.avancar(1)
     T.eq(acumulado, SEG_TIME + 5, "a chamada interna passou com o dt dela")
+    -- avancar aninhado (de dentro de um evento do clock) não encerra o de fora.
+    acumulado = 0
+    local aninhado = false
+    local function fake2(self, dt)
+      acumulado = acumulado + dt
+      if not aninhado and dt > 0 then
+        aninhado = true
+        R.avancar(1)          -- passo interno
+        self:OnUpdate(7)      -- resto do passo de fora, depois do interno
+      end
+    end
+    c = { OnUpdate = fake2 }
+    reg.component_postinits.clock(c, {})
+    R.avancar(1)
+    T.eq(acumulado, 2 * SEG_TIME + 7, "o resto do passo de fora não se perde")
     acumulado, recursivo = 0, false
     c:OnUpdate(3)
     T.eq(acumulado, 0, "fora do passo volta a travar (a interna também vira 0)")
@@ -286,17 +305,17 @@ return {
     T.eq(nv.guid, 7, "no GUID do forest_network")
     T.eq(type(nv.nome), "string", "nome da netvar")
     T.eq(type(nv.dirty), "string", "evento dirty")
-    T.eq(nv.valor, true, "servidor manda o estado inicial")
+    T.eq(nv.valor, 1, "servidor manda o estado inicial")
     T.eq(nv.sets, 1, "um set no post init")
 
     T.eq(Relogio.liberar(), true, "liberar")
-    T.eq(nv.valor, false, "netvar false")
+    T.eq(nv.valor, 2, "netvar livre")
     T.eq(Relogio.travado(), false, "livre")
     clock:OnUpdate(2)
     T.eq(clock.acumulado, 2, "o tempo anda")
 
     T.eq(Relogio.travar(), true, "travar")
-    T.eq(nv.valor, true, "netvar true")
+    T.eq(nv.valor, 1, "netvar travado")
     clock:OnUpdate(2)
     T.eq(clock.acumulado, 2, "o tempo parou")
 
@@ -306,12 +325,16 @@ return {
     T.eq(RelogioCliente.liberar(), false, "cliente não libera")
     T.eq(RelogioCliente.travar(), false, "cliente não trava")
     -- O cliente obedece ao que chega pela rede.
-    nvc.valor = false
+    nvc.valor = 2
     clock_cliente:OnUpdate(4)
     T.eq(clock_cliente.acumulado, 4, "cliente anda quando a netvar diz livre")
-    nvc.valor = true
+    nvc.valor = 1
     clock_cliente:OnUpdate(4)
     T.eq(clock_cliente.acumulado, 4, "e para quando diz travado")
+    -- Antes de o valor chegar (0), vale a opção do mod: o cliente não anda.
+    nvc.valor = 0
+    clock_cliente:OnUpdate(4)
+    T.eq(clock_cliente.acumulado, 4, "valor ainda não chegou: vale a opção (travado)")
   end },
 
   { "servidor envia 5/5/6 ao seasons e trava as quatro estações; cliente não envia nada", function(T)
