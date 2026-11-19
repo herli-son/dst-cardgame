@@ -25,7 +25,8 @@
 --     inicial da opção do mod, para o relógio do cliente não andar sozinho
 --     nos primeiros frames. Como o clock também roda nos clientes, os dois
 --     lados precisam do wrapper (modinfo.lua: all_clients_require_mod = true).
---   * No mesmo post init o servidor manda ao mundo a divisão 5/5/6 por
+--   * Logo depois da carga do mundo (tarefa com atraso 0 criada no mesmo post
+--     init; ver post_init_rede) o servidor manda ao mundo a divisão 5/5/6 por
 --     `ms_setseasonclocksegs` (components/seasons.lua, OnSetSeasonClockSegs:
 --     uma única entrada vale para todas as estações; o `seasons` guarda a
 --     divisão em `_segs`, salva e reenvia ao clock a cada dia novo por
@@ -122,7 +123,21 @@ local function post_init_rede(inst)
 
   estado.netvar:set(estado.travado_inicial == true and TRAVADO or LIVRE)
 
+  -- Não pode ser já: gamelogic.lua cria o forest_network (este post init) e
+  -- SÓ DEPOIS carrega o save dele (world.net:SetPersistData → seasons:OnLoad,
+  -- que regrava os segmentos e as durações salvos ou os padrões) e aplica as
+  -- configurações do nível (WorldSettings_Overrides.Post, que manda o outono
+  -- longo). Enviado aqui, o 5/5/6 era apagado (visto no jogo: 8/6/2). Uma
+  -- tarefa com atraso 0 roda no primeiro passo da simulação, depois de toda a
+  -- carga; o seasons então salva o 5/5/6, e nas cargas seguintes a tarefa só
+  -- o reaplica.
+  inst:DoTaskInTime(0, Relogio.configurar_estacoes)
+end
+
+-- Servidor: divisão 5/5/6 e estações travadas (ver post_init_rede).
+function Relogio.configurar_estacoes()
   local w = mundo()
+  if w == nil or not servidor() then return end
   -- Uma única entrada: OnSetSeasonClockSegs usa a primeira como padrão
   -- para todas as estações.
   w:PushEvent("ms_setseasonclocksegs", { autumn = Relogio.SEGMENTOS })
