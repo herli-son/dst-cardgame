@@ -17,7 +17,8 @@ local function define_test_cards()
   Cards.define{ id = "w_casa", kind = "estrutura", cost = 0 }
 end
 
--- Baralhos de 20 w_comum; deck1 pode receber cartas extras no topo (fim da lista).
+-- Baralhos de 20 w_comum; deck1 pode receber cartas extras no topo (fim da
+-- lista: a última da lista top1 fica no topo).
 local function new_game(top1)
   load_cartas()
   define_test_cards()
@@ -86,6 +87,7 @@ return {
     load_cartas()
     local numeros = require("duelo/cartas/numeros")
     local esperado = {
+      maquina_de_ciencia = { "Máquina de Ciência", "estrutura", 4, 11 },
       machado = { "Machado", "equipamento", 2, 12 },
       lanca = { "Lança", "equipamento", 3, 13 },
       pa = { "Pá", "equipamento", 1, 14 },
@@ -319,5 +321,112 @@ return {
     T.eq(e.durability, 2)
     local strikes = events(g, "strike")
     T.ok(#strikes >= 1, "o golpe aconteceu")
+  end },
+
+  { "Máquina de Ciência: olha 5, o dono escolhe 1 equipamento, as outras 4 voltam", function(T)
+    -- Do topo para baixo: w_comum, machado, w_comum, lanca, w_comum.
+    local g = new_game({ "w_comum", "lanca", "w_comum", "machado", "w_comum" })
+    local st = g:put_structure(1, { id = "maquina_de_ciencia", uid = g:next_uid() }, 1)
+    local deck, hand = #g.players[1].deck, #g.players[1].hand
+    T.ok(g:act(1, { type = "activate", structure = 1 }))
+    local ch = g.pending_choice
+    T.ok(ch ~= nil, "escolha aberta")
+    T.eq(ch.player, 1); T.eq(ch.reason, "maquina_de_ciencia"); T.eq(ch.allow_none, true)
+    T.eq(#ch.options, 2)
+    T.eq(ch.options[1].id, "machado", "da mais próxima do topo para baixo")
+    T.eq(ch.options[2].id, "lanca")
+    local look = events(g, "look")
+    T.eq(#look, 1); T.eq(look[1].p, 1); T.eq(look[1].private, true); T.eq(look[1].uid, st.uid)
+    T.eq(#look[1].cards, 5); T.eq(look[1].cards[2].id, "machado")
+    T.eq(#g.players[1].deck, deck, "as cartas ficam no baralho enquanto a escolha está aberta")
+    T.ok(g:act(1, { type = "choose", index = 2 }))
+    T.eq(#g.players[1].hand, hand + 1)
+    T.eq(g.players[1].hand[#g.players[1].hand].id, "lanca")
+    T.eq(#g.players[1].deck, deck - 1, "as outras 4 voltaram")
+    T.eq(count(g.players[1].deck, "machado"), 1)
+    local th = events(g, "to_hand")
+    T.eq(th[#th].source, "maquina"); T.eq(th[#th].private, true)
+    T.eq(g.pending_choice, nil)
+    T.eq(g.active, 1, "não gasta a vez")
+    T.eq(g.players[1].mana, g.players[1].mana, "sem custo")
+  end },
+
+  { "Máquina de Ciência: o dono pode não comprar; as 5 voltam", function(T)
+    local g = new_game({ "lanca", "w_comum", "w_comum", "w_comum", "w_comum" })
+    g:put_structure(1, { id = "maquina_de_ciencia", uid = g:next_uid() }, 1)
+    local deck, hand = #g.players[1].deck, #g.players[1].hand
+    local mana = g.players[1].mana
+    T.ok(g:act(1, { type = "activate", structure = 1 }))
+    T.eq(#g.pending_choice.options, 1)
+    T.ok(g:act(1, { type = "choose" }))
+    T.eq(#g.players[1].hand, hand)
+    T.eq(#g.players[1].deck, deck)
+    T.eq(count(g.players[1].deck, "lanca"), 1)
+    T.eq(g.players[1].mana, mana, "grátis")
+    T.eq(g.active, 1)
+  end },
+
+  { "Máquina de Ciência sem equipamento entre as 5: nada vai para a mão, só embaralha", function(T)
+    -- A Lança é a sexta do topo: fora do alcance.
+    local g = new_game({ "lanca", "w_comum", "w_comum", "w_comum", "w_comum", "w_comum" })
+    local deck = g.players[1].deck
+    local sexta = deck[#deck - 5]
+    T.eq(sexta.id, "lanca")
+    g:put_structure(1, { id = "maquina_de_ciencia", uid = g:next_uid() }, 1)
+    -- rng que inverte: cada troca pega o primeiro, para o embaralhar ser visível.
+    g.rng = function(n) return 1 end
+    local n, hand = #deck, #g.players[1].hand
+    T.ok(g:act(1, { type = "activate", structure = 1 }))
+    T.eq(g.pending_choice, nil, "sem escolha")
+    T.eq(#g.players[1].hand, hand)
+    T.eq(#deck, n)
+    T.ok(deck[#deck - 5] ~= sexta, "embaralhou")
+    T.eq(#events(g, "look"), 1, "o dono viu as 5")
+    T.eq(g.active, 1)
+  end },
+
+  { "Máquina de Ciência: uma vez por rodada", function(T)
+    local g = new_game({ "lanca", "lanca" })
+    g:put_structure(1, { id = "maquina_de_ciencia", uid = g:next_uid() }, 1)
+    T.ok(g:act(1, { type = "activate", structure = 1 }))
+    T.ok(g:act(1, { type = "choose", index = 1 }))
+    local ok, err = g:act(1, { type = "activate", structure = 1 })
+    T.eq(ok, false); T.eq(err, "já ativada nesta rodada")
+    local round = g.round
+    while g.round == round do assert(g:act(g.active, { type = "pass" })) end
+    assert(g:act(2, { type = "pass" }))
+    T.ok(g:act(1, { type = "activate", structure = 1 }), "rodada nova")
+  end },
+
+  { "Máquina de Ciência com menos de 5 cartas no baralho olha as que houver", function(T)
+    local g = new_game()
+    local deck = g.players[1].deck
+    while #deck > 2 do table.remove(deck, 1) end
+    deck[#deck + 1] = { id = "machado", uid = g:next_uid() }
+    g:put_structure(1, { id = "maquina_de_ciencia", uid = g:next_uid() }, 1)
+    T.ok(g:act(1, { type = "activate", structure = 1 }))
+    T.eq(#events(g, "look")[1].cards, 3)
+    T.eq(#g.pending_choice.options, 1)
+    T.ok(g:act(1, { type = "choose", index = 1 }))
+    T.eq(g.players[1].hand[#g.players[1].hand].id, "machado")
+    T.eq(#deck, 2)
+    -- Baralho vazio: nada acontece.
+    local g2 = new_game()
+    g2.players[1].deck = {}
+    g2:put_structure(1, { id = "maquina_de_ciencia", uid = g2:next_uid() }, 1)
+    T.ok(g2:act(1, { type = "activate", structure = 1 }))
+    T.eq(g2.pending_choice, nil)
+    T.eq(#events(g2, "look")[1].cards, 0)
+  end },
+
+  { "Máquina de Ciência pode ser ativada com a pilha aberta (Instantâneo)", function(T)
+    local g = new_game({ "lanca" })
+    g:put_structure(1, { id = "maquina_de_ciencia", uid = g:next_uid() }, 1)
+    put(g, 1, "w_comum", 1)
+    assert(g:act(1, { type = "attack", attackers = { 1 } }))
+    T.ok(g:act(1, { type = "activate", structure = 1 }))
+    T.ok(g:act(1, { type = "choose", index = 1 }))
+    T.eq(g.players[1].hand[#g.players[1].hand].id, "lanca")
+    T.ok(g:stack_open(), "a pilha continua aberta")
   end },
 }
