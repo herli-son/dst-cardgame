@@ -20,6 +20,7 @@ User Story: #28 · Feature: #27
 | Mão escondida no inventário | Confirmado | `components/inventory_replica.lua` (`SetClassifiedTarget`) | Os dados do inventário só são enviados ao próprio dono. |
 | Comunicação jogador e servidor | Confirmado | `modutil.lua` (`AddModRPCHandler`, `AddClientModRPCHandler`, `AddShardModRPCHandler`) | O mod tem canais próprios para enviar ações e receber eventos. |
 | Criatura sem IA própria | Confirmado | `entityscript.lua` (`StopBrain`, `SetBrain`) | Dá para desligar o comportamento automático de cada criatura. |
+| Animação por comando | Confirmado | `stategraph.lua` (`GoToState`), `stategraphs/SGspider.lua`, `modutil.lua` (`AddStategraphState`, `AddStategraphPostInit`) | O mod leva a criatura a um estado do stategraph dela ou toca a animação direto no `AnimState` e espera `animover` (ver "Animações por comando"). |
 | Jogadores protegidos no duelo | Confirmado | `components/health.lua` (`SetInvincible`), `components/hunger.lua` (`Pause`), `components/sanity.lua` (`ignore`) | Invulnerabilidade, fome pausada e sanidade ignorada durante a partida. |
 | Mover criatura até o alvo | Confirmado | `components/locomotor.lua` | O movimento existe; a ida e a volta ao tile serão comandadas pelo mod. |
 | Reduzir criaturas grandes | A testar no jogo | Motor do jogo (`Transform:SetScale`) | A escala funciona no modelo; efeitos presos ao modelo precisam ser conferidos dentro do jogo. |
@@ -73,6 +74,27 @@ Decisão: **abordagem (b)**, com estes cuidados:
 - **Ângulo da câmera ajustável:** o jogador troca o ângulo por um botão na tela e por uma tecla de atalho, alternando entre predefinições (por exemplo: padrão do jogo, aérea e vista de cima). Cada predefinição muda campos da câmera (`zoomstep`, `distancetarget`, `mindist`, `maxdist`, `mindistpitch`, `maxdistpitch` em `cameras/followcamera.lua`). O nosso mod tem as próprias predefinições, sem depender de outro mod instalado.
 - **Referência:** o mod "[DST]Aerial View" (Oficina, id 694531911), que troca entre vista aérea, vista de cima e padrão com uma tecla, ajustando esses mesmos campos. As predefinições do nosso mod partem dos ângulos dele. Serve de referência de abordagem; o código dele não é copiado.
 - **Cada jogador vê a mesa do seu lado:** a câmera é de cada cliente, então o mod define a direção com `TheCamera:SetHeadingTarget` (`cameras/followcamera.lua`). Um jogador fica com a direção oposta à do outro (diferença de 180°), e cada um vê o próprio campo na parte de baixo da tela.
+
+## Animações por comando
+
+Como o jogo toca animações (lido em `stategraph.lua`, `stategraphs/SGspider.lua` e `stategraphs/commonstates.lua`):
+
+- Cada criatura tem um stategraph (`inst.sg`, criado por `EntityScript:SetStateGraph` em `entityscript.lua`). Cada `State` tem `onenter` (onde fica o `AnimState:PlayAnimation`/`PushAnimation`), `timeline` (`TimeEvent` em quadros: sons, o golpe) e `events` (`EventHandler`). O estado termina quando chega `animover` (fim da animação) ou `animqueueover` (fim da fila de `PushAnimation`), e o handler chama `inst.sg:GoToState(...)`.
+- `inst.sg:GoToState(nome, params)` (`stategraph.lua`) força um estado por fora. `inst.sg:HasState(nome)` diz se ele existe.
+- Estados que interessam, na aranha (`SGspider.lua`): `idle` (anima `idle` em laço), `attack` (anima `atk`; no quadro 25 chama `combat:DoAttack`; volta para `idle` em `animover`), `hit` (anima `hit`; volta para `idle`), `death` (anima `death`; vai para `corpse`). Os estados `idle`, `attack`, `hit` e `death` existem com esses nomes também em `SGpig.lua`, `SGhound.lua`, `SGdeerclops.lua` e `SGbearger.lua`, e `commonstates.lua` (`AddCombatStates`, `AddHitState`, `AddDeathState`, `AddIdle`) gera os mesmos nomes para quem usa os estados genéricos.
+- Os eventos que levam a esses estados vêm de fora: `doattack` e `locomote` vêm do cérebro e do `locomotor`; `attacked` vem de `components/combat.lua` (`GetAttacked`); `death` vem de `components/health.lua`.
+
+Como desligar a IA sem quebrar a animação:
+
+- `inst:StopBrain(motivo)` (`entityscript.lua`) para só o cérebro; o stategraph continua rodando, então `idle` segue animando, `attacked` ainda leva para `hit` e `locomote` ainda anda. É isso que o mod quer: cérebro parado, stategraph vivo.
+- `inst:ClearStateGraph()` e `inst.sg:Stop()` existem, mas param tudo (inclusive o `idle` em laço). Não usar.
+
+Riscos e escolhas para o mod:
+
+- **Entrar em `attack` dá dano de verdade.** O `timeline` chama `combat:DoAttack(alvo)`; com alvo `nil`, `DoAttack` usa `combat.target` (`components/combat.lua`). Opções: (1) tocar só a animação com `inst.AnimState:PlayAnimation("atk")` e escutar `animover` na própria entidade (`inst:ListenForEvent("animover", ...)`, padrão usado em `components/frostybreather.lua` e `components/disappears.lua`), mantendo o stategraph em `idle`; (2) registrar um estado próprio com `AddStategraphState(nomeDoSG, State{...})` que toca `atk` sem `DoAttack` e volta para `idle`, e entrar nele com `GoToState`. A opção (2) é mais limpa porque os `TimeEvent` de som continuam e o stategraph sabe que a criatura está ocupada; a opção (1) pode ser atropelada pelo próprio `idle` (que chama `PlayAnimation` ao entrar). [provável] A (2) é a recomendada; conferir no jogo que o `onenter` do `idle` não é chamado no meio.
+- **`hit` é seguro**: só anima e volta para `idle`. Pode ser chamado direto com `GoToState("hit")`.
+- **`death` remove a criatura** (vai para `corpse`, solta loot em `CommonStates.AddDeathState`). Para a morte das cartas, o mod toca `death` como animação (`PlayAnimation("death")`) e remove a entidade depois do `animover`, sem passar por `health:Kill`, já que as criaturas ficam invulneráveis.
+- Nomes de animação variam por criatura (`atk`, `attack`, `hit`, `death`, `idle`, `idle_loop`); o mod lê o estado do stategraph de cada criatura em vez de fixar o nome da animação. `AnimState:GetCurrentAnimationNumFrames` e `FRAMES` (`constants.lua`) servem para cronometrar.
 
 ## Pendências para os próximos passos
 
