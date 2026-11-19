@@ -173,11 +173,11 @@ return {
     T.eq(g2.fogueira_pending[2], 0)
   end },
 
-  { "Pá: mão, +1 de ataque, durabilidade 1; sem golpe não pode ser ativada", function(T)
+  { "Pá: mão, +1 de ataque, durabilidade 2; sem golpe não pode ser ativada", function(T)
     local g = new_game()
     local c = put(g, 1, "w_sobrev", 1)
     local e = equip(g, c, "pa")
-    T.eq(e.def.slot, "mao"); T.eq(g:atk(c), 2); T.eq(e.durability, 1)
+    T.eq(e.def.slot, "mao"); T.eq(g:atk(c), 2); T.eq(e.durability, 2)
     local hand = #g.players[1].hand
     local ok, err = g:act(1, { type = "activate", creature = 1, equip = "mao" })
     T.eq(ok, false, err)
@@ -187,13 +187,12 @@ return {
   { "Pá golpeando fica pronta; ativar fora do combate compra 1 e não gasta a vez", function(T)
     local g = new_game()
     local c = put(g, 1, "w_sobrev", 1)
-    -- Durabilidade maior para a Pá sobreviver ao golpe neste caso.
-    local e = g:equip(c, { id = "pa", uid = g:next_uid(), durability = 3 })
+    local e = equip(g, c, "pa")
     local hand = #g.players[1].hand
     fight(g, { 1 })
     T.eq(e.pronta, g.round, "pronta depois do golpe")
     T.eq(#g.players[1].hand, hand, "o golpe por si só não compra")
-    T.eq(e.durability, 2)
+    T.eq(e.durability, 1, "o golpe gasta 1")
     -- A vez é do jogador 2 depois do combate; ele passa e volta ao dono.
     T.eq(g.active, 2)
     assert(g:act(2, { type = "pass" }))
@@ -202,7 +201,7 @@ return {
     T.eq(#g.players[1].hand, hand + 1, "comprou 1")
     T.eq(g.active, 1, "não gasta a vez")
     T.eq(e.pronta, nil, "a marca foi consumida")
-    T.eq(e.durability, 2, "ativar não gasta durabilidade")
+    T.eq(e.durability, 1, "ativar não gasta durabilidade")
     local ok = g:act(1, { type = "activate", creature = 1, equip = "mao" })
     T.eq(ok, false, "só uma compra por rodada")
     T.eq(#g.players[1].hand, hand + 1)
@@ -214,26 +213,35 @@ return {
     local e = equip(g, c, "pa")
     e.pronta = g.round
     assert(g:act(1, { type = "attack", attackers = { 1 } }))
-    local ok = g:act(1, { type = "activate", creature = 1, equip = "mao" })
+    local ok, err = g:act(1, { type = "activate", creature = 1, equip = "mao" })
     T.eq(ok, false, "pilha aberta")
-    assert(g:act(1, { type = "pass" }))
-    ok = g:act(1, { type = "activate", creature = 1, equip = "mao" })
+    T.eq(err, "a Pá só é ativada fora do combate, com a pilha vazia")
+    -- Pilha fechada, mas na vez do adversário.
+    local g2 = new_game()
+    local c2 = put(g2, 1, "w_sobrev", 1)
+    equip(g2, c2, "pa").pronta = g2.round
+    assert(g2:act(1, { type = "pass" }))
+    T.eq(g2.active, 2); T.eq(g2:stack_open(), false)
+    ok, err = g2:act(1, { type = "activate", creature = 1, equip = "mao" })
     T.eq(ok, false, "vez do outro")
+    T.eq(err, "não é a sua vez")
   end },
 
-  { "Pá com durabilidade 1 quebra no golpe, mas sem dano não fica pronta", function(T)
+  { "Pá com 1 de durabilidade restante quebra no golpe e não compra; sem dano não fica pronta", function(T)
     local g = new_game()
     local c = put(g, 1, "w_sobrev", 1)
-    local e = equip(g, c, "pa")
+    local e = g:equip(c, { id = "pa", uid = g:next_uid(), durability = 1 })
     put(g, 2, "w_comum", 1)
     fight(g, { 1 }, { { 1, 1 } })
-    T.eq(c.equips.mao, nil, "quebrou (durabilidade 1)")
+    T.eq(c.equips.mao, nil, "quebrou no golpe")
     T.eq(e.pronta, g.round, "chegou a ficar pronta, mas saiu da criatura")
+    assert(g:act(2, { type = "pass" }))
+    T.eq(g:act(1, { type = "activate", creature = 1, equip = "mao" }), false, "sem a Pá, não compra")
     -- Portador que não causa dano: a Pá não golpeia (Golpear exige dano > 0).
     local g2 = new_game()
     local z = put(g2, 1, "w_zero", 1)
     z.can_equip = true
-    local e2 = g2:equip(z, { id = "pa", uid = g2:next_uid(), durability = 3 })
+    local e2 = equip(g2, z, "pa")
     T.eq(g2:atk(z), 1)
     local d = put(g2, 2, "w_sobrev", 1)
     Cards.define{ id = "w_madeira_teste", kind = "equipamento", slot = "peito", cost = 0, damage_reduction = 1 }
@@ -247,7 +255,7 @@ return {
   { "a marca da Pá some na rodada seguinte e ao sair da criatura", function(T)
     local g = new_game()
     local c = put(g, 1, "w_sobrev", 1)
-    local e = g:equip(c, { id = "pa", uid = g:next_uid(), durability = 3 })
+    local e = equip(g, c, "pa")
     e.pronta = g.round
     local round = g.round
     while g.round == round do assert(g:act(g.active, { type = "pass" })) end
@@ -329,6 +337,7 @@ return {
     local g = new_game({ "w_comum", "lanca", "w_comum", "machado", "w_comum" })
     local st = g:put_structure(1, { id = "maquina_de_ciencia", uid = g:next_uid() }, 1)
     local deck, hand = #g.players[1].deck, #g.players[1].hand
+    local mana = g.players[1].mana
     T.ok(g:act(1, { type = "activate", structure = 1 }))
     local ch = g.pending_choice
     T.ok(ch ~= nil, "escolha aberta")
@@ -349,7 +358,7 @@ return {
     T.eq(th[#th].source, "maquina"); T.eq(th[#th].private, true)
     T.eq(g.pending_choice, nil)
     T.eq(g.active, 1, "não gasta a vez")
-    T.eq(g.players[1].mana, g.players[1].mana, "sem custo")
+    T.eq(g.players[1].mana, mana, "sem custo")
   end },
 
   { "Máquina de Ciência: o dono pode não comprar; as 5 voltam", function(T)
