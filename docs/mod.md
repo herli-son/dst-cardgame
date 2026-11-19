@@ -77,7 +77,7 @@ Os testes automáticos (`tests/test_mod_arena.lua`) só verificam que os arquivo
 - **Mundo vazio:** nenhum recurso, animal ou monstro nasce. Fora da mesa deve ser vazio (intransitável); a geração não deve mostrar oceano nem outras ilhas. Se aparecer algo (por exemplo, um spawner residual de `prefabs/forest.lua`), anotar o prefab para desligar na próxima US.
 - **Mesa visível:** chão xadrez (`CHECKER`) de 16 x 16 tiles com duas linhas de 6 espaços cinza (`MOSAIC_GREY`), dois espaços azuis (`MOSAIC_BLUE`) atrás de cada linha e o centro de carpete (`CARPET`) de 8 x 4 tiles, como o desenho em `scripts/duelo/mod/mesa.lua`.
 - **Portal:** o `multiplayer_portal` fica na margem da mesa (coluna 3, fora do caminho das criaturas) e o jogador nasce ao lado dele. Se o portal aparecer na margem **leste** em vez da oeste, o gerador espelhou o eixo x (`flip_x` em `map/object_layout.lua`); isso não quebra a mesa, mas a US #30 precisa passar `espelhado = true` para `Mesa.origem_pelo_portal`/`Mesa.posicao`. (Medido na US #30: o portal fica a leste, o eixo x é espelhado; a calibração descobre isso sozinha, ver abaixo.)
-- **Orientação dos eixos:** conferir que a coluna do tile cresce com o `x` do mundo e a linha com o `z` (`TheWorld.Map:GetTileCoordsAtPoint` no console), que é o que `mesa.lua` assume.
+- **Orientação dos eixos:** medido no jogo, a coluna do layout **decresce** com o `x` do mundo (eixo x espelhado pelo gerador, `x_tile = 38 - col`) e a linha cresce com o `z`. A calibração da US #30 detecta o espelhamento sozinha.
 - **Sem cavernas:** o servidor sobe só o shard Master; não há buracos (`cave_entrance`) na mesa.
 - **Relógio e clima:** o relógio nasce travado (US #31, abaixo). Deve ficar no outono (outono muito longo, as outras três estações em `noseason`; a tela exige pelo menos uma estação, e a US #31 ainda trava a estação) e sem chuva, raios nem geada.
 - **Console útil:** `c_select()` em cima do portal e `TheWorld.Map:GetTileCoordsAtPoint(c_sel().Transform:GetWorldPosition())` dão a posição do portal; `TheWorld.Map:GetTile(x, y)` confirma o tile.
@@ -129,7 +129,7 @@ Os tiles da mesa já vêm da geração (US #29). Os testes automáticos (`tests/
 
 **Marcadores.**
 
-- Em cada espaço cinza (criatura) aparece `J1 1` … `J1 6` (azul) do lado do jogador 1 e `J2 1` … `J2 6` (vermelho) do lado do 2; nos azuis (estrutura), `J1 E1`, `J1 E2`, `J2 E1`, `J2 E2`; no meio do carpete, `Combate`. Os textos ficam de pé e legíveis com a câmera da mesa, no host e no cliente.
+- Em cada espaço cinza (criatura) aparece `J1 1` … `J1 6` (azul) do lado do jogador 1 e `J2 1` … `J2 6` (vermelho) do lado do 2; nos azuis (estrutura), `J1 E1`, `J1 E2`, `J2 E1`, `J2 E2` (os do próprio lado precisam aparecer **acima da barra de inventário**; a câmera fica um pouco deslocada para o lado de quem olha por isso); no meio do carpete, `Combate`. Os textos ficam de pé e legíveis com a câmera da mesa, no host e no cliente.
 - Cada jogador lê os seus números da esquerda para a direita (`1` à esquerda), e o espaço `n` de um fica de frente para o `7 - n` do outro.
 - Os marcadores não são clicáveis (o mouse não mostra nome nem ação sobre eles) e não bloqueiam o andar.
 - Depois de salvar e recarregar o mundo continuam 17 (não persistem; o servidor os recria): `c_countprefabs("duelo_marcador")` dá 17.
