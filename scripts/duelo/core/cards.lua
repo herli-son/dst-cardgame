@@ -45,6 +45,13 @@
 --                                      entrada (criatura ou estrutura), conferidos
 --                                      na jogada e de novo na entrada
 --   on_any_enter(game, criatura, nova) reage a qualquer criatura que entrar
+--   on_round_start(game, obj)          início da rodada (criatura ou estrutura)
+--   on_round_end(game, obj)            fim da rodada
+--   on_period_start(game, obj, periodo) início de período ("manha" | "tarde" |
+--                                      "noite"). Os três valem também para
+--                                      equipamentos, com o portador: (game,
+--                                      portador, equip[, periodo]). Ordem pelo
+--                                      campo e retomada após escolhas: rodada.lua
 --   on_survive_damage(game, criatura, sobrevivente, amount, source)  uma criatura
 --                                      do mesmo dono (esta inclusa) recebeu dano
 --                                      de uma fonte e seguiu com dano < vida;
