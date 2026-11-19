@@ -81,14 +81,20 @@ return function(Game)
 
   -- O dano fica marcado na criatura (é permanente). Devolve o dano aplicado
   -- (0 se nenhum). A redução de dano entra aqui: o dano de cada fonte perde a
-  -- redução, no mínimo 0; reduzido a zero, nada é marcado nem emitido (o golpe
-  -- em si já saiu como evento "strike" e ainda gasta a armadura).
+  -- redução, no mínimo 0; reduzido a zero, nada é marcado e sai o evento
+  -- "damage_absorbed" (para a tela mostrar que a armadura absorveu um dano de
+  -- feitiço ou efeito; em combate o golpe já saiu como "strike" e ainda gasta a
+  -- armadura).
   function Game:damage_creature(c, n, source, reason)
     if Game.check_amount(n) <= 0 then return 0 end
     if self.players[c.owner].field[c.slot] ~= c then return 0 end
     local reduced = math.min(self:damage_reduction(c), n)
     n = n - reduced
-    if n <= 0 then return 0 end
+    if n <= 0 then
+      self:emit{ t = "damage_absorbed", p = c.owner, slot = c.slot, uid = c.uid, amount = reduced,
+        source_uid = source and source.uid or nil, reason = reason }
+      return 0
+    end
     c.damage = c.damage + n
     self:emit{ t = "creature_damage", p = c.owner, slot = c.slot, uid = c.uid, amount = n,
       damage = c.damage, source_uid = source and source.uid or nil, reason = reason,

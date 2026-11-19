@@ -176,6 +176,10 @@ function Partida.describe_events(g, from_index, p)
       if ev.reason ~= "combate" then
         add(nome(ev.uid) .. " sofre " .. ev.amount .. " de dano (" .. tostring(ev.reason) .. ").")
       end
+    elseif t == "damage_absorbed" then
+      if ev.reason ~= "combate" then
+        add(nome(ev.uid) .. " absorve " .. ev.amount .. " de dano (" .. tostring(ev.reason) .. ").")
+      end
     elseif t == "creature_heal" then
       add(nome(ev.uid) .. " recupera " .. ev.amount .. " de vida.")
     elseif t == "player_damage" then

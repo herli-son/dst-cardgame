@@ -255,7 +255,9 @@ return {
     T.eq(ev.t, "creature_damage"); T.eq(ev.amount, 2); T.eq(ev.reduced, 1)
     T.eq(g:damage_creature(c, 1, nil, "teste"), 0, "1 de dano vira 0")
     T.eq(c.damage, 2)
-    T.eq(g.events[#g.events], ev, "nada emitido quando o dano vira 0")
+    local ab = g.events[#g.events]
+    T.eq(ab.t, "damage_absorbed", "o dano absorvido deixa rastro em evento")
+    T.eq(ab.uid, c.uid); T.eq(ab.amount, 1); T.eq(ab.reason, "teste")
     -- Em combate: o golpe de 1 do bloqueador não fere, mas gasta a armadura.
     local g2 = new_game()
     local a = put(g2, 1, "t_sobrevivente", 1)
