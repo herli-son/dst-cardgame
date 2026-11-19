@@ -13,6 +13,7 @@ return {
   passaro = 5,
   borboleta = 6,
   cao_de_caca = 7,
+  wilson = 10,
   maquina_de_ciencia = 11,
   machado = 12,
   lanca = 13,

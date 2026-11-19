@@ -87,6 +87,7 @@ return {
     load_cartas()
     local numeros = require("duelo/cartas/numeros")
     local esperado = {
+      wilson = { "Wilson", "criatura", 4, 10 },
       maquina_de_ciencia = { "Máquina de Ciência", "estrutura", 4, 11 },
       machado = { "Machado", "equipamento", 2, 12 },
       lanca = { "Lança", "equipamento", 3, 13 },
@@ -428,5 +429,125 @@ return {
     T.ok(g:act(1, { type = "choose", index = 1 }))
     T.eq(g.players[1].hand[#g.players[1].hand].id, "lanca")
     T.ok(g:stack_open(), "a pilha continua aberta")
+  end },
+
+  { "Wilson: Campeão Sobrevivente 1/3 por 4, usa equipamentos", function(T)
+    load_cartas()
+    local def = Cards.get("wilson")
+    T.eq(def.atk, 1); T.eq(def.hp, 3)
+    T.eq(def.sobrevivente, true); T.eq(def.campeao, true); T.eq(def.nivel, 1)
+    local g = new_game()
+    g.players[1].mana = 4
+    T.ok(g:act(1, { type = "play", hand_index = give(g, 1, "wilson"), slot = 1 }))
+    local c = g:creature_at(1, 1)
+    T.eq(c.def.id, "wilson")
+    T.eq(g.players[1].mana, 0)
+    T.ok(g:can_equip(c))
+  end },
+
+  { "Wilson busca a Máquina de Ciência no baralho, mostra, põe em jogo e embaralha", function(T)
+    local g = new_game({ "maquina_de_ciencia", "w_comum", "w_comum" })
+    local deck = g.players[1].deck
+    local n = #deck
+    local maq = deck[n - 2]
+    T.eq(maq.id, "maquina_de_ciencia")
+    local topo_antes = deck[n]
+    g.rng = function(k) return 1 end
+    g.players[1].mana = 4
+    T.ok(g:act(1, { type = "play", hand_index = give(g, 1, "wilson"), slot = 1 }))
+    local st = g:structure_at(1, 1)
+    T.ok(st ~= nil and st.def.id == "maquina_de_ciencia", "a Máquina entrou em jogo")
+    T.eq(st.card, maq, "a mesma carta que estava no baralho")
+    T.eq(st.ficha, false, "não é ficha")
+    T.eq(#deck, n - 1)
+    T.eq(count(deck, "maquina_de_ciencia"), 0)
+    local rev = events(g, "reveal")
+    T.eq(#rev, 1); T.eq(rev[1].id, "maquina_de_ciencia"); T.eq(rev[1].p, 1)
+    T.eq(rev[1].private, nil, "mostrar é público")
+    T.eq(rev[1].card_uid, maq.uid)
+    T.ok(deck[#deck] ~= topo_antes, "baralho embaralhado")
+    T.eq(g.pending_choice, nil)
+    -- A Máquina já funciona nesta rodada, assim que a vez voltar ao dono.
+    assert(g:act(2, { type = "pass" }))
+    T.ok(g:act(1, { type = "activate", structure = 1 }))
+  end },
+
+  { "Wilson sem Máquina no baralho: nada acontece e o baralho não é embaralhado", function(T)
+    local g = new_game({ "lanca", "machado" })
+    local deck = g.players[1].deck
+    local before = {}
+    for i, card in ipairs(deck) do before[i] = card end
+    g.rng = function(k) return 1 end
+    g.players[1].mana = 4
+    T.ok(g:act(1, { type = "play", hand_index = give(g, 1, "wilson"), slot = 1 }))
+    T.eq(g:structure_at(1, 1), nil); T.eq(g:structure_at(1, 2), nil)
+    T.eq(#deck, #before)
+    for i, card in ipairs(before) do T.eq(deck[i], card, "ordem do baralho mantida") end
+    T.eq(#events(g, "reveal"), 0)
+    T.eq(g.pending_choice, nil)
+  end },
+
+  { "Wilson com uma Máquina já em jogo não busca outra", function(T)
+    local g = new_game({ "maquina_de_ciencia" })
+    g:put_structure(1, { id = "maquina_de_ciencia", uid = g:next_uid() }, 1)
+    local deck = g.players[1].deck
+    local n = #deck
+    g.players[1].mana = 4
+    T.ok(g:act(1, { type = "play", hand_index = give(g, 1, "wilson"), slot = 1 }))
+    T.eq(#deck, n, "a do baralho ficou lá")
+    T.eq(g:structure_at(1, 2), nil)
+    T.eq(#events(g, "reveal"), 0)
+  end },
+
+  { "Wilson só busca no baralho (não na mão nem no descarte)", function(T)
+    local g = new_game()
+    give(g, 1, "maquina_de_ciencia")
+    g.players[1].discard[#g.players[1].discard + 1] = { id = "maquina_de_ciencia", uid = g:next_uid() }
+    g.players[1].mana = 4
+    T.ok(g:act(1, { type = "play", hand_index = give(g, 1, "wilson"), slot = 1 }))
+    T.eq(g:structure_at(1, 1), nil)
+    T.eq(count(g.players[1].hand, "maquina_de_ciencia"), 1)
+    T.eq(count(g.players[1].discard, "maquina_de_ciencia"), 1)
+  end },
+
+  { "Wilson com a zona de estruturas cheia: o dono escolhe qual substituir", function(T)
+    local g = new_game({ "maquina_de_ciencia" })
+    g:put_structure(1, { id = "w_casa", uid = g:next_uid() }, 1)
+    local torre = g:put_structure(1, { id = "w_casa", uid = g:next_uid() }, 2)
+    local deck = g.players[1].deck
+    local n = #deck
+    g.players[1].mana = 4
+    T.ok(g:act(1, { type = "play", hand_index = give(g, 1, "wilson"), slot = 1 }))
+    local ch = g.pending_choice
+    T.ok(ch ~= nil, "escolha aberta")
+    T.eq(ch.reason, "substituir_estrutura"); T.eq(ch.player, 1); T.eq(ch.allow_none, true)
+    T.eq(#ch.options, 2)
+    T.eq(#deck, n - 1, "a Máquina já saiu do baralho")
+    T.eq(#events(g, "reveal"), 1)
+    T.ok(g:act(1, { type = "choose", index = 2 }))
+    T.eq(g:structure_at(1, 2).def.id, "maquina_de_ciencia")
+    T.eq(g:structure_at(1, 1).def.id, "w_casa")
+    local d = g.players[1].destroyed
+    T.eq(d[#d].uid, torre.card_uid, "a substituída foi destruída")
+    T.eq(g.pending_choice, nil)
+  end },
+
+  { "Wilson com a zona cheia: sem substituir, a Máquina vai para o descarte", function(T)
+    local g = new_game({ "maquina_de_ciencia" })
+    g:put_structure(1, { id = "w_casa", uid = g:next_uid() }, 1)
+    g:put_structure(1, { id = "w_casa", uid = g:next_uid() }, 2)
+    g.players[1].mana = 4
+    T.ok(g:act(1, { type = "play", hand_index = give(g, 1, "wilson"), slot = 1 }))
+    T.ok(g.pending_choice ~= nil)
+    T.ok(g:act(1, { type = "choose" }))
+    T.eq(g:structure_at(1, 1).def.id, "w_casa"); T.eq(g:structure_at(1, 2).def.id, "w_casa")
+    T.eq(count(g.players[1].discard, "maquina_de_ciencia"), 1)
+    T.eq(count(g.players[1].deck, "maquina_de_ciencia"), 0)
+  end },
+
+  { "Wilson colocado em campo por efeito também busca a Máquina", function(T)
+    local g = new_game({ "maquina_de_ciencia" })
+    put(g, 1, "wilson", 3)
+    T.eq(g:structure_at(1, 1).def.id, "maquina_de_ciencia")
   end },
 }
