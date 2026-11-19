@@ -20,10 +20,11 @@ return {
   pa = 14,
   armadura_de_grama = 15,
   armadura_de_madeira = 16,
-  -- 20 a 22: deck do Webber (#21).
+  -- 20 a 23: deck do Webber (#21, #129).
   webber = 20,
   aranha = 21,
   aranha_guerreira = 22,
+  curandeira = 23,
   dardo = 30,
   pomada = 31,
   dardo_do_sono = 32,
