@@ -16,7 +16,8 @@
 --     `Transform:GetWorldPosition()` e o tile dele de
 --     `TheWorld.Map:GetTileCoordsAtPoint(x, 0, z)` (consolecommands.lua,
 --     componentutil.lua).
---   * Em volta do tile do portal (Calibracao.RAIO tiles para cada lado), cada
+--   * Em volta do tile do portal (Calibracao.RAIO tiles para cada lado, sem
+--     sair do mapa, `TheWorld.Map:GetSize()`, componentutil.lua), cada
 --     tile é lido com `TheWorld.Map:GetTile(tx, ty)` (debugkeys.lua) e
 --     comparado com `WORLD_TILES.CARPET` (o id vem de tiledefs.lua por
 --     tilemanager.lua). Os tiles de carpete vão para Mesa.achar_carpete, e o
@@ -130,13 +131,20 @@ local function post_init_rede(inst)
   end
 end
 
--- Servidor: tiles de carpete em volta do tile (ptx, pty).
+-- Servidor: tiles de carpete em volta do tile (ptx, pty), sem sair do
+-- mapa (Map:GetSize, como em componentutil.lua, GetHermitCrabOccupiedGrid).
 local function tiles_de_carpete(map, ptx, pty)
   local carpete = estado.GLOBAL.WORLD_TILES.CARPET
   local lista = {}
   local r = Calibracao.RAIO
-  for tx = ptx - r, ptx + r do
-    for ty = pty - r, pty + r do
+  local x0, x1, y0, y1 = ptx - r, ptx + r, pty - r, pty + r
+  if map.GetSize ~= nil then
+    local w, h = map:GetSize()
+    x0, y0 = math.max(x0, 0), math.max(y0, 0)
+    x1, y1 = math.min(x1, w - 1), math.min(y1, h - 1)
+  end
+  for tx = x0, x1 do
+    for ty = y0, y1 do
       if map:GetTile(tx, ty) == carpete then
         lista[#lista + 1] = { x = tx, y = ty }
       end
