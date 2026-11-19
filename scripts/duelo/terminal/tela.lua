@@ -208,7 +208,15 @@ local function linha_criatura(g, p, prefixo, c)
     local e = c.equips[s]
     if e then
       local d = e.durability and (" " .. e.durability) or ""
-      eq[#eq + 1] = Tela.nome(e) .. d
+      -- Equipamento com efeito ativado: "*" ativável, "!" pronto (ex.: Pá que
+      -- golpeou nesta rodada), "x" já usado nesta rodada.
+      local marca = ""
+      if e.def.activation then
+        if e.pronta == g.round then marca = "!"
+        elseif e.def.activation.once_per_round and e.card and e.card.used_round == g.round then marca = "x"
+        else marca = "*" end
+      end
+      eq[#eq + 1] = Tela.nome(e) .. d .. marca
     end
   end
   if #eq > 0 then extras[#extras + 1] = "{" .. table.concat(eq, ", ") .. "}" end
