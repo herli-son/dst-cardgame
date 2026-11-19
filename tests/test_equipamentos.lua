@@ -169,6 +169,25 @@ return {
     clear_test_cards()
   end },
 
+  { "Velocidade 3 bloqueada gasta 2 da ferramenta e 2 da armadura do alvo; contra o jogador, 1", function(T)
+    Cards.define{ id = "t_veloz", kind = "criatura", cost = 0, atk = 1, hp = 9, speed = 3 }
+    local g = new_game()
+    local c = put(g, 1, "t_veloz", 1)
+    g:equip(c, { id = "t_lanca", uid = g:next_uid() })
+    local d = put(g, 2, "t_sobrevivente", 1)
+    g:equip(d, { id = "t_armadura", uid = g:next_uid() })
+    fight(g, { 1 }, { { 1, 1 } })
+    T.eq(c.equips.mao.durability, 4, "dois golpes, dois de desgaste")
+    T.eq(d.equips.peito, nil, "a armadura de 2 quebra com os dois golpes recebidos")
+    local g2 = new_game()
+    local c2 = put(g2, 1, "t_veloz", 1)
+    g2:equip(c2, { id = "t_lanca", uid = g2:next_uid() })
+    fight(g2, { 1 })
+    T.eq(c2.equips.mao.durability, 5, "contra o jogador golpeia uma vez só")
+    Cards.remove("t_veloz")
+    clear_test_cards()
+  end },
+
   { "a armadura no peito gasta 1 por golpe recebido, mesmo com dano zero", function(T)
     Cards.define{ id = "t_zero", kind = "criatura", cost = 0, atk = 0, hp = 3 }
     local g = new_game()
