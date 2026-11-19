@@ -13,6 +13,9 @@ return {
   passaro = 5,
   borboleta = 6,
   cao_de_caca = 7,
+  -- 20 a 22: deck do Webber (#21); o 20 é do Webber (campeoes).
+  aranha = 21,
+  aranha_guerreira = 22,
   dardo = 30,
   pomada = 31,
   dardo_do_sono = 32,

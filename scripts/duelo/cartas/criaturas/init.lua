@@ -2,6 +2,8 @@
 -- Carregar este módulo registra todas no motor (Cards.define) e devolve os ids.
 
 local ids = {
+  "aranha",
+  "aranha_guerreira",
   "borboleta",
   "cao_de_caca",
   "morcego",
