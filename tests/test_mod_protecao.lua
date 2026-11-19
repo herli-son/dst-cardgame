@@ -65,7 +65,13 @@ local function ambiente(servidor)
   local ctx = {
     GLOBAL = GLOBAL,
     AddComponentPostInit = function(nome, fn) reg.component_postinits[nome] = fn end,
-    AddPrefabPostInit = function(nome, fn) reg.prefab_postinits[nome] = fn end,
+    AddPrefabPostInit = function(nome, fn)
+      reg.prefab_postinits[nome] = fn
+      -- Lista de todos por nome: o mod registra mais de um no mesmo prefab.
+      reg.prefab_postinits_todos = reg.prefab_postinits_todos or {}
+      reg.prefab_postinits_todos[nome] = reg.prefab_postinits_todos[nome] or {}
+      table.insert(reg.prefab_postinits_todos[nome], fn)
+    end,
     AddPlayerPostInit = function(fn) reg.player_postinits[#reg.player_postinits + 1] = fn end,
     AddSimPostInit = function(fn) reg.sim_postinits[#reg.sim_postinits + 1] = fn end,
   }
@@ -205,6 +211,7 @@ return {
     T.eq(configs[1], "relogio", "lê a opção relogio")
     T.eq(type(reg.component_postinits.clock), "function", "AddComponentPostInit(clock)")
     T.eq(type(reg.prefab_postinits.forest_network), "function", "AddPrefabPostInit(forest_network)")
+    T.eq(#reg.prefab_postinits_todos.forest_network, 2, "forest_network do relógio e da calibração (US #30)")
     T.eq(#reg.player_postinits, 2, "AddPlayerPostInit da proteção e da câmera (US #30)")
     T.eq(#reg.sim_postinits, 2, "AddSimPostInit da calibração e da câmera (US #30)")
     T.eq(type(reg.component_postinits.playercontroller), "function", "AddComponentPostInit(playercontroller)")
