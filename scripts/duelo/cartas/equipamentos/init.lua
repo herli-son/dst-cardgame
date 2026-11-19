@@ -4,6 +4,7 @@
 local ids = {
   "lanca",
   "machado",
+  "pa",
 }
 
 for _, id in ipairs(ids) do

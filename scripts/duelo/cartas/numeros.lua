@@ -15,6 +15,7 @@ return {
   cao_de_caca = 7,
   machado = 12,
   lanca = 13,
+  pa = 14,
   -- 20 a 22: deck do Webber (#21).
   webber = 20,
   aranha = 21,
