@@ -46,4 +46,4 @@ A primeira versão jogável usa dois decks fixos, **Wilson contra Webber**, com 
 
 ## Status
 
-Em planejamento. As regras completas estão escritas e balanceadas; a implementação começa pelo motor de regras.
+Motor de regras pronto e testado (M1); o mod começa pela arena: nível de mundo mínimo com a mesa e o portal (ver `docs/mod.md`).
