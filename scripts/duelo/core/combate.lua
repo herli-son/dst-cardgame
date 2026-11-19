@@ -46,6 +46,10 @@
 --     bloqueador saiu (morto por um "ao morrer" de um par anterior, por
 --     exemplo), o atacante não golpeia ninguém: o bloqueio declarado vale.
 --   * A partida decidida em qualquer fase para o combate.
+--   * Durabilidade (doc, "Equipamentos"): em cada fase, depois dos efeitos de
+--     Golpear, a ferramenta na mão de quem golpeou perde 1 e a armadura no peito
+--     de quem foi golpeado perde 1, por golpe, mesmo com dano zero
+--     (wear_from_strikes).
 --   * Guarda (kw.guarda; Porco guarda): só na defesa. Depois de resolver o par
 --     dela, se sobreviveu e ainda não saltou neste combate, passa a bloquear o
 --     próximo atacante à direita (espaço maior que o do atacante que ela
@@ -490,9 +494,25 @@ return function(Game)
     end
   end
 
+  -- Durabilidade (doc, "Equipamentos"): a ferramenta na mão perde 1 a cada golpe
+  -- que o portador dá; a armadura no peito perde 1 a cada golpe que o portador
+  -- recebe. Conta todo golpe de combate, mesmo com dano zero (um golpe reduzido
+  -- a zero pela armadura ainda gasta a armadura). Roda depois dos efeitos de
+  -- Golpear, para um equipamento que quebra no golpe (ex.: Pá, durabilidade 1)
+  -- ainda disparar o seu Golpear.
+  function Game:wear_from_strikes(strikes)
+    for _, s in ipairs(strikes) do
+      local src, target = s[1], s[2]
+      if self.players[src.owner].field[src.slot] == src then self:wear(src, "mao", 1) end
+      if not target.player and self.players[target.owner].field[target.slot] == target then
+        self:wear(target, "peito", 1)
+      end
+    end
+  end
+
   -- Uma fase de golpes: todos os golpes de `strikes` ao mesmo tempo (valores lidos
-  -- antes de qualquer dano), depois os efeitos de Golpear, depois a vitória e
-  -- depois as mortes. strikes = { { src, alvo }, ... }.
+  -- antes de qualquer dano), depois os efeitos de Golpear, depois a durabilidade,
+  -- depois a vitória e depois as mortes. strikes = { { src, alvo }, ... }.
   function Game:strike_phase(strikes)
     local amounts = {}
     for i, s in ipairs(strikes) do amounts[i] = self:atk(s[1]) end
@@ -511,6 +531,7 @@ return function(Game)
       self:fire_strike_effects(s[1], s[2])
     end
     if self.winner ~= nil then return end
+    self:wear_from_strikes(strikes)
     self:check_lethal(killers, "combate")
   end
 

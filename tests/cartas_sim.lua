@@ -129,11 +129,10 @@ function CartasSim.define()
     targets = creature_target,
     activate = function(g, p, st, action, objects) g:damage_creature(objects[1], 1, nil, "altar") end }
 
-  -- Equipamentos com durabilidade; o machado gasta 1 a cada Golpear.
-  Cards.define{ id = "sim_machado", kind = "equipamento", slot = "mao", cost = 2, atk_bonus = 2, durability = 3,
-    on_strike = function(g, holder, target, equip) g:wear(holder, equip.def.slot, 1) end }
-  Cards.define{ id = "sim_armadura", kind = "equipamento", slot = "peito", cost = 1, hp_bonus = 2, durability = 2,
-    on_strike = function(g, holder, target, equip) g:wear(holder, equip.def.slot, 1) end }
+  -- Equipamentos com durabilidade: o motor gasta 1 por golpe dado (mão) e por
+  -- golpe recebido (peito).
+  Cards.define{ id = "sim_machado", kind = "equipamento", slot = "mao", cost = 2, atk_bonus = 2, durability = 3 }
+  Cards.define{ id = "sim_armadura", kind = "equipamento", slot = "peito", cost = 1, hp_bonus = 2, durability = 2 }
   -- Equipamento com efeito ativado (gasta durabilidade ao usar).
   Cards.define{ id = "sim_lanterna", kind = "equipamento", slot = "cabeca", cost = 2, durability = 2,
     activation = { speed = "instantaneo", once_per_round = true },

@@ -4,7 +4,10 @@
 -- Campos da definição de um equipamento:
 --   slot = "mao" | "peito" | "cabeca"
 --   atk_bonus, hp_bonus   bônus enquanto equipado
---   durability            durabilidade inicial (nil = sem durabilidade)
+--   durability            durabilidade inicial (nil = sem durabilidade). Em combate,
+--                         a ferramenta na mão gasta 1 por golpe dado e a armadura no
+--                         peito gasta 1 por golpe recebido (combate.lua,
+--                         wear_from_strikes); um efeito ativado gasta 1 por uso.
 --   on_equip(game, criatura, equipamento)
 
 return function(Game)
