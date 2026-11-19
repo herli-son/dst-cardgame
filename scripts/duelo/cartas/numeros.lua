@@ -13,4 +13,7 @@ return {
   passaro = 5,
   borboleta = 6,
   cao_de_caca = 7,
+  dardo = 30,
+  pomada = 31,
+  dardo_do_sono = 32,
 }
