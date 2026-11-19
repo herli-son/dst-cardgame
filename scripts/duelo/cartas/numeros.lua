@@ -14,4 +14,5 @@ return {
   borboleta = 6,
   cao_de_caca = 7,
   dardo = 30,
+  pomada = 31,
 }
