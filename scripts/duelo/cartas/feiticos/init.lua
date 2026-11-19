@@ -3,6 +3,7 @@
 
 local ids = {
   "dardo",
+  "dardo_do_sono",
   "pomada",
 }
 
