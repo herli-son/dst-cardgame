@@ -237,15 +237,15 @@ function Replay.run(log)
       ok, err = g:act(entry.p, action)
     end
     if not ok then
-      -- A última ação registrada pode ser a que encerrou a partida por erro.
-      if g.phase == "error" and i == n then return g end
+      -- Só a última ação, e só quando o registro diz que a original também
+      -- encerrou a partida por erro; qualquer outra recusa é divergência.
+      if g.phase == "error" and i == n and log.error then return g end
       error("reprodução: ação " .. i .. " recusada (" .. tostring(err) .. ")", 0)
     end
   end
   return g
 end
 
-Game.replay = Replay.run
 
 ----------------------------------------------------------------------------
 -- Estado observável, para comparar partidas
@@ -292,6 +292,22 @@ local function slots(list, n)
   return out
 end
 
+-- Itens da pilha: dono, rótulo e uids das cartas/alvos travados (campos simples).
+local function stack_state(g)
+  local out = {}
+  for i, e in ipairs(g.stack or {}) do
+    out[i] = { owner = e.owner, label = e.label, card = e.card and e.card.uid or false,
+      source = e.source and e.source.uid or false }
+  end
+  return out
+end
+
+local function uids(list)
+  local out = {}
+  for i, c in ipairs(list or {}) do out[i] = c.uid or false end
+  return out
+end
+
 function Replay.snapshot(g)
   local s = {
     phase = g.phase, round = g.round, vez = g.vez, active = g.active, attacker = g.attacker,
@@ -299,7 +315,10 @@ function Replay.snapshot(g)
     fogueira = { g.fogueira[1] or false, g.fogueira[2] or false },
     fogueira_pending = { g.fogueira_pending[1], g.fogueira_pending[2] },
     pending_choice = g.pending_choice and { player = g.pending_choice.player, reason = g.pending_choice.reason,
-      count = #(g.pending_choice.options or {}) } or false,
+      count = #(g.pending_choice.options or {}), options = plain(g.pending_choice.options) } or false,
+    stack = stack_state(g),
+    combat = g.combat and plain({ attacker = g.combat.attacker, defender = g.combat.defender,
+      attackers = uids(g.combat.attackers), blocks_declared = g.combat.blocks_declared }) or false,
     error = g.error and { message = g.error.message, context = plain(g.error.context) } or false,
     players = {},
     events = plain(g.events),

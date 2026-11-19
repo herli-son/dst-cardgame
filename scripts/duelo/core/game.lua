@@ -177,9 +177,12 @@ function Game.new(opts)
   local seed
   g.rng, seed = make_rng(opts)
   -- Registro da partida (US #82): o que basta para reproduzi-la com
-  -- Game.replay. first é o pedido (nil quando sorteado, para o sorteio se
-  -- repetir); as ações são só as aceitas, com cópia, na ordem; a troca inicial
-  -- entra como { type = "mulligan", indices = {...} }.
+  -- Replay.run, em duelo/core/replay (não carregado daqui, para evitar o ciclo).
+  -- first é o pedido (nil quando sorteado, para o sorteio se repetir); os
+  -- baralhos são só os ids (campos extras das cartas não entram); as ações são
+  -- só as aceitas, com cópia, na ordem, mais a que encerrou a partida por erro
+  -- (log.error = true); a troca inicial entra como { type = "mulligan",
+  -- indices = {...} }.
   g.log = {
     seed = seed,
     first = opts.first,
@@ -826,9 +829,11 @@ end
 local function recorded_call(self, p, action, core, ...)
   local was_error = self.phase == "error"
   local ok, err = self:guarded(settled_call, core, ...)
-  if ok == true or (self.phase == "error" and not was_error) then
+  local errored = self.phase == "error" and not was_error
+  if ok == true or errored then
     local actions = self.log.actions
     actions[#actions + 1] = { p = p, action = deep_copy(action) }
+    if errored then self.log.error = true end
   end
   return ok, err
 end

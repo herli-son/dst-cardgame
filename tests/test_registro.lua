@@ -167,7 +167,7 @@ return {
     T.ok(rep.resultado == "vitoria" or rep.resultado == "empate" or rep.resultado == "limite_rodadas", rep.resultado)
     T.ok(#g.log.actions > 20, "partida com jogadas")
     T.eq(rep.log, nil) -- sem falha e sem log = true, o relatório não traz o registro
-    local g2 = Game.replay(g.log)
+    local g2 = Replay.run(g.log)
     T.eq(g2.phase, g.phase)
     T.eq(g2.winner, g.winner)
     T.eq(g2.round, g.round)
@@ -317,5 +317,36 @@ return {
     local g = Replay.run(agg.falhas[1].log)
     T.eq(g.phase, "error")
     T.eq(g.error.message, agg.falhas[1].erro.message)
+  end },
+
+  { "o registro marca a partida encerrada por erro; sem a marca, uma recusa na reprodução é divergência", function(T)
+    CartasSim.define()
+    Cards.define{ id = "reg_bug2", kind = "criatura", cost = 0, atk = 1, hp = 1,
+      on_play = function() error("bug de registro") end }
+    local d = {}
+    for i = 1, 20 do d[i] = { id = (i % 4 == 0) and "reg_bug2" or "sim_rato" } end
+    local rep, g = Simulador.run_game{ decks = { d, d }, seed = 2, players = { "random", "random" } }
+    T.eq(rep.resultado, "erro")
+    T.eq(g.log.error, true)
+    local g2 = simple_game()
+    T.eq(g2.log.error, nil, "partida sem erro não leva a marca")
+    -- Mesmo registro sem a marca: a reprodução não pode engolir o erro.
+    local sem_marca = Game.deep_copy(g.log); sem_marca.error = nil
+    local ok, err = pcall(Replay.run, sem_marca)
+    T.eq(ok, false)
+    T.ok(tostring(err):find("recusada", 1, true) ~= nil, tostring(err))
+  end },
+
+  { "o snapshot enxerga a pilha e a escolha pendente", function(T)
+    local g = simple_game()
+    g:place_creature(1, { id = "sim_rato", uid = g:next_uid() }, 1)
+    local antes = Replay.snapshot(g)
+    assert(g:act(1, { type = "attack", attackers = { 1 } }))
+    local durante = Replay.snapshot(g)
+    T.eq(#antes.stack, 0); T.eq(#durante.stack, 1)
+    T.eq(durante.stack[1].owner, 1)
+    T.ok(durante.combat ~= false and durante.combat.attacker == 1)
+    local ok, diff = Replay.same_state(g, g)
+    T.ok(ok, tostring(diff))
   end },
 }

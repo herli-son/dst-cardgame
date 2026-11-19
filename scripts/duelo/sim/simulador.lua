@@ -33,7 +33,7 @@
 --     invariante  a mensagem da invariante violada, em "invariante"
 --     ultima      { p, action } da última jogada tentada
 --     log         o registro da partida (g.log, US #82): basta para reproduzir
---                 a falha com Replay.run(rep.log) ou Game.replay(rep.log)
+--                 a falha com Replay.run(rep.log)
 --
 --   Simulador.run_many{ n = 100, seed_base = 0, alternar = false, ... }
 --     roda n partidas com seeds seed_base + i (i de 1 a n) e os outros campos
