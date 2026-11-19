@@ -47,10 +47,10 @@ function Partida.new(opts)
   self.human = opts.human or 1
   self.bot_player = Game.other(self.human)
   self.seed = opts.seed or 1
-  local rng = Partida.make_rng(self.seed)
+  -- A semente vai ao motor: a partida fica registrada em g.log (US #82).
   self.g = Game.new{
     decks = opts.decks, extra_decks = opts.extra_decks,
-    first = opts.first, mulligan = false, rng = rng,
+    first = opts.first, mulligan = false, seed = self.seed,
   }
   self.bot = Bot.new{ rng = Partida.make_rng(self.seed + 1) }
   self.last_event = 0
