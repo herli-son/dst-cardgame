@@ -22,7 +22,8 @@ User Story: #28 · Feature: #27
 | Desligar chefes, invasões e eventos | Confirmado | `map/customize.lua` (`WORLDSETTINGS_GROUP`, `WORLDGEN_GROUP`), `worldsettings_overrides.lua` | Tudo entra em `overrides` do nível; `AddLevel` separa o que é geração do que é configuração de mundo. |
 | Imagens do Álbum para as cartas | Confirmado | `simutil.lua` (`GetScrapbookIconAtlas`) | Os ícones do Álbum ficam em `images/scrapbook_icons1.xml` a `scrapbook_icons3.xml`. |
 | Mão escondida no inventário | Confirmado | `components/inventory_replica.lua` (`SetClassifiedTarget`) | Os dados do inventário só são enviados ao próprio dono. |
-| Comunicação jogador e servidor | Confirmado | `modutil.lua` (`AddModRPCHandler`, `AddClientModRPCHandler`, `AddShardModRPCHandler`) | O mod tem canais próprios para enviar ações e receber eventos. |
+| Comunicação jogador e servidor | Confirmado | `modutil.lua` (`AddModRPCHandler`, `AddClientModRPCHandler`, `AddShardModRPCHandler`), `networkclientrpc.lua`, `netvars.lua` | O mod tem canais próprios para enviar ações (RPC) e estado replicado (netvars); ver "Rede e inventário". |
+| Cartas como itens do inventário | Confirmado | `components/inventoryitem.lua` (`atlasname`, `imagename`, `islockedinslot`), `components/inventoryitem_replica.lua`, `widgets/itemtile.lua`, `widgets/inventorybar.lua`, `simutil.lua` (`RegisterInventoryItemAtlas`) | A imagem da carta vem do atlas e nome configurados no prefab; a barra se atualiza sozinha por `itemget`/`itemlose`. |
 | Criatura sem IA própria | Confirmado | `entityscript.lua` (`StopBrain`, `SetBrain`) | Dá para desligar o comportamento automático de cada criatura. |
 | Animação por comando | Confirmado | `stategraph.lua` (`GoToState`), `stategraphs/SGspider.lua`, `modutil.lua` (`AddStategraphState`, `AddStategraphPostInit`) | O mod leva a criatura a um estado do stategraph dela ou toca a animação direto no `AnimState` e espera `animover` (ver "Animações por comando"). |
 | Jogadores protegidos no duelo | Confirmado | `components/health.lua` (`SetInvincible`), `components/hunger.lua` (`Pause`), `components/sanity.lua` (`ignore`) | Invulnerabilidade, fome pausada e sanidade ignorada durante a partida. |
@@ -149,6 +150,29 @@ Câmera (`cameras/followcamera.lua`, complementa a seção "Câmera" das decisõ
 
 - `TheCamera:SetTarget(inst)` segue uma entidade; passar uma entidade invisível no centro da mesa prende a câmera ali. `TheCamera:SetDistance(d)`, `SetMinDistance`, `SetMaxDistance` controlam o zoom; `SetHeadingTarget(graus)` a direção; `Snap()` aplica sem interpolar. Tudo é do cliente, então cada jogador tem a sua.
 - `components/playercontroller.lua` é quem reage a `RotLeft`/`RotRight` e ao zoom; o bloqueio só da rotação já está decidido acima.
+
+## Rede e inventário (para a US #37)
+
+RPCs de mod (`modutil.lua` expõe; a implementação está em `networkclientrpc.lua`):
+
+- **Cliente → servidor**: `AddModRPCHandler(namespace, nome, fn)` registra no servidor; `fn` recebe o jogador que mandou (`player`) e depois os argumentos. O cliente chama `SendModRPCToServer(GetModRPC(namespace, nome), ...)`. Há limite de fila por remetente (`RPC_QUEUE_RATE_LIMIT`, somado por mod) e validadores de argumento (`checknumber`, `checkuint`, `checkstring`, `checkbool`, `checkentity` e as versões `opt*`) para o handler recusar dados errados.
+- **Servidor → cliente**: `AddClientModRPCHandler(namespace, nome, fn)` registra no cliente; o servidor chama `SendModRPCToClient(GetClientModRPC(namespace, nome), users, ...)`, onde `users` é `nil` (todos), um `userid` ou uma lista de `userid` (comentário acima de `SendRPCToClient`). É por aqui que o servidor avisa só um jogador (por exemplo, a mão dele).
+- **Entre shards**: `AddShardModRPCHandler`/`SendModRPCToShard`; não se aplica (só floresta).
+- Os ids são gerados pela ordem de registro, então servidor e clientes precisam registrar as mesmas RPCs na mesma ordem (mesma versão do mod).
+
+Variáveis de rede (`netvars.lua`, cabeçalho do arquivo):
+
+- Tipos: `net_bool`, `net_tinybyte` (0–7), `net_smallbyte` (0–63), `net_byte`, `net_shortint`, `net_ushortint`, `net_int`, `net_uint`, `net_float`, `net_hash`, `net_string`, `net_entity`, `net_bytearray`, `net_smallbytearray`, `net_ushortarray` (arrays até 31, caros), e `net_event` para disparos sem valor.
+- Uso: `net_x(inst.GUID, "nome", "eventodirty")`; `set` no servidor sincroniza e dispara o evento "dirty" nos dois lados; `value` lê; `set_local` muda sem sincronizar (é o que o `clock` usa para o cliente andar sozinho dentro do segmento).
+- Regra que importa para o mod: as netvars têm de existir e ser declaradas igual no servidor e nos clientes para cada entidade, senão a entidade não desserializa; ou seja, **todos os clientes precisam do mod** (`all_clients_require_mod = true` no `modinfo.lua`).
+- O `clock` é um bom exemplo de componente de mundo com netvars; `prefabs/inventory_classified.lua` é o exemplo de entidade "classificada" que só o dono recebe (`Network:SetClassifiedTarget`, em `components/inventory_replica.lua`, `OnOpen`/`OnClose`). O mod pode usar o mesmo padrão para o estado privado da partida (mão, baralho) se não quiser depender só de RPCs.
+
+Inventário (como as cartas aparecem):
+
+- O servidor define a imagem no componente: `inventoryitem.atlasname` e `inventoryitem.imagename` (`components/inventoryitem.lua`) são repassados para a réplica (`inventoryitem_replica.lua`, `SetAtlas`/`SetImage`), que os guarda em netvars da classificada do item. Sem atlas, `GetInventoryItemAtlas` (`simutil.lua`) procura em `images/inventoryimages1.xml`…`4.xml`; um mod registra o próprio atlas com `RegisterInventoryItemAtlas(atlas, nomeDaImagem)` (`modutil.lua`), e o nome da imagem padrão é `<prefab>.tex`. [provável] As imagens do Álbum (`images/scrapbook_icons*.xml`) podem ser usadas direto como `atlasname`/`imagename` da carta.
+- `widgets/itemtile.lua` desenha o item com `inventoryitem:GetAtlas()` e `GetImage()`; `widgets/inventorybar.lua` escuta `itemget`, `itemlose`, `equip`, `unequip`, `newactiveitem` e `refreshinventory` no jogador e atualiza os slots sozinho. Quantidade de slots: `GetMaxItemSlots` (`gamemodes.lua`), por padrão `MAXITEMSLOTS`.
+- Dar e tirar: `inventory:GiveItem(item, slot)`, `inventory:RemoveItem(item)`, `inventory:DropItem(item)` (`components/inventory.lua`). `inventoryitem.islockedinslot = true` impede soltar o item (`DropItem` devolve sem fazer nada) e de trocá-lo de lugar; `canbepickedup`, `cangoincontainer` e `canonlygoinpocket` também existem. `inventory:Hide()`/`Show()` escondem a barra (`inventory_replica.lua`, `IsVisible`).
+- A regra "mão escondida" já estava confirmada: os slots só são enviados ao dono (`SetClassifiedTarget`).
 
 ## Pendências para os próximos passos
 
