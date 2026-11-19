@@ -201,6 +201,8 @@ function Bot:choose_attack(g, p, attacks)
   local o = g.other(p)
   local mine = sum_atk(g, g:creatures(p), function(c) return not c.def.no_attack end)
   local theirs = sum_atk(g, g:creatures(o))
+  -- TODO: heurística ignora cannot_be_blocked_by (um Webber contra só Aranhas
+  -- conta bloqueadores que não podem bloqueá-lo). A legalidade vem de can_act.
   local blockers = 0
   for _, c in ipairs(g:creatures(o)) do
     if not c.def.no_block then blockers = blockers + 1 end

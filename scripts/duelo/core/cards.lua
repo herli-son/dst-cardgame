@@ -14,9 +14,19 @@
 --                                      direita que nunca teve bloqueador; uma vez
 --                                      por combate (ver combate.lua)
 --   types = { aranha = true, ... }, sobrevivente (boolean)
+--   campeao = true                     Campeão (ex.: Webber); só marca a carta, o
+--                                      motor ainda não trata Campeões diferente
 --   returns_to_extra = true            como ficha, volta ao baralho extra em vez do
 --                                      descarte (Fantasmas criados, Alimentos)
 --   no_attack = true / no_block = true não pode atacar / não pode bloquear
+--   cannot_be_blocked_by(game, atacante, bloqueador) -> boolean   restrição de
+--                                      bloqueio da atacante: true recusa esse
+--                                      bloqueador (ex.: Webber e as Aranhas do
+--                                      adversário). Vale no bloqueio declarado,
+--                                      nos obrigatórios e no salto da Guarda; deve
+--                                      depender só das cartas, não do momento
+--                                      (o emparelhamento obrigatório fica em cache
+--                                      por combate)
 --   sacrifice = { count = n, filter = fn(game, c) }  custo de jogar: abater n
 --                                      criaturas suas (action.sacrifice = espaços)
 --   block_speed                        velocidade ao bloquear (ex.: Tentáculo)
