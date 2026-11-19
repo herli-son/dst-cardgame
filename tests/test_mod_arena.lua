@@ -95,11 +95,17 @@ return {
 
   { "modmain.lua compila e expõe a mesa", function(T)
     local servidor = false
+    -- Ambiente mínimo do modmain: as funções de modutil.lua que ele usa são
+    -- stubs vazios (a US #31 as testa em tests/test_mod_protecao.lua).
     local env = {
       GLOBAL = {
         require = require,
         TheNet = { GetIsServer = function() servidor = true; return true end },
       },
+      GetModConfigData = function() return nil end,
+      AddPlayerPostInit = function() end,
+      AddComponentPostInit = function() end,
+      AddPrefabPostInit = function() end,
     }
     rodar("modmain.lua", env)
     T.eq(env.DUELO.Mesa, Mesa, "DUELO.Mesa é o módulo duelo/mod/mesa")
