@@ -316,7 +316,9 @@ return {
     for _, desl in ipairs(DESLOCAMENTOS) do
       local _, px, pz, ptx, pty = carpete_em_volta(Mesa, desl)
       T.eq(ptx, 35, "portal x")
-      T.ok(pty == 29 or pty == 30, "portal y na junção das linhas 9|10")
+      -- O portal fica na junção das linhas 9|10: com o deslocamento 19 o tile
+      -- é 29 (o medido); com 20 seria 30. A calibração não depende disso.
+      T.eq(pty, desl + 10, "portal y na junção das linhas 9|10")
       local grade = mapa_falso(Mesa, desl)
       T.eq(grade[29][28], "centro", "tile (29, 28) é carpete")
       local _, r = calibrar_medido(Mesa, desl)
@@ -735,7 +737,7 @@ return {
     T.eq(c.persists, nil, "cliente: não mexe em persists")
     T.eq(c.Definir, nil, "cliente: sem Definir")
     T.ok(c.duelo_tipo and c.duelo_jogador and c.duelo_numero, "netvars declaradas nos dois lados")
-    T.eq(#cli.reg.netvars, #srv.reg.netvars - 0, "mesmas netvars nos dois lados")
+    T.eq(#cli.reg.netvars, #srv.reg.netvars, "mesmas netvars nos dois lados")
 
     local ded = ambiente_jogo({ servidor = true, dedicado = true })
     local d = ded.prefab.fn()
@@ -811,8 +813,8 @@ return {
     T.eq(alvo.rede, nil, "alvo sem rede")
     local ax, _, az = alvo.Transform:GetWorldPosition()
     local cx, cz = amb.Mesa.centro_abs()
-    T.eq(ax, cx, "alvo no centro x")
-    T.eq(az, cz, "alvo no centro z")
+    T.ok(math.abs(ax - cx) < 1e-9, "alvo no x do centro (heading 90 só desloca em z)")
+    T.ok(math.abs(az - (cz + amb.Camera.DESLOCAMENTO)) < 1e-9, "alvo deslocado para o lado do jogador 1 (z maior)")
     T.eq(cam.distancetarget, amb.Camera.DISTANCIA, "distância da mesa")
     T.eq(cam.mindist, amb.Camera.DISTANCIA_MIN, "zoom mínimo")
     T.eq(cam.maxdist, amb.Camera.DISTANCIA_MAX, "zoom máximo")

@@ -38,9 +38,12 @@
 --     (docs/investigacao-scripts-dst.md, "Câmera"); o máximo é
 --     PLAYER_CAMERA_MAX_DIST = 80 (constants.lua: mais longe, entidades
 --     começam a sumir e aparecer). Com fov 35 e o pitch que followcamera.lua
---     tira da distância (30° no mínimo a 60° no máximo), 70 unidades mostram
---     as duas fileiras de espaços (12 tiles = 48 unidades de fundo) e a
---     largura da mesa.
+--     tira da distância (54° em 70), o chão visível vai de ~22 unidades
+--     para baixo do alvo a ~37 para cima: a vista é assimétrica. Com o alvo
+--     no centro, as estruturas do próprio jogador (22 unidades abaixo) ficam
+--     sob a barra de inventário. Por isso o alvo fica DESLOCAMENTO = 8
+--     unidades para o lado do jogador (ao longo de GetDownVec): a vista vai
+--     de ~30 abaixo a ~29 acima do centro e as quatro fileiras cabem.
 --   * heading: `SetHeadingTarget(h)`. Em followcamera.lua (Apply), a câmera
 --     olha na horizontal para (-cos h, -sin h) e fica do lado oposto, e
 --     GetDownVec = (cos h, sin h) é a direção do mundo que aponta para baixo
@@ -77,6 +80,9 @@ local Camera = {}
 Camera.LADO = { desconhecido = 0, jogador1 = 1, jogador2 = 2, espectador = 3 }
 
 Camera.DISTANCIA = 70
+-- Unidades do alvo, a partir do centro da mesa, na direção do lado de quem
+-- olha (ver o cabeçalho, "distância").
+Camera.DESLOCAMENTO = 8
 Camera.DISTANCIA_MIN = 30
 Camera.DISTANCIA_MAX = 80 -- PLAYER_CAMERA_MAX_DIST (constants.lua)
 
@@ -187,6 +193,14 @@ local function proteger(cam)
   end
 end
 
+-- Posição do alvo da câmera: o centro da mesa deslocado DESLOCAMENTO
+-- unidades na direção que fica embaixo da tela, (cos h, sin h).
+function Camera.alvo(calib, heading)
+  local cx, cz = estado.Mesa.centro_abs(calib)
+  local h = math.rad(heading or 90)
+  return cx + Camera.DESLOCAMENTO * math.cos(h), cz + Camera.DESLOCAMENTO * math.sin(h)
+end
+
 -- Cliente: trava a câmera no centro da mesa com o heading do lado do
 -- jogador local. Devolve true se aplicou (falta jogador, câmera ou
 -- calibração: devolve false e espera o próximo evento).
@@ -202,7 +216,7 @@ function Camera.aplicar()
   estado.heading = Camera.heading(lado, calib)
 
   if estado.alvo == nil or not estado.alvo:IsValid() then estado.alvo = criar_alvo() end
-  local cx, cz = estado.Mesa.centro_abs(calib)
+  local cx, cz = Camera.alvo(calib, estado.heading)
   estado.alvo.Transform:SetPosition(cx, 0, cz)
 
   proteger(cam)
