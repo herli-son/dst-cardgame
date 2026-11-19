@@ -5,6 +5,10 @@
 --
 -- Campos comuns:
 --   id, name, kind ("criatura" | "feitico" | "estrutura" | "equipamento" | "turf" | "evento"), cost
+--   numero                             número permanente da carta (cartas/numeros.lua),
+--                                      usado no código do deck
+--   campeao = true, nivel = n          marcação de Campeão (kind continua "criatura")
+--                                      e o nível dele; só informativos por enquanto
 -- Criatura:
 --   atk, hp, speed (padrão 1), kw = { agressivo = true, fragil = true, ... },
 --   kw.rival = "tipo"                  Rival guarda o nome do tipo (ex.: "porco")

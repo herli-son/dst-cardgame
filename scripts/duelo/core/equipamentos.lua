@@ -9,7 +9,8 @@
 --   durability            durabilidade inicial (nil = sem durabilidade). Em combate,
 --                         a ferramenta na mão gasta 1 por golpe dado e a armadura no
 --                         peito gasta 1 por golpe recebido (combate.lua,
---                         wear_from_strikes); um efeito ativado gasta 1 por uso.
+--                         wear_from_strikes); um efeito ativado gasta 1 por uso,
+--                         salvo activation.no_wear = true (ex.: Pá).
 --   on_equip(game, criatura, equipamento)
 
 return function(Game)
