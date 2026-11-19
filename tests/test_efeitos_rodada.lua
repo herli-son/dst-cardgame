@@ -211,6 +211,62 @@ return {
     T.eq(table.concat(log, " "), "sob mao cabeca:r_sob:r_cap dep cabeca:manha")
   end },
 
+  { "escolha aberta pela criatura segura os equipamentos dela; portador com dano letal não os roda", function(T)
+    local log = {}
+    Cards.define{ id = "r_esc2", kind = "criatura", cost = 0, atk = 1, hp = 5, sobrevivente = true,
+      on_round_start = function(g, c)
+        log[#log + 1] = "esc"
+        g:set_choice(c.owner, { reason = "teste", options = { "x" },
+          resolve = function() log[#log + 1] = "escolhido" end })
+      end }
+    Cards.define{ id = "r_suic", kind = "criatura", cost = 0, atk = 1, hp = 5, sobrevivente = true,
+      on_round_start = function(g, c) log[#log + 1] = "suic"; g:damage_creature(c, 9, nil, "teste") end }
+    Cards.define{ id = "r_mao2", kind = "equipamento", slot = "mao", cost = 0,
+      on_round_start = function(g, c, e) log[#log + 1] = "mao:" .. c.def.id end }
+    local g = new_game(1)
+    local a = put(g, 1, "r_esc2", 1); g:equip(a, { id = "r_mao2", uid = g:next_uid() })
+    local b = put(g, 1, "r_suic", 2); g:equip(b, { id = "r_mao2", uid = g:next_uid() })
+    g:act(1, { type = "pass" }); g:act(2, { type = "pass" })
+    T.eq(table.concat(log, " "), "esc", "o equipamento espera a escolha da criatura")
+    T.ok(g:act(1, { type = "choose", index = 1 }))
+    T.eq(table.concat(log, " "), "esc escolhido mao:r_esc2 suic", "o portador morto não roda o equipamento")
+    T.eq(g:creature_at(1, 2), nil)
+  end },
+
+  { "fim de rodada de um jogador que mata criatura do outro antes da vez dela", function(T)
+    local log = {}
+    define_loggers(log)
+    Cards.define{ id = "r_mata2", kind = "criatura", cost = 0, atk = 1, hp = 5,
+      on_round_end = function(g, c) log[#log + 1] = "mata:fim"; g:kill(g:creature_at(2, 1), "teste") end }
+    local g = new_game(1)
+    put(g, 1, "r_mata2", 1); put(g, 2, "b1", 1); put(g, 2, "b2", 2)
+    for k in pairs(log) do log[k] = nil end
+    g:act(1, { type = "pass" }); g:act(2, { type = "pass" })
+    T.eq(only(log, ":fim"), "mata b2", "a criatura do outro jogador que morreu não roda")
+  end },
+
+  { "vitória por efeito na passada retomada depois de uma escolha", function(T)
+    local log = {}
+    define_loggers(log)
+    Cards.define{ id = "r_esc3", kind = "criatura", cost = 0, atk = 1, hp = 5,
+      on_round_start = function(g, c)
+        g:set_choice(c.owner, { reason = "teste", options = { "x" }, resolve = function() end })
+      end }
+    Cards.define{ id = "r_letal2", kind = "criatura", cost = 0, atk = 1, hp = 5,
+      on_round_start = function(g, c) log[#log + 1] = "letal"; g:damage_player(2, 99, "teste") end }
+    local g = new_game(1)
+    put(g, 1, "r_esc3", 1); put(g, 1, "r_letal2", 2); put(g, 1, "a3", 3)
+    put(g, 2, "b1", 1)
+    g.players[2].life = 1
+    for k in pairs(log) do log[k] = nil end
+    g:act(1, { type = "pass" }); g:act(2, { type = "pass" })
+    T.eq(g.winner, nil); T.ok(g.pending_choice ~= nil)
+    T.ok(g:act(1, { type = "choose", index = 1 }))
+    T.eq(g.winner, 1)
+    -- Na rodada 2 o jogador 2 tem o token: b1 roda antes da escolha; a3 nunca roda.
+    T.eq(table.concat(log, " "), "a3:fim b1:fim b1:inicio letal", "ninguém depois do efeito letal roda")
+  end },
+
   { "ganchos genéricos continuam rodando, depois da passada pelo campo", function(T)
     local log = {}
     define_loggers(log)
