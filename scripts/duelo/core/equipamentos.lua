@@ -4,6 +4,8 @@
 -- Campos da definição de um equipamento:
 --   slot = "mao" | "peito" | "cabeca"
 --   atk_bonus, hp_bonus   bônus enquanto equipado
+--   damage_reduction      o portador recebe esse tanto a menos de dano de cada fonte
+--                         (combate.lua, damage_creature)
 --   durability            durabilidade inicial (nil = sem durabilidade). Em combate,
 --                         a ferramenta na mão gasta 1 por golpe dado e a armadura no
 --                         peito gasta 1 por golpe recebido (combate.lua,

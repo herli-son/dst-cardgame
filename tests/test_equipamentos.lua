@@ -222,4 +222,30 @@ return {
     Cards.remove("t_bravo"); Cards.remove("t_picareta")
     clear_test_cards()
   end },
+
+  { "redução de dano tira 1 de cada fonte, no mínimo 0, e o golpe ainda gasta a armadura", function(T)
+    Cards.define{ id = "t_madeira", kind = "equipamento", slot = "peito", cost = 2, hp_bonus = 1, durability = 3,
+      damage_reduction = 1 }
+    Cards.define{ id = "t_forte", kind = "criatura", cost = 0, atk = 3, hp = 9 }
+    local g = new_game()
+    local c = put(g, 1, "t_sobrevivente", 1)
+    g:equip(c, { id = "t_madeira", uid = g:next_uid() })
+    T.eq(g:damage_creature(c, 3, nil, "teste"), 2)
+    T.eq(c.damage, 2)
+    local ev = g.events[#g.events]
+    T.eq(ev.t, "creature_damage"); T.eq(ev.amount, 2); T.eq(ev.reduced, 1)
+    T.eq(g:damage_creature(c, 1, nil, "teste"), 0, "1 de dano vira 0")
+    T.eq(c.damage, 2)
+    T.eq(g.events[#g.events], ev, "nada emitido quando o dano vira 0")
+    -- Em combate: o golpe de 1 do bloqueador não fere, mas gasta a armadura.
+    local g2 = new_game()
+    local a = put(g2, 1, "t_sobrevivente", 1)
+    g2:equip(a, { id = "t_madeira", uid = g2:next_uid() })
+    put(g2, 2, "t_comum", 1)
+    fight(g2, { 1 }, { { 1, 1 } })
+    T.eq(a.damage, 0)
+    T.eq(a.equips.peito.durability, 2)
+    Cards.remove("t_madeira"); Cards.remove("t_forte")
+    clear_test_cards()
+  end },
 }

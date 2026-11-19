@@ -50,7 +50,8 @@
 --   creates_structure = true           cria estrutura: com a zona cheia, a jogada
 --                                      traz action.replace (espaço a substituir), que o
 --                                      efeito passa como opts.slot de create_token
--- Equipamento:
+-- Equipamento (campos de bônus em equipamentos.lua: slot, atk_bonus, hp_bonus,
+-- durability, damage_reduction):
 --   on_strike(game, portador, alvo, equip)  Golpear do equipamento
 --   on_attack(game, portador, equip)   Ao atacar do equipamento (o portador foi
 --                                      declarado atacante)

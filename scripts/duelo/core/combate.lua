@@ -71,14 +71,28 @@ return function(Game)
   -- Golpes e dano em criaturas
   ----------------------------------------------------------------------------
 
+  -- Redução de dano da criatura: a soma de def.damage_reduction dos equipamentos
+  -- dela (ex.: Armadura de madeira). Vale para cada fonte de dano, em separado.
+  function Game:damage_reduction(c)
+    local total = 0
+    for _, e in pairs(c.equips or {}) do total = total + (e.def.damage_reduction or 0) end
+    return total
+  end
+
   -- O dano fica marcado na criatura (é permanente). Devolve o dano aplicado
-  -- (0 se nenhum); redução de dano entra aqui.
+  -- (0 se nenhum). A redução de dano entra aqui: o dano de cada fonte perde a
+  -- redução, no mínimo 0; reduzido a zero, nada é marcado nem emitido (o golpe
+  -- em si já saiu como evento "strike" e ainda gasta a armadura).
   function Game:damage_creature(c, n, source, reason)
     if Game.check_amount(n) <= 0 then return 0 end
     if self.players[c.owner].field[c.slot] ~= c then return 0 end
+    local reduced = math.min(self:damage_reduction(c), n)
+    n = n - reduced
+    if n <= 0 then return 0 end
     c.damage = c.damage + n
     self:emit{ t = "creature_damage", p = c.owner, slot = c.slot, uid = c.uid, amount = n,
-      damage = c.damage, source_uid = source and source.uid or nil, reason = reason }
+      damage = c.damage, source_uid = source and source.uid or nil, reason = reason,
+      reduced = reduced > 0 and reduced or nil }
     return n
   end
 
