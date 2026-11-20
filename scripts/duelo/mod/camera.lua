@@ -55,7 +55,7 @@
 --     12% da altura, sob a barra de inventário. Por isso o alvo fica
 --     DESLOCAMENTO = 5 unidades para o lado do jogador (ao longo de
 --     GetDownVec). Resultado (de baixo para cima da tela, em 16:9):
---       borda de perto (linha 10 da mesa, fora)   9%
+--       borda de perto da mesa (linha 15 do layout) 9%
 --       estruturas do próprio lado (centro)      25%   (US #30, confirmado
 --         no jogo acima da barra de inventário: 19%)
 --       centro da zona de combate                57%

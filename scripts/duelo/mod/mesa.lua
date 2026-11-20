@@ -75,9 +75,10 @@
 -- 9..11) encostado na borda oeste da mesa, na altura da zona de combate. O
 -- jogador nasce ali e anda até a mesa. O oeste foi escolhido porque o portal
 -- precisa ficar fora do eixo x para denunciar o espelhamento (ver abaixo) e,
--- de lado, fica fora do enquadramento da câmera (que olha ao longo do eixo z)
--- e longe das fileiras dos dois jogadores. No jogo, com o eixo x espelhado,
--- o pátio aparece a leste da mesa.
+-- de lado, fica longe das fileiras dos dois jogadores. Ele continua dentro
+-- do enquadramento da câmera em 16:9 (a ~82% da meia largura, na altura da
+-- zona de combate): o portal e quem acabou de nascer aparecem ao lado da
+-- mesa. No jogo, com o eixo x espelhado, o pátio aparece a leste da mesa.
 --
 -- Tiles (índices de GROUND_TYPES em map/static_layout.lua; Mesa.TILE):
 --   * cascalho = ROCKY (tiledefs.lua: "Rocky", textura "rocky", ruído
@@ -87,9 +88,10 @@
 --     em volta da mesa, isso não atrapalha. Na ordem de desenho
 --     (tiledefs.lua, ordem dos AddTile) o ROCKY vem antes de quase todos os
 --     turfs e pisos, então a borda deles avança sobre o cascalho e o tile do
---     espaço continua inteiro; a exceção conhecida é o MARSH (antes do
---     ROCKY): o cascalho avança um pouco sobre um Pântano (a conferir no
---     jogo, #30).
+--     espaço continua inteiro; as exceções são os tiles que vêm antes do
+--     ROCKY (MARSH, ROAD, COTL_BRICK, PEBBLEBEACH, MONKEY_GROUND, SHELLBEACH,
+--     LUNAR_MARSH, SHADOW_MARSH): das cartas atuais só o Pântano, sobre o
+--     qual o cascalho avança um pouco (a conferir no jogo, #30).
 --   * carta e criatura sem turf jogado = CHECKER (piso xadrez, "blocky", com
 --     borda reta). Liso, regular e bem diferente do cascalho. O WOODFLOOR foi
 --     descartado porque é o turf da carta "Piso de madeira": um espaço com
