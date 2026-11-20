@@ -74,6 +74,13 @@
 -- Inventário (só recebe equipamentos que estavam em campo) ou ser mostrada
 -- (reveal).
 --
+-- Decisão registrada (revisão da US #41): a zona de destruídas é pública por
+-- regra, como o descarte. Ela tem espaço próprio na mesa (bug #147), e a
+-- carta que vai para lá é mostrada a todos, de onde quer que venha,
+-- inclusive a carta da mão destruída pelo limite de mão: o evento
+-- `destroyed` e a lista `destruidas` da fotografia saem inteiros para os
+-- dois lados e para o espectador. Não é vazamento; não esconder aqui.
+--
 -- Na fotografia, a escolha pendente segue a mesma regra: quem não escolhe
 -- recebe só { p, motivo }; a quantidade (`n`), se "nenhuma" é permitida e as
 -- opções só vão para quem escolhe.

@@ -242,25 +242,35 @@ col           1         2
 
 - O motor de regras (`scripts/duelo/core`) só é carregado no servidor, por `scripts/duelo/mod/partida_servidor.lua`, que guarda a partida em curso (uma por mundo). Os clientes não têm o motor nem as cartas.
 - O jogador só manda **ações** (`{ type = "pass" }`, `{ type = "play", hand_index = 2, slot = 1 }`...): `partida_cliente.lua` as entrega a `rede.lua`, que as serializa em texto (`duelo/core/serial`, sem `loadstring`) e manda pela RPC `acao`.
-- O servidor acha o lado pelo `userid` de quem mandou a RPC (nunca por um dado da ação), confere o tamanho e a forma, pergunta ao motor se a ação vale (`Game:can_act`) e só então a aplica (`Game:act`).
+- O servidor acha o lado pelo `userid` de quem mandou a RPC (nunca por um dado da ação), confere o tamanho e a forma (inclusive a dos alvos), pergunta ao motor se a ação vale (`Game:can_act`) e só então a aplica (`Game:act`). O motor garante que o que `can_act` aceita não dá erro em `act` por causa da forma da ação (`tests/test_fuzz_acoes.lua`): um jogador não consegue encerrar a partida mandando uma ação torta.
 - Cada ação aceita vira um **lote** para cada lado: os eventos novos, filtrados por `visao.lua` (a carta comprada pelo outro chega sem dizer qual é; o que a Máquina de Ciência mostra só vai para o dono), e as mudanças da fotografia do estado daquele lado. Os lotes têm um número de sequência.
 - O cliente guarda a fotografia (`estado`) e aplica os lotes em ordem; se faltar um, pede a fotografia de novo. Quem entra no meio pede a fotografia ao ativar. As próximas US (mão, criaturas, histórico) escutam `DUELO.Cliente.quando_evento(fn)` e leem `DUELO.Cliente.visao()`.
 - Uma ação recusada volta só para quem a enviou, com o motivo (`recusada`); os outros não ficam sabendo.
+- Os handlers de RPC, no servidor e no cliente, rodam em `pcall`: um erro vira um aviso `[duelo] rede: erro ao tratar ...` no log e não sobe para o jogo.
+
+**O que cada lado fica sabendo** (regras em `visao.lua`):
+
+- **Mão e baralho:** só do próprio lado; do outro, só a quantidade de cartas.
+- **Escolha pendente:** quem não escolhe sabe só que há uma escolha daquele jogador e o motivo. A quantidade de opções e as opções só vão para quem escolhe (na Máquina de Ciência, a quantidade diria quantos equipamentos há nas 5 cartas do topo).
+- **Limitação conhecida:** quando a Máquina de Ciência não acha equipamento, nenhuma escolha abre, e o adversário vê a ativação sem escolha em seguida: fica sabendo que não há equipamento nas 5 do topo. Resolver exigiria mudar a carta (abrir a escolha mesmo vazia).
+- **Destruídas:** a zona é pública por regra, como o descarte (tem espaço próprio na mesa), inclusive a carta destruída pelo limite de mão.
+- **Erro do motor:** os clientes recebem só `erro interno do jogo; a partida foi encerrada` (no evento `engine_error` e no campo `erro` da visão). A mensagem inteira, a carta que rodava e o traceback ficam no log do servidor (`[duelo] partida: ERRO DO MOTOR ...`) e em `DUELO.Partida.estado()`.
 
 **Mensagens e limites** (detalhes nos cabeçalhos de `rede.lua`, `partida_servidor.lua` e `visao.lua`):
 
 | Sentido | RPC | Conteúdo |
 |---|---|---|
-| cliente → servidor | `acao` | texto da ação (até 1024 bytes; a maior ação das partidas simuladas tem 241) e o número dela no cliente |
+| cliente → servidor | `acao` | texto da ação (até 1024 bytes; a maior ação das partidas simuladas tem 241) e o número dela no cliente (inteiro de 0 a 2^31 - 1; outra coisa volta como `false` na recusa) |
 | cliente → servidor | `pedir_estado` | nada |
 | servidor → cliente | `eventos` | `{ partida, seq, eventos, mudancas }` |
 | servidor → cliente | `estado` | `{ partida, seq, lado, estado }` ou `{ partida = false }` |
 | servidor → cliente | `recusada` | `{ n, motivo }`, só para quem enviou |
 
-- **Taxa:** 10 ações por segundo por jogador; o excesso é descartado antes de chegar à partida, com um aviso no log do servidor e uma recusa (`ações demais por segundo`) por segundo. Pedidos de estado: 2 por segundo por jogador.
-- **Forma da ação:** tabela com `type` em texto, até 64 valores, 4 níveis de tabelas e textos de até 64 caracteres.
+- **Taxa:** 10 ações por segundo por jogador; o excesso é descartado antes de chegar à partida, com um aviso no log do servidor e uma recusa (`ações demais por segundo`) por segundo. Pedidos de estado: 2 por segundo por jogador. As janelas são medidas com `GetTimeRealSeconds()` (tempo real), não com `GetTime()`, que para com o servidor pausado enquanto as RPCs continuam chegando; as de quem sai são apagadas (`ms_playerleft`).
+- **Retentativa:** se a fotografia pedida não chega, o cliente repete o pedido a cada 1 s (tarefa periódica estática do jogador local, que roda também na pausa).
+- **Forma da ação:** tabela com `type` em texto, até 64 valores, 4 níveis de tabelas e textos de até 64 caracteres; `target` é uma tabela (`{ p = jogador, slot = espaço, zone = ... }`) ou, para equipar, o número do espaço da criatura; `targets` é uma lista dessas tabelas. O leitor do texto (`duelo/core/serial`) recusa número não finito (`1e999`) e tem limite de níveis e de valores (8 e 256 para as ações; 16 e 200000 por padrão).
 - **Pedaços:** as mensagens do servidor saem em pedaços de até 1000 bytes e são remontadas no cliente (uma fotografia tem cerca de 5 KB; um lote, até uns 9 KB). Os scripts do jogo não dizem qual é o limite de uma string de RPC; 1000 é um valor conservador, em `Rede.LIMITES.FRAGMENTO`.
-- **Host:** o que é do jogador do próprio host não passa pela RPC: vai direto de um módulo ao outro, pela mesma serialização.
+- **Host:** o que é do jogador do próprio host não passa pela RPC: vai direto de um módulo ao outro, pela mesma serialização. Uma ação mandada de dentro de um ouvinte de eventos do host (enquanto um lote está saindo) espera numa fila e é aplicada depois do envio, para os lotes chegarem em ordem aos outros.
 
 **Comandos de console** (até a US #42 preparar a partida pela interface):
 
@@ -286,5 +296,6 @@ col           1         2
   - Cada um passa a vez com `DUELO.Cliente.enviar({ type = "pass" })`: quem está fora da vez recebe `recusada: não é a sua vez` no próprio log, e nada aparece no log do outro.
   - Depois de cada jogada de um, o `imprimir()` do outro já mostra a mudança (o lote chegou). Isto confirma as RPCs nos dois sentidos e a remontagem dos pedaços (a fotografia do começo já sai em vários).
   - O cliente sai e volta com a partida em curso: ao ativar, o `imprimir()` dele mostra a partida no ponto em que está (a fotografia foi pedida sozinha).
+  - Com o servidor pausado (se a pausa estiver ligada no servidor): `DUELO.Cliente.enviar({ type = "pass" })` continua sendo respondido, e mais de 10 ações seguidas voltam a ser aceitas um segundo depois (a taxa usa o tempo real). **A confirmar no jogo:** que `DoStaticPeriodicTask` no jogador local roda no cliente durante a pausa.
   - Se alguma mensagem não chegar (visão do cliente parada ou `mensagem "..." descartada` no log), o primeiro suspeito é o tamanho do pedaço: baixar `Rede.LIMITES.FRAGMENTO`.
 - **Servidor dedicado** (se houver como testar): nenhum erro ao subir; `DUELO.Cliente` não existe no servidor.
