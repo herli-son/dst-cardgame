@@ -1,5 +1,5 @@
--- Testes da mesa no jogo: tiles, números e câmera (US #30) com o layout
--- aprovado (bug #147).
+-- Testes da mesa no jogo: tiles, números e câmera (US #30) com o layout do
+-- bug #147 (mesa 15 x 14, par de combate, decks e espaço de eventos).
 --
 -- O jogo não roda aqui. A calibração é Lua puro (scripts/duelo/mod/mesa.lua)
 -- e é testada com um modelo do mundo. No jogo (issue #30) o gerador espelhou
@@ -12,6 +12,9 @@
 -- deslocar os objetos em meio tile em relação à grade do chão
 -- (map/object_layout.lua centra objetos e tiles de jeitos diferentes), cada
 -- caso roda também com o portal deslocado meio tile (2 unidades) em x e z.
+--
+-- O espelhamento sai da coluna de eventos (a mesa não é simétrica no eixo
+-- x); o portal é só conferência e reserva.
 --
 -- Mapa falso: o tile (tx, ty) cobre [4 tx, 4 tx + 4) x [4 ty, 4 ty + 4) no
 -- mundo; centro em (4 tx + 2, 4 ty + 2). É só um modelo para os testes; no
@@ -50,7 +53,7 @@ local function tile_no_ponto(x, z)
   return math.floor(x / 4), math.floor(z / 4)
 end
 
--- Grade do mapa falso: [tx][ty] = uso do layout ("carta", "cascalho"...).
+-- Grade do mapa falso: [tx][ty] = uso do layout ("carta", "chao"...).
 local function mapa_falso(Mesa, caso)
   local grade = {}
   for col = 0, Mesa.LARGURA - 1 do
@@ -75,15 +78,16 @@ local function portal_no_mundo(caso)
   return x + caso.meio, z + caso.meio
 end
 
--- Coleta os tiles de estrutura em volta do portal, como calibracao.lua faz.
-local function estruturas_em_volta(Mesa, caso)
+-- Coleta os tiles de um uso ("estrutura", por padrão) em volta do portal,
+-- como calibracao.lua faz.
+local function estruturas_em_volta(Mesa, caso, uso)
   local grade = mapa_falso(Mesa, caso)
   local px, pz = portal_no_mundo(caso)
   local ptx, pty = tile_no_ponto(px, pz)
   local lista = {}
   for tx = ptx - 20, ptx + 20 do
     for ty = pty - 20, pty + 20 do
-      if uso_no_mapa(grade, tx, ty) == "estrutura" then
+      if uso_no_mapa(grade, tx, ty) == (uso or "estrutura") then
         lista[#lista + 1] = { x = tx, y = ty }
       end
     end
@@ -91,10 +95,15 @@ local function estruturas_em_volta(Mesa, caso)
   return lista, px, pz, ptx, pty
 end
 
+local function eventos_em_volta(Mesa, caso)
+  return (estruturas_em_volta(Mesa, caso, "evento"))
+end
+
 local function calibrar_caso(Mesa, caso)
   local lista, px, pz = estruturas_em_volta(Mesa, caso)
   local ret = assert(Mesa.achar_estruturas(lista))
-  return Mesa.calibrar({ estruturas = ret, centro_mundo = centro_mundo, portal = { x = px, z = pz } }), ret
+  return Mesa.calibrar({ estruturas = ret, centro_mundo = centro_mundo, eventos = eventos_em_volta(Mesa, caso),
+    portal = { x = px, z = pz } }), ret
 end
 
 -- ---------------------------------------------------------------------------
@@ -110,7 +119,8 @@ end
 
 -- Ids falsos do jogo (no jogo vêm de tiledefs.lua); o que importa é serem
 -- diferentes entre si.
-local WORLD_TILES = { IMPASSABLE = 1, ROCKY = 3, CARPET = 11, CHECKER = 12, MOSAIC_GREY = 47, MOSAIC_BLUE = 49 }
+local WORLD_TILES = { IMPASSABLE = 1, ROAD = 2, ROCKY = 3, WOODFLOOR = 10, CARPET = 11, CHECKER = 12,
+  MOSAIC_GREY = 47, MOSAIC_BLUE = 49, CARPET2 = 50 }
 
 -- Id do jogo do tile de cada uso do layout, pelo próprio Mesa.
 local function tile_por_uso(Mesa, uso)
@@ -221,7 +231,8 @@ end
 
 -- Ambiente de um lado: servidor (host ou dedicado) ou cliente.
 --   opcoes.servidor, opcoes.dedicado, opcoes.caso (modelo do mundo, CASOS),
---   opcoes.sem_estruturas, opcoes.sem_portal, opcoes.tamanho (Map:GetSize).
+--   opcoes.sem_estruturas, opcoes.sem_eventos (o chão da mesa no lugar),
+--   opcoes.sem_portal, opcoes.tamanho (Map:GetSize).
 local function ambiente_jogo(opcoes)
   local reg = { netvars = {}, log = {}, spawns = {}, sim_postinits = {}, prefab_postinits = {},
     player_postinits = {}, component_postinits = {} }
@@ -248,7 +259,8 @@ local function ambiente_jogo(opcoes)
           + ((tx < 0 or ty < 0 or tx >= opcoes.tamanho or ty >= opcoes.tamanho) and 1 or 0)
       end
       local uso = grade[tx] and grade[tx][ty] or "fora"
-      if opcoes.sem_estruturas and uso == "estrutura" then uso = "cascalho" end
+      if opcoes.sem_estruturas and uso == "estrutura" then uso = "chao" end
+      if opcoes.sem_eventos and uso == "evento" then uso = "chao" end
       return tile_por_uso(Mesa, uso)
     end,
   }
@@ -367,21 +379,26 @@ return {
       T.ok(math.abs(ptx - etx) <= (caso.meio > 0 and 1 or 0), caso.nome .. ": portal x no tile da coluna 2")
       T.ok(math.abs(pty - ety) <= (caso.meio > 0 and 1 or 0), caso.nome .. ": portal y no tile da linha 10")
       local _, r = calibrar_caso(Mesa, caso)
+      local eventos = eventos_em_volta(Mesa, caso)
+      T.eq(#eventos, 2, caso.nome .. ": 2 tiles de eventos")
       if caso.espelhado then
         T.ok(r.x_max < ptx, caso.nome .. ": estruturas com x menor que o portal")
+        T.ok(eventos[1].x < r.x_min, caso.nome .. ": eventos com x menor que as estruturas")
       else
         T.ok(r.x_min > ptx, caso.nome .. ": estruturas com x maior que o portal")
+        T.ok(eventos[1].x > r.x_max, caso.nome .. ": eventos com x maior que as estruturas")
       end
       T.ok(px ~= nil, "portal")
     end
   end },
 
-  { "calibração com e sem espelho: origem no centro da zona de combate", function(T)
+  { "calibração com e sem espelho: origem no centro do layout, pelas estruturas e pelos eventos", function(T)
     local Mesa = nova_mesa()
     for _, caso in ipairs(CASOS) do
       local calib = calibrar_caso(Mesa, caso)
       T.eq(calib.espelhado, caso.espelhado, caso.nome .. ": espelhado")
       T.eq(calib.fonte, "estruturas", caso.nome .. ": fonte")
+      T.eq(calib.espelhamento, "eventos", caso.nome .. ": espelhamento pela coluna de eventos")
       T.eq(calib.aviso, nil, caso.nome .. ": sem aviso: o portal está onde o layout diz")
       local px, pz = portal_no_mundo(caso)
       local col, lin = Mesa.tile_do_layout(px, pz, calib)
@@ -389,10 +406,15 @@ return {
       T.ok(math.abs(col - 2) <= folga, caso.nome .. ": portal na coluna 2")
       T.ok(math.abs(lin - 10) <= folga, caso.nome .. ": portal na linha 10")
       -- A origem é o centro do tile (10, 10) do layout.
-      local ox, oz = Mesa.centro_abs(calib)
       local cx, cz = centro_mundo(tile_do_mapa(10, 10, caso))
-      T.eq(ox, cx, caso.nome .. ": origem x")
-      T.eq(oz, cz, caso.nome .. ": origem z")
+      T.eq(calib.origem_x, cx, caso.nome .. ": origem x")
+      T.eq(calib.origem_z, cz, caso.nome .. ": origem z")
+      -- O centro (entre os quadrados de combate) é o meio das estruturas.
+      local ox, oz = Mesa.centro_abs(calib)
+      local c1x, c1z = Mesa.espaco_combate_abs(1, calib)
+      local c2x, c2z = Mesa.espaco_combate_abs(2, calib)
+      T.eq(ox, (c1x + c2x) / 2, caso.nome .. ": centro x entre os quadrados de combate")
+      T.eq(oz, (c1z + c2z) / 2, caso.nome .. ": centro z entre os quadrados de combate")
       -- O centro de cada tile do layout volta para o mesmo tile do mapa.
       for col2 = 0, Mesa.LARGURA - 1 do
         for lin2 = 0, Mesa.ALTURA - 1 do
@@ -417,35 +439,46 @@ return {
     local r, motivo = Mesa.achar_estruturas({})
     T.eq(r, nil, "vazio")
     T.eq(type(motivo), "string", "motivo")
-    r = Mesa.achar_estruturas(cantos(6, 8))
-    T.ok(r, "o padrão 6 x 8")
-    T.eq(r.x_max - r.x_min, 6, "6 colunas entre as estruturas")
-    T.eq(r.y_max - r.y_min, 8, "8 linhas entre as estruturas")
-    local repetidos = cantos(6, 8)
-    repetidos[#repetidos + 1] = { x = 6, y = 8 }
+    r = Mesa.achar_estruturas(cantos(2, 11))
+    T.ok(r, "o padrão 2 x 11")
+    T.eq(r.x_max - r.x_min, 2, "2 colunas entre as estruturas")
+    T.eq(r.y_max - r.y_min, 11, "11 linhas entre as estruturas")
+    T.eq(Mesa.ESTRUTURAS_DX, 2, "ESTRUTURAS_DX")
+    T.eq(Mesa.ESTRUTURAS_DZ, 11, "ESTRUTURAS_DZ")
+    local repetidos = cantos(2, 11)
+    repetidos[#repetidos + 1] = { x = 2, y = 11 }
     T.ok(Mesa.achar_estruturas(repetidos), "tile repetido conta uma vez")
-    r, motivo = Mesa.achar_estruturas(cantos(8, 6))
+    r, motivo = Mesa.achar_estruturas(cantos(11, 2))
     T.eq(r, nil, "girado")
     T.ok(motivo:find("giradas"), "motivo diz girado")
-    local tres = cantos(6, 8)
+    local tres = cantos(2, 11)
     table.remove(tres)
     T.eq(Mesa.achar_estruturas(tres), nil, "3 tiles")
-    local cinco = cantos(6, 8)
-    cinco[#cinco + 1] = { x = 3, y = 3 }
+    local cinco = cantos(2, 11)
+    cinco[#cinco + 1] = { x = 1, y = 3 }
     T.eq(Mesa.achar_estruturas(cinco), nil, "5 tiles")
-    T.eq(Mesa.achar_estruturas(cantos(7, 8)), nil, "7 x 8")
-    T.eq(Mesa.achar_estruturas({ { x = 0, y = 0 }, { x = 6, y = 0 }, { x = 1, y = 8 }, { x = 6, y = 8 } }), nil,
+    T.eq(Mesa.achar_estruturas(cantos(3, 11)), nil, "3 x 11")
+    T.eq(Mesa.achar_estruturas({ { x = 0, y = 0 }, { x = 2, y = 0 }, { x = 1, y = 11 }, { x = 2, y = 11 } }), nil,
       "não é retângulo")
   end },
 
   { "calibrar avisa quando o portal não está onde o layout diz", function(T)
     local Mesa = nova_mesa()
     local r = assert(Mesa.achar_estruturas((estruturas_em_volta(Mesa, MEDIDO))))
-    local calib = Mesa.calibrar({ estruturas = r, centro_mundo = centro_mundo, portal = { x = 0, z = 0 } })
-    T.eq(type(calib.aviso), "string", "aviso")
+    local eventos = eventos_em_volta(Mesa, MEDIDO)
+    local calib = Mesa.calibrar({ estruturas = r, centro_mundo = centro_mundo, eventos = eventos, portal = { x = 0, z = 0 } })
+    T.ok(calib.aviso:find("longe do esperado"), "aviso: " .. tostring(calib.aviso))
+    T.eq(calib.espelhado, true, "o espelhamento continua saindo dos eventos")
+    -- Sem portal, os eventos bastam: nenhum aviso.
+    calib = Mesa.calibrar({ estruturas = r, centro_mundo = centro_mundo, eventos = eventos })
+    T.eq(calib.aviso, nil, "sem portal e com eventos: sem aviso")
+    T.eq(calib.espelhado, true, "espelhado pelos eventos")
+    T.eq(calib.espelhamento, "eventos", "de onde saiu")
+    -- Sem eventos nem portal não dá para saber: vale o medido no jogo.
     calib = Mesa.calibrar({ estruturas = r, centro_mundo = centro_mundo })
-    T.eq(type(calib.aviso), "string", "aviso sem portal")
-    T.eq(calib.espelhado, false, "sem portal não dá para saber")
+    T.eq(type(calib.aviso), "string", "aviso sem eventos nem portal")
+    T.eq(calib.espelhado, true, "o medido no jogo")
+    T.eq(calib.espelhamento, "padrao", "de onde saiu")
   end },
 
   { "reserva pelo portal dá a mesma origem que as estruturas no caso medido", function(T)
@@ -460,7 +493,7 @@ return {
     T.eq(reserva.origem_z, calib.origem_z, "origem z")
   end },
 
-  { "16 espaços absolutos sem sobreposição e sobre os tiles certos da mesa", function(T)
+  { "36 tiles de espaço absolutos sem sobreposição e sobre os tiles certos da mesa", function(T)
     local Mesa = nova_mesa()
     for _, caso in ipairs(CASOS) do
       local calib = calibrar_caso(Mesa, caso)
@@ -483,29 +516,53 @@ return {
           local e = Mesa.espaco_criatura_abs(p, n, calib)
           conferir(e.carta.x, e.carta.z, "carta", "carta " .. p .. "/" .. n)
           conferir(e.criatura.x, e.criatura.z, "criatura", "criatura " .. p .. "/" .. n)
-          local tx, ty = tile_no_ponto(e.combate.x, e.combate.z)
-          T.eq(uso_no_mapa(grade, tx, ty), "combate", "combate à frente de " .. p .. "/" .. n)
+          T.eq(e.combate, nil, "sem tile de combate por coluna")
         end
         for n = 1, 2 do
           local x, z = Mesa.espaco_estrutura_abs(p, n, calib)
           conferir(x, z, "estrutura", "estrutura " .. p .. "/" .. n)
         end
+        for _, qual in ipairs({ "principal", "extra" }) do
+          local x, z = Mesa.espaco_deck_abs(p, qual, calib)
+          conferir(x, z, "deck", "deck " .. p .. "/" .. qual)
+        end
+        local x, z = Mesa.espaco_combate_abs(p, calib)
+        conferir(x, z, "combate", "combate " .. p)
         T.eq(Mesa.espaco_criatura_abs(p, 7, calib), nil, "não há espaço 7")
         T.eq(Mesa.espaco_estrutura_abs(p, 3, calib), nil, "não há estrutura 3")
+        T.eq(Mesa.espaco_deck_abs(p, "outro", calib), nil, "não há outro deck")
       end
-      T.eq(total, 28, "12 cartas, 12 criaturas e 4 estruturas")
-      local ox, oz = Mesa.centro_abs(calib)
-      T.eq(uso_no_mapa(grade, tile_no_ponto(ox, oz)), "combate", "centro da mesa na zona de combate")
+      T.eq(Mesa.espaco_combate_abs(3, calib), nil, "espectador não tem quadrado de combate")
+      local ev = Mesa.espaco_evento_abs(calib)
+      conferir(ev.pilha.x, ev.pilha.z, "evento", "pilha de eventos")
+      conferir(ev.em_vigor.x, ev.em_vigor.z, "evento", "evento em vigor")
+      T.eq(total, 36, "12 cartas, 12 criaturas, 4 estruturas, 4 decks, 2 de combate e 2 de eventos")
       -- Cada jogador só tem espaços do seu lado da mesa.
       for n = 1, 6 do
         local e1, e2 = Mesa.espaco_criatura_abs(1, n, calib), Mesa.espaco_criatura_abs(2, n, calib)
-        T.eq(e1.carta.lin, 12, "cartas do jogador 1 na linha 12")
-        T.eq(e1.criatura.lin, 11, "criaturas do jogador 1 na linha 11")
-        T.eq(e2.carta.lin, 8, "cartas do jogador 2 na linha 8")
-        T.eq(e2.criatura.lin, 9, "criaturas do jogador 2 na linha 9")
+        T.eq(e1.carta.lin, 13, "cartas do jogador 1 na linha 13")
+        T.eq(e1.criatura.lin, 12, "criaturas do jogador 1 na linha 12")
+        T.eq(e2.carta.lin, 6, "cartas do jogador 2 na linha 6")
+        T.eq(e2.criatura.lin, 7, "criaturas do jogador 2 na linha 7")
       end
       local tiles = Mesa.tiles_dos_espacos(calib)
-      T.eq(#tiles, 28, "tiles_dos_espacos: 28 tiles")
+      T.eq(#tiles, 36, "tiles_dos_espacos: 36 tiles")
+      local por_tipo, neutros = {}, 0
+      for _, t in ipairs(tiles) do
+        por_tipo[t.tipo] = (por_tipo[t.tipo] or 0) + 1
+        T.eq(uso_no_mapa(grade, tile_no_ponto(t.x, t.z)), t.tipo, "tiles_dos_espacos: " .. t.tipo .. " sobre o seu tile")
+        if t.jogador == 0 then
+          neutros = neutros + 1
+          T.eq(t.tipo, "evento", "só o espaço de eventos é neutro")
+        end
+      end
+      T.eq(por_tipo.carta, 12, "12 cartas")
+      T.eq(por_tipo.criatura, 12, "12 criaturas")
+      T.eq(por_tipo.estrutura, 4, "4 estruturas")
+      T.eq(por_tipo.deck, 4, "4 decks")
+      T.eq(por_tipo.combate, 2, "2 de combate")
+      T.eq(por_tipo.evento, 2, "2 de eventos")
+      T.eq(neutros, 2, "2 tiles neutros")
     end
   end },
 
@@ -550,13 +607,10 @@ return {
         local x2, z2 = Mesa.espaco_estrutura_abs(p, 2, calib)
         T.ok(x1 * rx + z1 * rz < x2 * rx + z2 * rz, rotulo .. ": estrutura 1 à esquerda da 2")
       end
-      -- O espaço n de um fica de frente para o 7 - n do outro, e os dois
-      -- atacam pelo mesmo tile da zona de combate.
+      -- O espaço n de um fica de frente para o 7 - n do outro.
       for n = 1, 6 do
         local a, b = Mesa.espaco_criatura_abs(1, n, calib), Mesa.espaco_criatura_abs(2, 7 - n, calib)
         T.eq(a.carta.x, b.carta.x, rotulo .. ": " .. n .. " de frente para " .. (7 - n))
-        T.eq(a.combate.x, b.combate.x, rotulo .. ": mesmo tile de combate (x)")
-        T.eq(a.combate.z, b.combate.z, rotulo .. ": mesmo tile de combate (z)")
       end
       -- No caso espelhado a ordem da câmera é a das listas do layout; sem
       -- espelhamento a câmera inverte as colunas.
@@ -616,7 +670,9 @@ return {
       T.eq(netvar(amb.reg, "duelo.mesa_espelhado"):value(), caso.espelhado, "netvar espelhado")
       T.eq(netvar(amb.reg, "duelo.mesa_fonte"):value(), 1, "netvar fonte = estruturas")
       T.ok(no_log(amb.reg, "mesa calibrada pelas estruturas"), "log da calibração")
-      T.ok(not no_log(amb.reg, "não estão sobre"), caso.nome .. ": os 16 espaços conferem com o mapa")
+      T.ok(not no_log(amb.reg, "não estão sobre"), caso.nome .. ": os 36 tiles de espaço conferem com o mapa")
+      T.ok(no_log(amb.reg, "(eventos)"), caso.nome .. ": o log diz que o espelhamento saiu dos eventos")
+      T.ok(not no_log(amb.reg, "coluna de eventos não achada"), caso.nome .. ": sem aviso dos eventos")
       T.ok(not no_log(amb.reg, "longe do esperado"), caso.nome .. ": portal onde o layout diz")
       -- Quem se inscreve depois recebe na hora.
       local tarde
@@ -641,7 +697,7 @@ return {
     T.eq(calib.fonte, "portal", "reserva pelo portal")
     T.eq(calib.espelhado, true, "espelhado medido")
     T.ok(no_log(amb.reg, "estruturas da mesa não achadas"), "avisa no log")
-    T.ok(no_log(amb.reg, "4 dos 16 espaços não estão sobre os tiles esperados"), "a conferência acha as 4 estruturas faltando")
+    T.ok(no_log(amb.reg, "4 dos 36 tiles de espaço não estão sobre os tiles esperados"), "a conferência acha as 4 estruturas faltando")
     T.eq(netvar(amb.reg, "duelo.mesa_fonte"):value(), 2, "netvar fonte = portal")
     T.eq(#amb.Marcadores.lista(), 17, "marcadores criados mesmo assim")
 
@@ -724,7 +780,7 @@ return {
     T.ok(vistos["3/0/0"], "centro")
     -- Recalibrar (console) troca os marcadores, sem duplicar.
     amb.Calibracao.calibrar()
-    T.eq(amb.reg.removidos, 17 + 28, "os 17 marcadores antigos (e os 28 contornos do host) removidos")
+    T.eq(amb.reg.removidos, 17 + 36, "os 17 marcadores antigos (e os 36 contornos do host) removidos")
     T.eq(#amb.Marcadores.lista(), 17, "17 de novo")
   end },
   { "textos e cores dos marcadores", function(T)
@@ -861,8 +917,14 @@ return {
     T.eq(alvo.persists, false, "alvo local não persiste")
     T.eq(alvo.rede, nil, "alvo sem rede")
     local ax, _, az = alvo.Transform:GetWorldPosition()
-    local cx, cz = amb.Mesa.centro_abs()
-    T.ok(math.abs(ax - cx) < 1e-9, "alvo no x do centro (heading 90 só desloca em z)")
+    local cx, cz = amb.Mesa.centro_da_mesa_abs()
+    T.ok(math.abs(ax - cx) < 1e-9, "alvo no x do centro da mesa (heading 90 só desloca em z)")
+    -- A mesa não é simétrica: o alvo fica 1 coluna para o lado dos eventos
+    -- em relação ao par de combate.
+    local bx = amb.Mesa.centro_abs()
+    local ev = amb.Mesa.espaco_evento_abs().pilha
+    T.eq(math.abs(cx - bx), amb.Mesa.TILE_SCALE, "1 tile ao lado do combate")
+    T.ok((cx - bx) * (ev.x - bx) > 0, "para o lado da coluna de eventos")
     T.ok(math.abs(az - (cz + amb.Camera.DESLOCAMENTO)) < 1e-9, "alvo deslocado para o lado do jogador 1 (z maior)")
     T.eq(cam.distancetarget, amb.Camera.DISTANCIA, "distância da mesa")
     T.eq(cam.mindist, amb.Camera.DISTANCIA_MIN, "zoom mínimo")
@@ -966,7 +1028,7 @@ return {
       end
       T.eq(por_texto["Combate"], "combate", caso.nome .. ": Combate")
       local x, _, z = amb.Marcadores.lista()[17].Transform:GetWorldPosition()
-      T.eq((amb.Mesa.tile_do_layout(x, z)), amb.Mesa.CENTRO_COMBATE.col, "Combate na coluna do centro")
+      T.eq((amb.Mesa.tile_do_layout(x, z)), amb.Mesa.CENTRO.col, "Combate na coluna do centro")
     end
   end },
 
@@ -975,11 +1037,11 @@ return {
       local amb = instalar_tudo(ambiente_jogo({ servidor = true, caso = caso }))
       carregar_mundo(amb)
       local lista = amb.Contornos.lista()
-      T.eq(#lista, 28, caso.nome .. ": 28 contornos no host")
-      T.eq(#amb.reg.gridplacers, 28, "28 SpawnPrefab(\"tile_outline\")")
+      T.eq(#lista, 36, caso.nome .. ": 36 contornos no host")
+      T.eq(#amb.reg.gridplacers, 36, "36 SpawnPrefab(\"tile_outline\")")
       T.eq(amb.Contornos.PREFAB, "tile_outline", "não o gridplacer: o componente placer dele quebra outros mods")
       for _, e in ipairs(amb.reg.gridplacers) do T.eq(e.components, nil, "contorno sem componentes") end
-      local vistos, por_tipo = {}, { carta = 0, criatura = 0, estrutura = 0 }
+      local vistos, por_tipo = {}, { carta = 0, criatura = 0, estrutura = 0, deck = 0, combate = 0, evento = 0 }
       for _, c in ipairs(lista) do
         local g = c.inst
         local x, _, z = g.Transform:GetWorldPosition()
@@ -997,18 +1059,28 @@ return {
         if c.tipo == "estrutura" then
           local ex, ez = amb.Mesa.espaco_estrutura_abs(c.jogador, c.n)
           e = { x = ex, z = ez }
+        elseif c.tipo == "deck" then
+          local ex, ez = amb.Mesa.espaco_deck_abs(c.jogador, c.n)
+          e = { x = ex, z = ez }
+        elseif c.tipo == "combate" then
+          local ex, ez = amb.Mesa.espaco_combate_abs(c.jogador)
+          e = { x = ex, z = ez }
+        elseif c.tipo == "evento" then
+          e = amb.Mesa.espaco_evento_abs()[c.n]
         else
           e = amb.Mesa.espaco_criatura_abs(c.jogador, c.n)[c.tipo]
         end
-        T.eq(x, e.x, "espaço " .. c.jogador .. "/" .. c.tipo .. "/" .. c.n .. " (x)")
-        T.eq(z, e.z, "espaço " .. c.jogador .. "/" .. c.tipo .. "/" .. c.n .. " (z)")
+        T.eq(x, e.x, "espaço " .. c.jogador .. "/" .. c.tipo .. "/" .. tostring(c.n) .. " (x)")
+        T.eq(z, e.z, "espaço " .. c.jogador .. "/" .. c.tipo .. "/" .. tostring(c.n) .. " (z)")
         -- Cor do dono, a mesma dos rótulos.
         local r, gg, b = amb.Marcadores.cor(amb.Marcadores.TIPO.criatura, c.jogador)
         T.eq(g.AnimState.mult[1], r, "cor r")
         T.eq(g.AnimState.mult[2], gg, "cor g")
         T.eq(g.AnimState.mult[3], b, "cor b")
         T.eq(g.AnimState.mult[4], 1, "opaco")
-        if c.jogador == 1 then T.ok(b > r, "jogador 1 azul") else T.ok(r > b, "jogador 2 vermelho") end
+        if c.jogador == 1 then T.ok(b > r, "jogador 1 azul") end
+        if c.jogador == 2 then T.ok(r > b, "jogador 2 vermelho") end
+        if c.jogador == 0 then T.eq(c.tipo, "evento", "só os eventos não têm dono") end
         T.eq(g.AnimState.add[1], 0, "sem destaque")
         -- Sem colisão, sem clique e sem rede (o gridplacer do jogo).
         T.ok(g:HasTag("NOCLICK"), "NOCLICK")
@@ -1019,6 +1091,9 @@ return {
       T.eq(por_tipo.carta, 12, "12 cartas")
       T.eq(por_tipo.criatura, 12, "12 criaturas")
       T.eq(por_tipo.estrutura, 4, "4 estruturas")
+      T.eq(por_tipo.deck, 4, "4 decks")
+      T.eq(por_tipo.combate, 2, "2 de combate")
+      T.eq(por_tipo.evento, 2, "2 de eventos")
     end
   end },
 
@@ -1027,7 +1102,7 @@ return {
     carregar_mundo(amb)
     local antigos = amb.Contornos.lista()
     amb.Calibracao.calibrar()
-    T.eq(#amb.Contornos.lista(), 28, "28 de novo")
+    T.eq(#amb.Contornos.lista(), 36, "36 de novo")
     for _, c in ipairs(antigos) do T.eq(c.inst:IsValid(), false, "o antigo foi removido") end
 
     local ded = instalar_tudo(ambiente_jogo({ servidor = true, dedicado = true }))
@@ -1044,7 +1119,7 @@ return {
       netvar(cli.reg, nome).valor = netvar(amb.reg, nome):value()
     end
     rede:PushEvent("duelo.mesadirty")
-    T.eq(#cli.Contornos.lista(), 28, "28 contornos no cliente")
+    T.eq(#cli.Contornos.lista(), 36, "36 contornos no cliente")
     for i, c in ipairs(cli.Contornos.lista()) do
       local x, _, z = c.inst.Transform:GetWorldPosition()
       local x2, _, z2 = amb.Contornos.lista()[i].inst.Transform:GetWorldPosition()
@@ -1078,41 +1153,75 @@ return {
     T.eq(C.destacar(1, "criatura", 7, true), 0, "espaço que não existe")
   end },
 
-  { "câmera: as 11 linhas da mesa cabem, com as estruturas acima do inventário", function(T)
+  { "câmera: as 14 linhas da mesa cabem, com a fileira de trás acima do inventário", function(T)
     local C = carregar("scripts/duelo/mod/camera.lua")
     local Mesa = nova_mesa()
-    T.eq(C.pitch(C.DISTANCIA), 51, "pitch de followcamera.lua em 65 (mínimo 30, máximo 80)")
+    T.eq(C.DISTANCIA, C.DISTANCIA_MAX, "a mesa 15 x 14 pede a distância máxima")
+    T.eq(C.pitch(C.DISTANCIA), 60, "pitch de followcamera.lua em 80 (mínimo 30, máximo 80)")
     T.eq(C.pitch(C.DISTANCIA_MIN), 30, "pitch no zoom mínimo")
-    T.eq(C.pitch(C.DISTANCIA_MAX), 60, "pitch no zoom máximo")
-    -- Distâncias a partir do centro da zona de combate, para o lado de quem
-    -- olha (negativo = embaixo da tela), tiradas do próprio layout.
-    local m, centro = Mesa.MESA, Mesa.CENTRO_COMBATE
+    T.eq(C.pitch(65), 51, "pitch no meio do caminho")
+    -- Distâncias a partir do centro geométrico da mesa (o alvo, sem o
+    -- deslocamento), para o lado de quem olha (negativo = embaixo da tela),
+    -- tiradas do próprio layout. Vale para o jogador 1; a mesa é simétrica
+    -- nas linhas, então para o 2 dá o mesmo.
+    local m, centro = Mesa.MESA, Mesa.CENTRO_DA_MESA
     local meio_tile = Mesa.TILE_SCALE / 2
-    local borda = (m.lin_max - centro.lin) * Mesa.TILE_SCALE + meio_tile -- 22
-    local estrutura = (Mesa.espaco_estrutura(1, 1).lin - centro.lin) * Mesa.TILE_SCALE -- 16
-    local largura = (m.col_max - centro.col) * Mesa.TILE_SCALE + meio_tile -- 26
+    T.eq(centro.col, 12, "centro da mesa na coluna 12: 1 coluna para o lado dos eventos")
+    T.eq(centro.lin, Mesa.CENTRO.lin, "e na linha do centro do combate")
+    local borda = (m.lin_max - centro.lin) * Mesa.TILE_SCALE + meio_tile -- 28
+    local fundo = (Mesa.espaco_estrutura(1, 1).lin - centro.lin) * Mesa.TILE_SCALE -- 22
+    local largura = (m.col_max - centro.col) * Mesa.TILE_SCALE + meio_tile -- 30
+    T.eq(borda, 28, "meia profundidade da mesa")
+    T.eq(fundo, 22, "fileira de trás")
+    T.eq(largura, 30, "meia largura da mesa")
+    T.eq((centro.col - m.col_min) * Mesa.TILE_SCALE + meio_tile, largura, "a mesa fica centrada no alvo")
     local perto = C.altura_na_tela(-borda)
     local longe = C.altura_na_tela(borda)
-    local propria = C.altura_na_tela(-estrutura)
+    local propria = C.altura_na_tela(-fundo)
     T.ok(perto > 0, "borda de perto na tela: " .. perto)
-    T.ok(longe < 0.95, "borda de longe na tela, com folga: " .. longe)
+    T.ok(longe < 1, "borda de longe na tela: " .. longe)
     -- Referência do jogo (US #30, mesa 16 x 16): estruturas a 22 unidades do
     -- centro com DISTANCIA 70 e DESLOCAMENTO 8 ficaram acima da barra de
     -- inventário.
     local confirmado = C.altura_na_tela(-22, 0, 70, 8)
     T.ok(math.abs(confirmado - 0.193) < 0.001, "referência confirmada no jogo: " .. confirmado)
-    T.ok(propria >= confirmado, "estruturas do próprio lado acima do confirmado: " .. propria)
-    T.ok(C.altura_na_tela(-estrutura - meio_tile) > 0.15, "e o tile inteiro delas")
+    T.ok(propria >= 0.20, "fileira de trás do próprio lado acima de 20% da altura: " .. propria)
+    T.ok(propria >= confirmado, "e acima do confirmado no jogo")
+    T.ok(C.altura_na_tela(-fundo - meio_tile) > 0.15, "e o tile inteiro dela")
+    -- O lado de lá inteiro na tela, com folga: a fileira de trás do outro
+    -- jogador (decks e estruturas) até a beira de longe do tile.
+    T.ok(C.altura_na_tela(fundo) < 0.93, "fileira de trás do outro lado: " .. C.altura_na_tela(fundo))
+    T.ok(C.altura_na_tela(fundo + meio_tile) < 0.95, "e o tile inteiro dela")
     -- Nenhuma fileira sai da tela, e a ordem é a das linhas.
     local antes = -1
     for lin = m.lin_max, m.lin_min, -1 do
       local y, lado = C.altura_na_tela((centro.lin - lin) * Mesa.TILE_SCALE, largura)
       T.ok(y > antes, "linha " .. lin .. " acima da anterior")
       T.ok(y > 0 and y < 1, "linha " .. lin .. " na tela")
-      T.ok(lado < 1, "linha " .. lin .. ": os cantos da mesa cabem na largura (16:9)")
+      T.ok(lado < 0.8, "linha " .. lin .. ": os cantos da mesa cabem na largura (16:9), com folga")
       antes = y
     end
-    -- Sem o deslocamento, as estruturas desceriam para baixo da referência.
-    T.ok(C.altura_na_tela(-estrutura, 0, C.DISTANCIA, 0) < confirmado, "o deslocamento é necessário")
+    -- Todos os tiles de espaço cabem na tela, em 16:9 e em 4:3 (a coluna de
+    -- eventos é a mais aberta), para os dois jogadores.
+    for _, t in ipairs({ Mesa.espaco_evento().pilha, Mesa.espaco_evento().em_vigor,
+      Mesa.espaco_deck(1, "principal"), Mesa.espaco_deck(1, "extra"),
+      Mesa.espaco_deck(2, "principal"), Mesa.espaco_deck(2, "extra") }) do
+      for _, sinal in ipairs({ 1, -1 }) do
+        local s = sinal * (centro.lin - t.lin) * Mesa.TILE_SCALE
+        local x = math.abs(t.col - centro.col) * Mesa.TILE_SCALE + meio_tile
+        local y, lado = C.altura_na_tela(s - meio_tile, x)
+        T.ok(y > 0.15 and y < 0.95, "tile " .. t.col .. "," .. t.lin .. " na altura da tela: " .. y)
+        T.ok(lado * (16 / 9) / (4 / 3) < 1, "tile " .. t.col .. "," .. t.lin .. " na largura, até em 4:3")
+      end
+    end
+    -- O portal, do lado oposto aos eventos, continua na tela em 16:9.
+    local px = math.abs(Mesa.PORTAL.x + (Mesa.LARGURA - 1) / 2 - centro.col) * Mesa.TILE_SCALE
+    local _, lado_portal = C.altura_na_tela(0, px)
+    T.ok(lado_portal < 1, "portal dentro da largura: " .. lado_portal)
+    -- Sem o deslocamento, a fileira de trás desceria para baixo da referência.
+    T.ok(C.altura_na_tela(-fundo, 0, C.DISTANCIA, 0) < confirmado, "o deslocamento é necessário")
+    -- E com a distância de antes (65) a mesa não caberia: ou a fileira de
+    -- trás fica sob o inventário, ou a borda de longe sai da tela.
+    T.ok(C.altura_na_tela(-fundo, 0, 65, 8) < 0.20 and C.altura_na_tela(borda, 0, 65, 10) > 1, "a distância 80 é necessária")
   end },
 }
