@@ -35,6 +35,9 @@ Game.period_hooks = {}
 
 -- Ganchos por partida, para efeitos de cartas. Eventos:
 --   "period" (g, periodo), "round_start" (g), "round_end" (g), "death" (g, criatura)
+-- Cartas em campo (criaturas, estruturas, equipamentos) têm campos próprios para
+-- os três primeiros momentos, com ordem fixa pelo campo (ver rodada.lua); os
+-- ganchos daqui rodam depois da passada pelo campo, na ordem de registro.
 local HOOK_EVENTS = { period = true, round_start = true, round_end = true, death = true }
 
 -- id: a carta dona do gancho, para o registro de erro.
@@ -112,10 +115,7 @@ function Game:run_card(kind, id, fn, ...)
   return unpack(r, 1, r.n)
 end
 
--- rng(n) deve devolver um inteiro entre 1 e n. O padrão usa math.random.
-local function default_rng(n)
-  return math.random(n)
-end
+local Rng = require("duelo/core/rng")
 
 local function new_player(deck, extra)
   return {
@@ -143,6 +143,7 @@ local function deep_copy(v)
   for k, x in pairs(v) do c[k] = deep_copy(x) end
   return c
 end
+Game.deep_copy = deep_copy
 
 -- Copia o baralho recebido e dá a cada carta um identificador próprio desta partida.
 local function copy_deck(g, deck)
@@ -155,10 +156,44 @@ local function copy_deck(g, deck)
   return copy
 end
 
+-- Lista dos ids de um baralho, na ordem dada, para o registro da partida.
+local function deck_ids(deck)
+  local ids = {}
+  for i, card in ipairs(deck or {}) do ids[i] = card.id end
+  return ids
+end
+
+-- Sorteio (US #82): com opts.seed, o rng é o determinístico do motor
+-- (duelo/core/rng) e a partida pode ser reproduzida pelo registro. Sem seed nem
+-- rng, uma semente é sorteada com math.random, e a partida continua
+-- reproduzível. Com opts.rng (uma função rng(n) -> 1..n, usada pelos testes), o
+-- registro fica sem semente e não é reproduzível.
+local function make_rng(opts)
+  if opts.rng then return opts.rng, nil end
+  local seed = opts.seed or math.random(Rng.MAX_SEED)
+  return Rng.make(seed), seed
+end
+
 function Game.new(opts)
   opts = opts or {}
   local g = setmetatable({}, Game)
-  g.rng = opts.rng or default_rng
+  local seed
+  g.rng, seed = make_rng(opts)
+  -- Registro da partida (US #82): o que basta para reproduzi-la com
+  -- Replay.run, em duelo/core/replay (não carregado daqui, para evitar o ciclo).
+  -- first é o pedido (nil quando sorteado, para o sorteio se repetir); os
+  -- baralhos são só os ids (campos extras das cartas não entram); as ações são
+  -- só as aceitas, com cópia, na ordem, mais a que encerrou a partida por erro
+  -- (log.error = true); a troca inicial entra como { type = "mulligan",
+  -- indices = {...} }.
+  g.log = {
+    seed = seed,
+    first = opts.first,
+    mulligan = opts.mulligan ~= false,
+    decks = { deck_ids(opts.decks and opts.decks[1]), deck_ids(opts.decks and opts.decks[2]) },
+    extra_decks = { deck_ids(opts.extra_decks and opts.extra_decks[1]), deck_ids(opts.extra_decks and opts.extra_decks[2]) },
+    actions = {},
+  }
   g.uid_counter = 0
   g.hooks = { period = {}, round_start = {}, round_end = {}, death = {} }
   -- Modificadores do limite de mão; use Game:add_hand_limit_mod.
@@ -408,10 +443,12 @@ function Game:update_period()
     -- A vida pode mudar com o período (atributos que dependem dele): o estado
     -- estabiliza antes dos ganchos do novo período.
     self:settle()
-    -- Se uma morte abrir uma escolha, os ganchos do período esperam por ela.
+    -- Se uma morte abrir uma escolha, os efeitos do período esperam por ela.
+    -- Primeiro as regras do motor (a fogueira acende), depois os efeitos de
+    -- início de período das cartas em campo e os ganchos genéricos (rodada.lua).
     self:after_choices(function(g)
       for _, hook in ipairs(Game.period_hooks) do g:effect("regra", per, hook, g, per) end
-      g:run_hooks("period", per)
+      g:run_moment("period", per)
     end)
   end
 end
@@ -584,15 +621,15 @@ function Game:begin_round()
   for p = 1, 2 do self:round_upkeep(p) end
   self:check_winner()
   if self.winner ~= nil then return end
-  self:run_hooks("round_start")
-  -- Um gancho de início de rodada pode abrir escolhas; a manhã só começa depois.
-  self:after_choices(function(g) g:update_period() end)
+  -- Efeitos de início de rodada das cartas em campo e ganchos genéricos
+  -- (rodada.lua). Um deles pode abrir escolhas; a manhã só começa depois.
+  self:run_moment("round_start", nil, function(g) g:update_period() end)
 end
 
 function Game:end_round()
-  self:run_hooks("round_end")
-  -- Um gancho de fim de rodada pode abrir escolhas; a rodada só termina depois.
-  self:after_choices(function(g) g:finish_round() end)
+  -- Efeitos de fim de rodada das cartas em campo e ganchos genéricos
+  -- (rodada.lua). Um deles pode abrir escolhas; a rodada só termina depois.
+  self:run_moment("round_end", nil, function(g) g:finish_round() end)
 end
 
 function Game:finish_round()
@@ -790,13 +827,29 @@ function Game:start()
   return self:guarded(settled_call, start_impl)
 end
 
+-- Entrada registrada (US #82): roda a entrada protegida e guarda a ação no
+-- registro quando ela foi aceita, com cópia profunda (a tabela do chamador pode
+-- ser alterada depois). A ação que encerrou a partida por erro também entra: a
+-- reprodução precisa dela para parar no mesmo ponto, com o mesmo erro.
+local function recorded_call(self, p, action, core, ...)
+  local was_error = self.phase == "error"
+  local ok, err = self:guarded(settled_call, core, ...)
+  local errored = self.phase == "error" and not was_error
+  if ok == true or errored then
+    local actions = self.log.actions
+    actions[#actions + 1] = { p = p, action = deep_copy(action) }
+    if errored then self.log.error = true end
+  end
+  return ok, err
+end
+
 function Game:mulligan(p, indices)
-  return self:guarded(settled_call, mulligan_impl, p, indices)
+  return recorded_call(self, p, { type = "mulligan", indices = indices or {} }, mulligan_impl, p, indices)
 end
 
 -- Ponto único de entrada das jogadas.
 function Game:act(p, action)
-  return self:guarded(settled_call, act_impl, p, action)
+  return recorded_call(self, p, action, act_impl, p, action)
 end
 
 require("duelo/core/pilha")(Game)
@@ -805,5 +858,6 @@ require("duelo/core/estruturas")(Game)
 require("duelo/core/equipamentos")(Game)
 require("duelo/core/fichas")(Game)
 require("duelo/core/combate")(Game)
+require("duelo/core/rodada")(Game)
 
 return Game
