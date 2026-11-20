@@ -41,8 +41,8 @@
 --   DUELO.Partida.iniciar_teste([seed])  Wilson (lado 1) x Webber (lado 2) com
 --       os jogadores dos lados 1 e 2 da mesa (duelo/mod/camera.lua); se só
 --       houver um jogador, ele fica nos dois lados.
---   DUELO.Partida.estado()               imprime um resumo (com as duas mãos:
---       é o console do servidor).
+--   DUELO.Partida.estado()               imprime um resumo (com as duas mãos
+--       e, se houver, o erro do motor inteiro: é o console do servidor).
 --
 -- Mensagens para os clientes (tabelas; a rede as serializa):
 --   "estado"   { partida = n, seq = n, lado = 1 | 2 | 3, estado = fotografia }
@@ -50,6 +50,8 @@
 --   "eventos"  { partida = n, seq = n, eventos = { ... }, mudancas = { ... } }
 --              um lote por ação aceita: os eventos novos como aquele lado os
 --              vê e as mudanças da fotografia dele (Visao.diferenca). `seq`
+--              (um erro do motor chega como { t = "engine_error", message =
+--              texto genérico }; o detalhe fica no log do servidor) `seq`
 --              cresce de 1 em 1 em cada partida, igual para todos os lados; a
 --              fotografia de `seq = n` é o estado depois do lote n.
 --   A recusa ("recusada") é mandada pela rede, só a quem enviou a ação.
@@ -81,6 +83,21 @@ local estado = {
 
 local function log(msg)
   if estado.log then estado.log("[duelo] partida: " .. tostring(msg)) end
+end
+
+local function contexto(ctx)
+  if type(ctx) ~= "table" then return "sem contexto" end
+  return tostring(ctx.kind) .. " " .. tostring(ctx.id)
+end
+
+-- O erro do motor, inteiro, só no log do servidor (uma vez por partida); os
+-- clientes recebem o texto genérico de duelo/mod/visao.
+local function registrar_erro(g)
+  if g.error == nil or estado.erro_registrado then return end
+  estado.erro_registrado = true
+  log("ERRO DO MOTOR na partida " .. estado.id .. " (" .. contexto(g.error.context) .. "): "
+    .. tostring(g.error.message))
+  if g.error.traceback then log(tostring(g.error.traceback)) end
 end
 
 ----------------------------------------------------------------------------
@@ -274,6 +291,7 @@ function Partida.iniciar(opts)
   }
   estado.g = g
   estado.id = estado.id + 1
+  estado.erro_registrado = false
   estado.jogadores = { j[1], j[2] }
   estado.seq = 0
   estado.enviados = 0
@@ -283,6 +301,7 @@ function Partida.iniciar(opts)
   -- primeiro lote: as compras da mão inicial chegam como eventos.
   enviar_estado_a_todos()
   local ok, err = g:start()
+  registrar_erro(g)
   distribuir()
   if not ok then
     log("o motor recusou o início: " .. tostring(err))
@@ -330,8 +349,16 @@ function Partida.receber_acao(userid, action)
     -- ação vier torta; só uma ação válida chega a Game:act (o motor garante
     -- que o que can_act aceita não dá erro em act por causa da forma da ação).
     ok, err = g:can_act(lado, action)
-    if ok then ok, err = g:act(lado, action) end
+    if ok then
+      ok, err = g:act(lado, action)
+    elseif type(err) == "string" and err:find("erro na validação", 1, true) then
+      -- Uma carta estourou ao conferir a ação: a partida segue, e o texto do
+      -- erro (caminho, linha) fica no log, não na recusa.
+      log("erro de carta ao conferir uma ação do lado " .. lado .. ": " .. err)
+      err = "ação recusada por um erro interno ao conferi-la"
+    end
   end
+  registrar_erro(g)
   -- Toda ação aceita gera um lote, mesmo sem evento (o estado pode ter
   -- mudado). Um erro do motor encerra a partida e gera evento: o lote sai
   -- mesmo com a ação recusada.
@@ -411,7 +438,9 @@ function Partida.resumo()
     .. " (" .. tostring(g.current_period) .. "), age o lado " .. tostring(quem_age(g))
     .. ", lote " .. estado.seq .. ", " .. #g.events .. " eventos")
   if g.winner ~= nil then add("vencedor: " .. tostring(g.winner) .. " (0 = empate)") end
-  if g.error then add("erro do motor: " .. tostring(g.error.message)) end
+  if g.error then
+    add("erro do motor (" .. contexto(g.error.context) .. "): " .. tostring(g.error.message))
+  end
   if g.pending_choice then
     add("escolha pendente do lado " .. tostring(g.pending_choice.player) .. " (" .. tostring(g.pending_choice.reason)
       .. "), " .. #(g.pending_choice.options or {}) .. " opções")

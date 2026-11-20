@@ -40,6 +40,12 @@
 --              e o motivo. A quantidade de opções (`count`) não vai: na
 --              Máquina de Ciência ela diz quantos equipamentos há nas 5
 --              cartas do topo do baralho.
+--   "erro"     todos recebem só { t, message = Visao.ERRO_GENERICO }: a
+--              mensagem do motor traz caminho de arquivo, linha e, no
+--              contexto, o id da carta que rodava (pode ser uma carta da mão
+--              ou do baralho de alguém). O detalhe fica no servidor: no log
+--              e em DUELO.Partida.estado(). Na fotografia, `erro` é o mesmo
+--              texto genérico.
 -- Além disso, todo evento com `private = true` é tratado no mínimo como
 -- "dono" (ou "mao", se for esse o tipo dele), qualquer que seja a lista.
 -- Tipo fora da lista (carta nova que emite um evento que este arquivo ainda
@@ -63,7 +69,7 @@
 --     attack, block, combat_start, combat_end, strike_phase, strike;
 --   escolhas: choice ("escolha": jogador e motivo para todos; a quantidade
 --     de opções só para quem escolhe, e as opções só na fotografia dele).
--- Todos são "publico", menos to_hand, look e choice. O que torna uma carta pública é
+-- Todos são "publico", menos to_hand, look, choice e engine_error ("erro"). O que torna uma carta pública é
 -- ela sair da mão ou do baralho para a mesa, o descarte, as destruídas, o
 -- Inventário (só recebe equipamentos que estavam em campo) ou ser mostrada
 -- (reveal).
@@ -85,7 +91,7 @@ Visao.ESPECTADOR = 3
 
 local PUBLICOS = {
   "start", "mulligan_start", "mulligan", "round_start", "round_end", "period", "vez", "pass",
-  "game_over", "engine_error",
+  "game_over",
   "mana", "fogueira", "player_damage", "player_heal",
   "play", "reveal", "inventory", "destroyed", "vanish",
   "summon", "structure", "equip", "unequip", "activate", "death", "leave", "break",
@@ -95,7 +101,10 @@ local PUBLICOS = {
   "attack", "block", "combat_start", "combat_end", "strike_phase", "strike",
 }
 
-Visao.TIPOS = { to_hand = "mao", look = "dono", choice = "escolha" }
+Visao.TIPOS = { to_hand = "mao", look = "dono", choice = "escolha", engine_error = "erro" }
+
+-- O que os clientes ficam sabendo de um erro do motor.
+Visao.ERRO_GENERICO = "erro interno do jogo; a partida foi encerrada"
 for _, t in ipairs(PUBLICOS) do Visao.TIPOS[t] = "publico" end
 
 -- Cópia simples: números, strings, booleans e tabelas; funções e afins ficam
@@ -126,6 +135,7 @@ local avisados = {}
 function Visao.evento_para(ev, lado, avisar)
   if type(ev) ~= "table" then return nil end
   local regra = Visao.TIPOS[ev.t]
+  if regra == "erro" then return { t = ev.t, message = Visao.ERRO_GENERICO } end
   local dono = ev.p ~= nil and ev.p == lado and (lado == 1 or lado == 2)
   if regra == "publico" and not ev.private then return copiar(ev) end
   if dono then return copiar(ev) end
@@ -317,7 +327,7 @@ function Visao.estado_para(g, lado)
     pilha = pilha(g),
     combate = combate(g),
     escolha = escolha(g, lado),
-    erro = g.error and tostring(g.error.message) or false,
+    erro = g.error and Visao.ERRO_GENERICO or false,
   }
   return x
 end

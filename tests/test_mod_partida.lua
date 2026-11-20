@@ -781,7 +781,7 @@ return {
     T.eq(erros, 1, "o espectador recebe o evento de erro")
     T.eq(recusas(net, "KU_um")[1].motivo, "erro no motor: partida encerrada")
     T.eq(cs[2].Cliente.visao().fase, "error")
-    T.ok(tostring(cs[2].Cliente.visao().erro):find("carta quebrada de propósito", 1, true))
+    T.eq(cs[2].Cliente.visao().erro, Visao.ERRO_GENERICO, "os clientes recebem o texto genérico")
     conferir_visoes(T, s, cs, "depois do erro")
     cs[2].Cliente.enviar({ type = "pass" })
     T.eq(recusas(net, "KU_dois")[1].motivo, "partida encerrada por erro")
