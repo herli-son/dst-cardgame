@@ -216,7 +216,7 @@ return {
     T.eq(type(reg.prefab_postinits.forest_network), "function", "AddPrefabPostInit(forest_network)")
     T.eq(#reg.prefab_postinits_todos.forest_network, 2, "forest_network do relógio e da calibração (US #30)")
     T.eq(#reg.player_postinits, 3, "AddPlayerPostInit da proteção, da câmera (US #30) e do cliente da partida (US #41)")
-    T.eq(#reg.sim_postinits, 2, "AddSimPostInit da calibração e da câmera (US #30)")
+    T.eq(#reg.sim_postinits, 3, "AddSimPostInit da calibração e da câmera (US #30) e da rede (US #41)")
     T.eq(type(reg.component_postinits.playercontroller), "function", "AddComponentPostInit(playercontroller)")
     T.eq(type(env.DUELO.Relogio.avancar), "function", "DUELO.Relogio no ambiente do mod")
     T.eq(GLOBAL.DUELO, env.DUELO, "DUELO também no ambiente global (console)")

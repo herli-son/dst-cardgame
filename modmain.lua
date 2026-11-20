@@ -121,6 +121,9 @@ local Rede = require("duelo/mod/rede").instalar({
   SendModRPCToClient = SendModRPCToClient,
   GetModRPC = GetModRPC,
   GetClientModRPC = GetClientModRPC,
+  AddSimPostInit = AddSimPostInit,
+  -- Tempo real, que não para com o servidor pausado (ver rede.lua).
+  agora = function() return GLOBAL.GetTimeRealSeconds() end,
 })
 
 -- A partida no servidor: o único lugar que carrega o motor (duelo/core/game),

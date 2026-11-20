@@ -58,6 +58,19 @@
 --   FRAGMENTO             bytes de cada pedaço das mensagens do servidor;
 --   MENSAGEM_BYTES        maior mensagem que o cliente aceita remontar.
 --
+-- Relógio das janelas de taxa: `GetTimeRealSeconds()` (mainfunctions.lua,
+-- "TIME FUNCTIONS": `TheSim:GetRealTime() / 1000`, o tempo real em segundos).
+-- Não é `GetTime()` (`TheSim:GetTick() * ticktime`, na mesma seção): com o
+-- servidor pausado o tick da simulação não anda, mas as RPCs continuam a ser
+-- tratadas (`StaticUpdate`, em update.lua, chama `TickRPCQueue()` também com
+-- `TheNet:IsServerPaused()`), e uma janela aberta na pausa nunca venceria: o
+-- jogador ficaria bloqueado, ou sem limite, até o fim da pausa. O relógio
+-- chega por `ctx.agora`. As janelas vencidas são apagadas a cada pedido, e as
+-- de um jogador, quando ele sai: `ms_playerleft`, que o servidor dispara no
+-- TheWorld com a entidade do jogador (prefabs/player_common.lua, ao remover
+-- o jogador; é o mesmo evento que os componentes do mundo, como hounded.lua,
+-- escutam).
+--
 -- Host (servidor com tela): os dois lados convivem na mesma máquina. Para
 -- não depender de o jogo entregar a própria RPC de volta, o que é do jogador
 -- local vai direto de um lado ao outro, por chamada de função, passando pela
@@ -102,10 +115,11 @@ local function log(msg)
   if estado.log then estado.log("[duelo] rede: " .. tostring(msg)) end
 end
 
+-- Relógio das janelas de taxa, em segundos (ver "Relógio" no cabeçalho).
 local function agora()
   local G = estado.GLOBAL
   if estado.ctx and estado.ctx.agora then return estado.ctx.agora() end
-  if G and G.GetTime then return G.GetTime() end
+  if G and G.GetTimeRealSeconds then return G.GetTimeRealSeconds() end
   return 0
 end
 
@@ -178,17 +192,45 @@ function Rede.enviar(userids, tipo, tabela)
   if para_mim then entregar_local(tipo, texto) end
 end
 
+local function janela_vencida(j, t)
+  return t - j.inicio >= 1 or t < j.inicio
+end
+
+-- Joga fora as janelas que já venceram (de todos os jogadores): a tabela só
+-- guarda quem mandou algo no último segundo.
+local function limpar_taxa(t)
+  for userid, por_usuario in pairs(estado.taxa) do
+    for tipo, j in pairs(por_usuario) do
+      if janela_vencida(j, t) then por_usuario[tipo] = nil end
+    end
+    if next(por_usuario) == nil then estado.taxa[userid] = nil end
+  end
+end
+
+-- Esquece as janelas de um jogador (ele saiu do servidor).
+function Rede.esquecer(userid)
+  if userid ~= nil then estado.taxa[userid] = nil end
+end
+
+-- Quantos jogadores têm janela de taxa guardada (para os testes e o console).
+function Rede.janelas()
+  local n = 0
+  for _ in pairs(estado.taxa) do n = n + 1 end
+  return n
+end
+
 -- Uma janela de 1 segundo por jogador e por tipo de pedido. Devolve se o
 -- pedido cabe e se é o primeiro excesso da janela (para avisar uma vez só).
 local function cabe_na_taxa(userid, tipo, maximo)
   local t = agora()
+  limpar_taxa(t)
   local por_usuario = estado.taxa[userid]
   if por_usuario == nil then
     por_usuario = {}
     estado.taxa[userid] = por_usuario
   end
   local j = por_usuario[tipo]
-  if j == nil or t - j.inicio >= 1 or t < j.inicio then
+  if j == nil then
     j = { inicio = t, n = 0, avisado = false }
     por_usuario[tipo] = j
   end
@@ -324,11 +366,16 @@ end
 ----------------------------------------------------------------------------
 
 -- Liga o módulo: registra todas as RPCs, nos dois lados, sempre na mesma ordem.
---   ctx.GLOBAL: ambiente global do jogo (TheNet, ThePlayer, AllPlayers, GetTime);
+--   ctx.GLOBAL: ambiente global do jogo (TheNet, ThePlayer, AllPlayers,
+--     TheWorld, GetTimeRealSeconds);
 --   ctx.AddModRPCHandler, ctx.AddClientModRPCHandler, ctx.SendModRPCToServer,
 --   ctx.SendModRPCToClient, ctx.GetModRPC, ctx.GetClientModRPC: de modutil.lua;
 --   ctx.log: função de log (padrão: GLOBAL.print);
---   ctx.agora: relógio em segundos (padrão: GLOBAL.GetTime), para os testes.
+--   ctx.agora: relógio em segundos, que não para com o servidor pausado
+--     (o modmain injeta GLOBAL.GetTimeRealSeconds; sem ctx.agora, é ela que
+--     vale; os testes injetam um relógio falso);
+--   ctx.AddSimPostInit: de modutil.lua (opcional): no servidor, liga a
+--     limpeza das janelas de taxa de quem sai ("ms_playerleft" no TheWorld).
 function Rede.instalar(ctx)
   estado.ctx = ctx
   estado.GLOBAL = ctx.GLOBAL
@@ -340,6 +387,13 @@ function Rede.instalar(ctx)
   estado.remontagem = {}
   ctx.AddModRPCHandler(Rede.NAMESPACE, "acao", ao_receber_acao)
   ctx.AddModRPCHandler(Rede.NAMESPACE, "pedir_estado", ao_pedir_estado)
+  if ctx.AddSimPostInit then
+    ctx.AddSimPostInit(function()
+      local G = estado.GLOBAL
+      if not e_servidor() or G.TheWorld == nil then return end
+      G.TheWorld:ListenForEvent("ms_playerleft", function(_, jogador) Rede.esquecer(userid_de(jogador)) end)
+    end)
+  end
   for _, tipo in ipairs(Rede.MENSAGENS) do
     ctx.AddClientModRPCHandler(Rede.NAMESPACE, tipo, protegido(tipo, function(id, i, total, pedaco)
       ao_receber_pedaco(tipo, id, i, total, pedaco)

@@ -74,7 +74,10 @@ local function nova_rede()
       TheNet = { GetIsServer = function() return opts.servidor == true end },
       ThePlayer = jogador,
       AllPlayers = opts.servidor and net.jogadores or {},
-      GetTime = function() return net.relogio end,
+      -- O relógio da simulação fica parado (servidor pausado): a taxa e as
+      -- retentativas usam o tempo real.
+      GetTime = function() return 0 end,
+      GetTimeRealSeconds = function() return net.relogio end,
       print = function(s) m.logs[#m.logs + 1] = tostring(s) end,
     }
     local ctx = {
