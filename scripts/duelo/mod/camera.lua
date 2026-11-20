@@ -1,4 +1,5 @@
--- Câmera fixa na mesa e lado de cada jogador (US #30).
+-- Câmera fixa na mesa e lado de cada jogador (US #30; enquadramento da
+-- mesa 13 x 11 no bug #147).
 --
 -- Cada cliente vê a mesa inteira de uma câmera parada no centro, com o seu
 -- lado embaixo da tela. A câmera é do cliente (TheCamera, criada em main.lua
@@ -37,13 +38,33 @@
 --     (followcamera.lua). O zoom continua livre entre o mínimo e o máximo
 --     (docs/investigacao-scripts-dst.md, "Câmera"); o máximo é
 --     PLAYER_CAMERA_MAX_DIST = 80 (constants.lua: mais longe, entidades
---     começam a sumir e aparecer). Com fov 35 e o pitch que followcamera.lua
---     tira da distância (54° em 70), o chão visível vai de ~22 unidades
---     para baixo do alvo a ~37 para cima: a vista é assimétrica. Com o alvo
---     no centro, as estruturas do próprio jogador (22 unidades abaixo) ficam
---     sob a barra de inventário. Por isso o alvo fica DESLOCAMENTO = 8
---     unidades para o lado do jogador (ao longo de GetDownVec): a vista vai
---     de ~30 abaixo a ~29 acima do centro e as quatro fileiras cabem.
+--     começam a sumir e aparecer).
+--   * enquadramento (bug #147: a mesa passou de 16 x 16 para 13 x 11 tiles).
+--     Em followcamera.lua o fov vertical é 35 (SetDefault) e o pitch sai da
+--     distância (Update: lerp de mindistpitch = 30 a maxdistpitch = 60 por
+--     (d - mindist) / (maxdist - mindist)); com o mínimo e o máximo do mod
+--     (30 e 80), d = 65 dá pitch 51. A câmera olha para o alvo + 1,5 de
+--     altura (targetoffset), de d unidades: fica a 1,5 + d sen(p) = 52,0 de
+--     altura e d cos(p) = 40,9 atrás do alvo. Um ponto do chão a s unidades
+--     do alvo (s > 0 para o alto da tela) aparece na altura da tela
+--     (1 + tan(a - p) / tan(17,5)) / 2, onde a = atan(52,0 / (40,9 + s)) é o
+--     ângulo dele abaixo do horizonte (Camera.altura_na_tela). A mesa vai de
+--     22 unidades abaixo a 22 acima do centro (5,5 tiles), e as estruturas
+--     do próprio lado ficam a 16 abaixo. Com o alvo no centro a vista é
+--     assimétrica (de ~20 abaixo a ~38 acima) e as estruturas ficariam em
+--     12% da altura, sob a barra de inventário. Por isso o alvo fica
+--     DESLOCAMENTO = 5 unidades para o lado do jogador (ao longo de
+--     GetDownVec). Resultado (de baixo para cima da tela, em 16:9):
+--       borda de perto (linha 10 da mesa, fora)   9%
+--       estruturas do próprio lado (centro)      25%   (US #30, confirmado
+--         no jogo acima da barra de inventário: 19%)
+--       centro da zona de combate                57%
+--       estruturas do outro lado                 81%
+--       borda de longe                           88%
+--     Na largura, os cantos da mesa (26 unidades para cada lado) ficam a
+--     84% da meia largura da tela na fileira de perto, a mais estreita. Em
+--     4:3 a borda de cascalho dos lados sai da tela, mas os espaços cabem.
+--     Antes (mesa 16 x 16): DISTANCIA = 70, DESLOCAMENTO = 8.
 --   * heading: `SetHeadingTarget(h)`. Em followcamera.lua (Apply), a câmera
 --     olha na horizontal para (-cos h, -sin h) e fica do lado oposto, e
 --     GetDownVec = (cos h, sin h) é a direção do mundo que aponta para baixo
@@ -79,12 +100,46 @@ local Camera = {}
 
 Camera.LADO = { desconhecido = 0, jogador1 = 1, jogador2 = 2, espectador = 3 }
 
-Camera.DISTANCIA = 70
+Camera.DISTANCIA = 65
 -- Unidades do alvo, a partir do centro da mesa, na direção do lado de quem
--- olha (ver o cabeçalho, "distância").
-Camera.DESLOCAMENTO = 8
+-- olha (ver o cabeçalho, "enquadramento").
+Camera.DESLOCAMENTO = 5
 Camera.DISTANCIA_MIN = 30
 Camera.DISTANCIA_MAX = 80 -- PLAYER_CAMERA_MAX_DIST (constants.lua)
+
+-- Valores de cameras/followcamera.lua (SetDefault) usados na conta do
+-- enquadramento.
+Camera.FOV = 35
+Camera.PITCH_MIN = 30 -- mindistpitch
+Camera.PITCH_MAX = 60 -- maxdistpitch
+Camera.ALTURA_ALVO = 1.5 -- targetoffset.y
+
+-- Pitch (graus) que followcamera.lua usa na distância d, com o zoom mínimo
+-- e máximo do mod.
+function Camera.pitch(d)
+  local t = (d - Camera.DISTANCIA_MIN) / (Camera.DISTANCIA_MAX - Camera.DISTANCIA_MIN)
+  if t < 0 then t = 0 elseif t > 1 then t = 1 end
+  return Camera.PITCH_MIN + (Camera.PITCH_MAX - Camera.PITCH_MIN) * t
+end
+
+-- Conta do enquadramento (cabeçalho): altura na tela (0 = embaixo, 1 = em
+-- cima) de um ponto do chão a `s` unidades do centro da mesa na direção do
+-- alto da tela, com a câmera a `d` (padrão DISTANCIA) e o alvo deslocado
+-- `desloc` (padrão DESLOCAMENTO) para o lado de quem olha. Também devolve a
+-- posição horizontal de um ponto `x` unidades para o lado, em meias larguras
+-- de tela 16:9 (1 = borda da tela).
+function Camera.altura_na_tela(s, x, d, desloc)
+  d = d or Camera.DISTANCIA
+  desloc = desloc or Camera.DESLOCAMENTO
+  local p = math.rad(Camera.pitch(d))
+  local altura = Camera.ALTURA_ALVO + d * math.sin(p)
+  local frente = d * math.cos(p) + s + desloc -- distância horizontal da câmera
+  local profundidade = frente * math.cos(p) + altura * math.sin(p)
+  local meio = math.tan(math.rad(Camera.FOV / 2))
+  local y = (frente * math.sin(p) - altura * math.cos(p)) / profundidade / meio
+  local lado = (x or 0) / profundidade / (meio * 16 / 9)
+  return (y + 1) / 2, lado
+end
 
 local NETVAR = "duelo.lado"
 local NETVAR_DIRTY = "duelo.ladodirty"
