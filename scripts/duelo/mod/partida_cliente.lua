@@ -251,8 +251,8 @@ function Cliente.resumo()
   if v.vencedor ~= false then add("vencedor: " .. tostring(v.vencedor) .. " (0 = empate)") end
   if v.erro then add("erro do motor: " .. tostring(v.erro)) end
   if v.escolha then
-    add("escolha do lado " .. tostring(v.escolha.p) .. " (" .. tostring(v.escolha.motivo) .. "), "
-      .. tostring(v.escolha.n) .. " opções" .. (v.escolha.opcoes and " (minha)" or ""))
+    add("escolha do lado " .. tostring(v.escolha.p) .. " (" .. tostring(v.escolha.motivo) .. ")"
+      .. (v.escolha.opcoes and (", " .. tostring(v.escolha.n) .. " opções (minha)") or ""))
   end
   for p = 1, 2 do
     local j = v.jogadores[p]

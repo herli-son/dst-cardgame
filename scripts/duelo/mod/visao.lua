@@ -35,6 +35,11 @@
 --              os uids nascem na ordem da lista do baralho, então o uid
 --              também diria qual é a carta).
 --   "dono"     só o dono recebe; os outros não recebem nada.
+--   "escolha"  quem escolhe (ev.p) recebe inteira; os outros recebem só
+--              { t, p, reason }: que há uma escolha pendente daquele jogador
+--              e o motivo. A quantidade de opções (`count`) não vai: na
+--              Máquina de Ciência ela diz quantos equipamentos há nas 5
+--              cartas do topo do baralho.
 -- Além disso, todo evento com `private = true` é tratado no mínimo como
 -- "dono" (ou "mao", se for esse o tipo dele), qualquer que seja a lista.
 -- Tipo fora da lista (carta nova que emite um evento que este arquivo ainda
@@ -56,12 +61,23 @@
 --     creature_damage, damage_absorbed, creature_heal;
 --   pilha e combate: instant, stack_push, stack_resolve, stack_closed, ready,
 --     attack, block, combat_start, combat_end, strike_phase, strike;
---   escolhas: choice (jogador, motivo e quantidade de opções; as opções só
---     vão na fotografia de quem escolhe).
--- Todos são "publico", menos to_hand e look. O que torna uma carta pública é
+--   escolhas: choice ("escolha": jogador e motivo para todos; a quantidade
+--     de opções só para quem escolhe, e as opções só na fotografia dele).
+-- Todos são "publico", menos to_hand, look e choice. O que torna uma carta pública é
 -- ela sair da mão ou do baralho para a mesa, o descarte, as destruídas, o
 -- Inventário (só recebe equipamentos que estavam em campo) ou ser mostrada
 -- (reveal).
+--
+-- Na fotografia, a escolha pendente segue a mesma regra: quem não escolhe
+-- recebe só { p, motivo }; a quantidade (`n`), se "nenhuma" é permitida e as
+-- opções só vão para quem escolhe.
+--
+-- Limitação conhecida (escolha que não abre): quando um efeito abriria uma
+-- escolha e não há nenhuma opção, a carta não abre escolha alguma. Na
+-- Máquina de Ciência, o adversário vê o `activate` e, em seguida, nenhuma
+-- escolha pendente: fica sabendo que não há equipamento nas 5 cartas do
+-- topo. Esconder isso exigiria mudar a carta (abrir a escolha mesmo vazia),
+-- o que é regra do motor e não cabe a este filtro.
 
 local Visao = {}
 
@@ -77,10 +93,9 @@ local PUBLICOS = {
   "creature_damage", "damage_absorbed", "creature_heal",
   "instant", "stack_push", "stack_resolve", "stack_closed", "ready",
   "attack", "block", "combat_start", "combat_end", "strike_phase", "strike",
-  "choice",
 }
 
-Visao.TIPOS = { to_hand = "mao", look = "dono" }
+Visao.TIPOS = { to_hand = "mao", look = "dono", choice = "escolha" }
 for _, t in ipairs(PUBLICOS) do Visao.TIPOS[t] = "publico" end
 
 -- Cópia simples: números, strings, booleans e tabelas; funções e afins ficam
@@ -116,6 +131,10 @@ function Visao.evento_para(ev, lado, avisar)
   if dono then return copiar(ev) end
   if regra == "mao" then
     return { t = ev.t, p = ev.p, source = ev.source, oculto = true }
+  end
+  if regra == "escolha" and not ev.private then
+    local motivo = type(ev.reason) == "string" and ev.reason or nil
+    return { t = ev.t, p = ev.p, reason = motivo }
   end
   if regra ~= nil then return nil end -- "dono", ou público marcado como privado
   if ev.private then return nil end
@@ -232,9 +251,12 @@ end
 local function escolha(g, lado)
   local ch = g.pending_choice
   if ch == nil then return false end
-  local x = { p = ch.player, motivo = ch.reason, n = #(ch.options or {}), nenhuma = ch.allow_none and true or false }
-  -- As opções podem ser cartas do baralho ou da mão de quem escolhe.
+  local x = { p = ch.player, motivo = type(ch.reason) == "string" and ch.reason or false }
+  -- As opções podem ser cartas do baralho ou da mão de quem escolhe, e até a
+  -- quantidade delas diz algo (ver o cabeçalho): tudo só para quem escolhe.
   if ch.player == lado and (lado == 1 or lado == 2) then
+    x.n = #(ch.options or {})
+    x.nenhuma = ch.allow_none and true or false
     x.opcoes = {}
     for i, opt in ipairs(ch.options or {}) do x.opcoes[i] = opcao(opt) end
   end

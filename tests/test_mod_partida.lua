@@ -346,9 +346,11 @@ return {
     f1, f2, f3 = Visao.estado_para(g, 1), Visao.estado_para(g, 2), Visao.estado_para(g, 3)
     T.eq(f1.escolha.opcoes[1].carta, carta.id); T.eq(f1.escolha.opcoes[1].card_uid, carta.uid)
     T.eq(f1.escolha.opcoes[2].valor, 2); T.eq(f1.escolha.nenhuma, true)
+    T.eq(f1.escolha.n, 2, "quem escolhe sabe quantas opções há")
     for _, f in ipairs({ f2, f3 }) do
-      T.eq(f.escolha.p, 1); T.eq(f.escolha.n, 2); T.eq(f.escolha.motivo, "teste")
+      T.eq(f.escolha.p, 1); T.eq(f.escolha.motivo, "teste")
       T.eq(f.escolha.opcoes, nil, "sem as opções")
+      T.eq(f.escolha.n, nil, "sem a quantidade de opções"); T.eq(f.escolha.nenhuma, nil)
     end
   end },
 
