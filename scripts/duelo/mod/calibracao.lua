@@ -1,4 +1,5 @@
--- Calibração da mesa no jogo (US #30).
+-- Calibração da mesa no jogo (US #30; padrão das estruturas e da coluna de
+-- eventos no bug #147).
 --
 -- Os tiles da mesa já vêm da geração (static layout da US #29), mas a mesa
 -- não fica num lugar fixo do mapa: o gerador escolhe onde a põe e espelha o
@@ -19,15 +20,26 @@
 --   * Em volta do tile do portal (Calibracao.RAIO tiles para cada lado, sem
 --     sair do mapa, `TheWorld.Map:GetSize()`, componentutil.lua), cada
 --     tile é lido com `TheWorld.Map:GetTile(tx, ty)` (debugkeys.lua) e
---     comparado com `WORLD_TILES.CARPET` (o id vem de tiledefs.lua por
---     tilemanager.lua). Os tiles de carpete vão para Mesa.achar_carpete, e o
---     retângulo para Mesa.calibrar, com `TheWorld.Map:GetTileCenterPoint(tx, ty)`
---     (components/map.lua, IsTerraformingBlockedByAnObject; debugcommands.lua)
---     convertendo tile em posição do mundo. Sem carpete, a origem sai só do
+--     comparado com o tile das estruturas, `WORLD_TILES.MOSAIC_GREY`, e com
+--     o do espaço de eventos, `WORLD_TILES.CARPET2` (o id vem de tiledefs.lua
+--     por tilemanager.lua; o nome sai de Mesa.WORLD_TILE e Mesa.USO). Só os
+--     8 tiles de estrutura usam o primeiro piso: 4 blocos de 1 x 2 nos
+--     cantos de um retângulo de 3 x 14 tiles cujo centro é o centro do
+--     combate e da mesa. Os tiles achados vão para Mesa.achar_estruturas,
+--     e o retângulo para Mesa.calibrar, com
+--     `TheWorld.Map:GetTileCenterPoint(tx, ty)` (components/map.lua,
+--     IsTerraformingBlockedByAnObject; debugcommands.lua) convertendo tile em
+--     posição do mundo. O espelhamento sai do lado em que ficaram os 2 tiles
+--     de eventos (a mesa não é simétrica: a coluna de eventos fica de um
+--     lado só), sem depender do portal; o portal só diz onde procurar e
+--     serve de conferência (e de reserva para o espelhamento, se os tiles de
+--     eventos não forem achados). Sem as estruturas, a origem sai só do
 --     portal (Mesa.calibrar_pelo_portal) e o log avisa.
---   * Os 16 espaços são conferidos com `TheWorld.Map:GetTileAtPoint(x, 0, z)`
---     (components/map.lua) contra `WORLD_TILES.MOSAIC_GREY`/`MOSAIC_BLUE`;
---     uma diferença só gera aviso no log.
+--   * Os 62 tiles de espaço (Mesa.tiles_dos_espacos: cartas, criaturas,
+--     estruturas, decks, combate, descarte, destruídas e eventos) são
+--     conferidos com
+--     `TheWorld.Map:GetTileAtPoint(x, 0, z)` (components/map.lua) contra o
+--     piso de cada um (Mesa.USO); uma diferença só gera aviso no log.
 --   * A calibração vai aos clientes por variáveis de rede no forest_network
 --     (netvars.lua: `net_float` para a origem, `net_bool` para o
 --     espelhamento, `net_tinybyte` para a fonte, 0 = ainda não calibrada),
@@ -50,8 +62,8 @@ local Calibracao = {}
 -- Raio da busca em volta do portal, em tiles: a mesa inteira cabe nele.
 Calibracao.RAIO = 20
 
-local FONTES = { carpete = 1, portal = 2 }
-local NOMES_FONTE = { [1] = "carpete", [2] = "portal" }
+local FONTES = { estruturas = 1, portal = 2 }
+local NOMES_FONTE = { [1] = "estruturas", [2] = "portal" }
 
 local DIRTY = "duelo.mesadirty"
 
@@ -131,11 +143,18 @@ local function post_init_rede(inst)
   end
 end
 
--- Servidor: tiles de carpete em volta do tile (ptx, pty), sem sair do
--- mapa (Map:GetSize, como em componentutil.lua, GetHermitCrabOccupiedGrid).
-local function tiles_de_carpete(map, ptx, pty)
-  local carpete = estado.GLOBAL.WORLD_TILES.CARPET
-  local lista = {}
+-- Id do jogo (WORLD_TILES) de um tile de Mesa.TILE ("XADREZ", ...).
+local function tile_do_jogo(nome)
+  return estado.GLOBAL.WORLD_TILES[estado.Mesa.WORLD_TILE[nome]]
+end
+
+-- Servidor: tiles de estrutura e de eventos em volta do tile (ptx, pty),
+-- sem sair do mapa (Map:GetSize, como em componentutil.lua,
+-- GetHermitCrabOccupiedGrid). Devolve as duas listas de { x, y }.
+local function tiles_do_padrao(map, ptx, pty)
+  local Mesa = estado.Mesa
+  local estrutura, evento = tile_do_jogo(Mesa.USO.estrutura), tile_do_jogo(Mesa.USO.evento)
+  local estruturas, eventos = {}, {}
   local r = Calibracao.RAIO
   local x0, x1, y0, y1 = ptx - r, ptx + r, pty - r, pty + r
   if map.GetSize ~= nil then
@@ -145,29 +164,27 @@ local function tiles_de_carpete(map, ptx, pty)
   end
   for tx = x0, x1 do
     for ty = y0, y1 do
-      if map:GetTile(tx, ty) == carpete then
-        lista[#lista + 1] = { x = tx, y = ty }
+      local tile = map:GetTile(tx, ty)
+      if tile == estrutura then
+        estruturas[#estruturas + 1] = { x = tx, y = ty }
+      elseif tile == evento then
+        eventos[#eventos + 1] = { x = tx, y = ty }
       end
     end
   end
-  return lista
+  return estruturas, eventos
 end
 
--- Servidor: quantos dos 16 espaços não caem no tile esperado.
+-- Servidor: quantos tiles de espaço não estão sobre o piso esperado, e
+-- quantos foram conferidos.
 local function conferir_espacos(map, calib)
-  local Mesa, T = estado.Mesa, estado.GLOBAL.WORLD_TILES
+  local Mesa = estado.Mesa
+  local tiles = Mesa.tiles_dos_espacos(calib)
   local erros = 0
-  for p = 1, 2 do
-    for n = 1, 6 do
-      local x, z = Mesa.espaco_criatura_abs(p, n, calib)
-      if map:GetTileAtPoint(x, 0, z) ~= T.MOSAIC_GREY then erros = erros + 1 end
-    end
-    for n = 1, 2 do
-      local x, z = Mesa.espaco_estrutura_abs(p, n, calib)
-      if map:GetTileAtPoint(x, 0, z) ~= T.MOSAIC_BLUE then erros = erros + 1 end
-    end
+  for _, t in ipairs(tiles) do
+    if map:GetTileAtPoint(t.x, 0, t.z) ~= tile_do_jogo(Mesa.USO[t.tipo]) then erros = erros + 1 end
   end
-  return erros
+  return erros, #tiles
 end
 
 -- Servidor: acha a mesa, guarda em Mesa.calibracao, manda aos clientes e
@@ -186,29 +203,32 @@ function Calibracao.calibrar()
   end
   local px, _, pz = portal.Transform:GetWorldPosition()
   local ptx, pty = map:GetTileCoordsAtPoint(px, 0, pz)
-  local retangulo, motivo = Mesa.achar_carpete(tiles_de_carpete(map, ptx, pty))
+  local estruturas, eventos = tiles_do_padrao(map, ptx, pty)
+  local retangulo, motivo = Mesa.achar_estruturas(estruturas)
 
   local calib
   if retangulo ~= nil then
     calib = Mesa.calibrar({
-      carpete = retangulo,
+      estruturas = retangulo,
       centro_mundo = function(tx, ty)
         local x, _, z = map:GetTileCenterPoint(tx, ty)
         return x, z
       end,
+      eventos = eventos,
       portal = { x = px, z = pz },
     })
   else
-    avisar("carpete da mesa não achado (" .. tostring(motivo) .. ")")
+    avisar("estruturas da mesa não achadas (" .. tostring(motivo) .. ")")
     calib = Mesa.calibrar_pelo_portal(px, pz)
   end
   if calib.aviso ~= nil then avisar(calib.aviso) end
-  avisar(string.format("mesa calibrada pelo %s: origem (%.1f, %.1f), espelhado = %s, portal no tile (%d, %d)",
-    calib.fonte, calib.origem_x, calib.origem_z, tostring(calib.espelhado), ptx, pty))
+  avisar(string.format("mesa calibrada %s: origem (%.1f, %.1f), espelhado = %s (%s), portal no tile (%d, %d)",
+    calib.fonte == "portal" and "pelo portal" or "pelas estruturas", calib.origem_x, calib.origem_z,
+    tostring(calib.espelhado), tostring(calib.espelhamento), ptx, pty))
 
-  local erros = conferir_espacos(map, calib)
+  local erros, total = conferir_espacos(map, calib)
   if erros > 0 then
-    avisar(erros .. " dos 16 espaços não estão sobre o tile esperado")
+    avisar(erros .. " dos " .. total .. " tiles de espaço não estão sobre os tiles esperados")
   end
 
   Mesa.definir_calibracao(calib)

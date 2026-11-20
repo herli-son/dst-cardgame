@@ -83,7 +83,8 @@ return {
         -- onde os jogadores entram. O multiplayer_portal não registra ponto de
         -- nascimento (components/playerspawner.lua escuta
         -- ms_registerspawnpoint, que só os prefabs spawnpoint_* disparam),
-        -- então o spawnpoint_master vai junto, no mesmo ponto.
+        -- então o spawnpoint_master vai junto, no mesmo ponto: o centro do
+        -- pátio de pedra fora da mesa (Mesa.PATIO, Mesa.PORTAL).
         objeto("multiplayer_portal", Mesa.PORTAL.x, Mesa.PORTAL.z),
         objeto("spawnpoint_master", Mesa.PORTAL.x, Mesa.PORTAL.z),
       },

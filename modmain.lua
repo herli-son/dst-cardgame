@@ -10,10 +10,13 @@
 --     (modworldgenmain.lua) e das configurações do nível; aqui só a
 --     geometria da mesa (duelo/mod/mesa.lua) é exposta.
 --   * US #30: mesa de tiles, números e câmera. Os tiles já vêm da geração.
---       - duelo/mod/calibracao.lua: o servidor acha a mesa no mapa (portal e
---         carpete) e manda a calibração aos clientes (Mesa.calibracao).
+--       - duelo/mod/calibracao.lua: o servidor acha a mesa no mapa (estruturas
+--         e coluna de eventos, em volta do portal) e manda a calibração aos clientes (Mesa.calibracao).
 --       - duelo/mod/marcadores.lua + prefabs/duelo_marcador.lua: número e
---         dono de cada um dos 16 espaços e o rótulo "Combate" no centro.
+--         dono de cada espaço (criaturas, estruturas, decks, descarte e
+--         destruídas) e os rótulos "Combate" e "Eventos".
+--       - duelo/mod/contornos.lua: contorno (tile_outline do jogo, local a
+--         cada cliente) em cada tile de espaço, na cor do dono (bug #147).
 --       - duelo/mod/camera.lua: lado de cada jogador (1, 2 ou espectador) e
 --         câmera fixa no centro, com o lado do jogador embaixo e sem Q/E.
 --   * US #31: nada do mundo interfere no duelo.
@@ -75,6 +78,14 @@ local Marcadores = require("duelo/mod/marcadores").instalar({
   Calibracao = Calibracao,
 })
 
+-- Contornos dos espaços (tile_outline local, criado em cada cliente com tela a
+-- cada calibração).
+local Contornos = require("duelo/mod/contornos").instalar({
+  GLOBAL = GLOBAL,
+  Mesa = Mesa,
+  Calibracao = Calibracao,
+})
+
 -- Câmera e lado dos jogadores (AddPlayerPostInit e
 -- AddComponentPostInit("playercontroller"): os dois lados; AddSimPostInit:
 -- a escolha do lado só no servidor).
@@ -98,6 +109,7 @@ DUELO = {
   Relogio = Relogio,
   Calibracao = Calibracao,
   Marcadores = Marcadores,
+  Contornos = Contornos,
   Camera = Camera,
 }
 GLOBAL.DUELO = DUELO
