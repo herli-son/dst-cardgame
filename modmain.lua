@@ -145,6 +145,7 @@ if not TheNet:IsDedicated() then
     GLOBAL = GLOBAL,
     rede = Rede,
     AddPlayerPostInit = AddPlayerPostInit,
+    agora = function() return GLOBAL.GetTimeRealSeconds() end,
   })
 end
 

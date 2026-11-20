@@ -10,12 +10,16 @@
 --     aplicados em ordem: o lote esperado é sempre `seq + 1`. Um lote
 --     repetido ou velho é ignorado; um buraco na sequência (ou um lote de
 --     outra partida, ou sem fotografia ainda) faz o cliente pedir "estado" e
---     ignorar os lotes até ela chegar.
+--     ignorar os lotes até ela chegar. O pedido ou a resposta podem se
+--     perder (ou o servidor pode ignorar o pedido, pelo limite dele de 2 por
+--     segundo): enquanto a fotografia não chega, o pedido é repetido a cada
+--     ESPERA_PEDIDO segundos (Cliente.tique).
 --   * "recusada": o servidor não aceitou uma ação deste jogador, com o motivo.
 --
 -- Interface:
 --   Cliente.instalar{ rede = Rede, GLOBAL = GLOBAL, AddPlayerPostInit = fn,
---                     log = fn, agora = fn } -> Cliente
+--                     log = fn, agora = fn } -> Cliente   (agora: relógio
+--       em segundos para as retentativas, injetado; ver Cliente.instalar)
 --   Cliente.enviar(action) -> n | nil, erro   manda a ação ao servidor; n é o
 --       número dela (volta em "recusada"). O resultado chega depois, como um
 --       lote de eventos (aceita) ou uma recusa.
@@ -29,6 +33,9 @@
 --       refeita a partir dela.
 --   Cliente.quando_recusada(fn) -> cancelar   fn(motivo, n)
 --   Cliente.pedir_estado()                    pede a fotografia ao servidor
+--   Cliente.tique()                           repete o pedido de fotografia
+--       se ela ainda não chegou e já passou ESPERA_PEDIDO; chamado de tempos
+--       em tempos (INTERVALO_TIQUE) por uma tarefa periódica do jogador local
 --   Cliente.receber(tipo, tabela)             entrada das mensagens (a rede chama)
 --
 -- Console do cliente (DUELO.Cliente no modmain.lua), enquanto não há tela:
@@ -41,8 +48,12 @@ local Visao = require("duelo/mod/visao")
 
 local Cliente = {}
 
--- Espera mínima, em segundos, antes de repetir um pedido de fotografia.
-Cliente.ESPERA_PEDIDO = 2
+-- Espera, em segundos, antes de repetir um pedido de fotografia que não foi
+-- atendido. O servidor atende até 2 pedidos por segundo de cada jogador
+-- (Rede.LIMITES.ESTADOS_POR_SEGUNDO): com 1 s o cliente fica dentro do limite.
+Cliente.ESPERA_PEDIDO = 1
+-- De quanto em quanto tempo, em segundos, a tarefa periódica chama Cliente.tique.
+Cliente.INTERVALO_TIQUE = 0.25
 -- Quantos eventos recentes ficam guardados para Cliente.imprimir.
 Cliente.ULTIMOS = 20
 
@@ -67,10 +78,12 @@ local function log(msg)
   if estado.log then estado.log("[duelo] cliente: " .. tostring(msg)) end
 end
 
+-- Relógio das retentativas, em segundos: o tempo real, que não para com o
+-- servidor pausado (GetTimeRealSeconds, mainfunctions.lua; ver rede.lua).
 local function agora()
   if estado.agora then return estado.agora() end
   local G = estado.GLOBAL
-  if G and G.GetTime then return G.GetTime() end
+  if G and G.GetTimeRealSeconds then return G.GetTimeRealSeconds() end
   return nil
 end
 
@@ -118,6 +131,14 @@ function Cliente.pedir_estado()
   estado.pedido_em = t
   estado.rede.pedir_estado()
   return true
+end
+
+-- Retentativa por tempo: enquanto a fotografia pedida não chega, repete o
+-- pedido (pedir_estado só deixa passar depois de ESPERA_PEDIDO). Devolve true
+-- se pediu de novo.
+function Cliente.tique()
+  if not estado.esperando then return false end
+  return Cliente.pedir_estado()
 end
 
 local function receber_estado(m)
@@ -285,8 +306,14 @@ end
 --   ctx.GLOBAL: ambiente global do jogo (ThePlayer, GetTime, print);
 --   ctx.AddPlayerPostInit: de modutil.lua (opcional): quando o jogador local
 --     ativa ("playeractivated" no próprio jogador, prefabs/player_common.lua),
---     o cliente pede a fotografia, para quem entra com a partida em curso;
---   ctx.log, ctx.agora: log e relógio (padrões: GLOBAL.print e GLOBAL.GetTime).
+--     o cliente pede a fotografia, para quem entra com a partida em curso, e
+--     liga a tarefa periódica que chama Cliente.tique. A tarefa é
+--     `inst:DoStaticPeriodicTask` (entityscript.lua: roda no staticScheduler,
+--     que StaticUpdate, em update.lua, executa mesmo com o servidor pausado);
+--   ctx.log: função de log (padrão: GLOBAL.print);
+--   ctx.agora: relógio em segundos que não para na pausa (o modmain injeta
+--     GLOBAL.GetTimeRealSeconds; sem ctx.agora, é ela que vale; os testes
+--     injetam um relógio falso).
 function Cliente.instalar(ctx)
   estado.rede = ctx.rede
   estado.GLOBAL = ctx.GLOBAL
@@ -301,7 +328,14 @@ function Cliente.instalar(ctx)
   if ctx.AddPlayerPostInit then
     ctx.AddPlayerPostInit(function(inst)
       inst:ListenForEvent("playeractivated", function()
-        if ctx.GLOBAL and inst == ctx.GLOBAL.ThePlayer then Cliente.pedir_estado() end
+        if not (ctx.GLOBAL and inst == ctx.GLOBAL.ThePlayer) then return end
+        Cliente.pedir_estado()
+        if inst.duelo_tique == nil then
+          local periodica = inst.DoStaticPeriodicTask or inst.DoPeriodicTask
+          if periodica then
+            inst.duelo_tique = periodica(inst, Cliente.INTERVALO_TIQUE, function() Cliente.tique() end)
+          end
+        end
       end)
     end)
   end
