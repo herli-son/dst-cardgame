@@ -43,6 +43,15 @@
 --     mindistpitch a maxdistpitch por (d - mindist) / (maxdist - mindist)):
 --     em 80 dá 40 + 20 * 75 / 175 = 48,6 graus, e afastar com o zoom
 --     inclina a câmera até 60 graus em 180.
+--   * limite prático do zoom: fora de caverna o HUD liga as nuvens quando a
+--     distância passa de 75% da faixa (TUNING.HUD_CLOUD_CUTOFF em
+--     screens/playerhud.lua, UpdateClouds): com 5..180 isso é acima de ~136,
+--     e um segundo depois a câmera é puxada de volta para 110
+--     (followcamera.lua, should_push_down). O zoom útil é de 30 a ~136; em
+--     80 (a vista padrão) nada disso acontece. Limitações conhecidas: quem
+--     entra já com bônus de distância (monóculo, módulo do WX-78) começa em
+--     127,5 (MaximizeDistance do player_classified), e Camera.liberar não
+--     devolve esse bônus até ele mudar de novo.
 --   * zoom: livre entre ZOOM_MIN = 30 e 180. O `mindist` fica em 5 porque é
 --     ele que dá a inclinação acima; para a roda do mouse não chegar a 5
 --     (perto demais para uma câmera parada no centro da mesa), `ZoomIn` e
