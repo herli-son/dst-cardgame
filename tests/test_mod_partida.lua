@@ -384,6 +384,14 @@ return {
     T.eq(Visao.estado_para(g, 1).vencedor, 0, "o empate é 0")
   end },
 
+  { "o resumo do servidor diz fogueira apagada de dia, não nil", function(T)
+    local net, s = mesa()
+    iniciar(s)
+    local resumo = table.concat(s.Partida.resumo(), "\n")
+    T.ok(resumo:find("fogueira apagada", 1, true), "de dia a fogueira está apagada")
+    T.ok(not resumo:find("fogueira nil", 1, true))
+  end },
+
   { "todas as RPCs são registradas nos dois lados, na mesma ordem", function(T)
     local net, s, cs = mesa()
     T.eq(s.ordem, "s:acao;s:pedir_estado;c:eventos;c:estado;c:recusada;")

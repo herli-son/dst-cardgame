@@ -533,7 +533,7 @@ function Partida.resumo()
   for p = 1, 2 do
     local pl = g.players[p]
     add("lado " .. p .. " (" .. tostring(estado.jogadores[p]) .. "): vida " .. pl.life .. ", mana " .. pl.mana .. "/"
-      .. pl.max_mana .. ", fogueira " .. tostring(g.fogueira[p]) .. ", baralho " .. #pl.deck)
+      .. pl.max_mana .. ", fogueira " .. (g.fogueira[p] == nil and "apagada" or tostring(g.fogueira[p])) .. ", baralho " .. #pl.deck)
     add("  mão: " .. ids(pl.hand))
     add("  campo: " .. campo(g, p))
   end
