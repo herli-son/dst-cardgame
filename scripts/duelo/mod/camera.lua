@@ -1,5 +1,5 @@
--- Câmera fixa na mesa e lado de cada jogador (US #30; enquadramento da
--- mesa 15 x 14 no bug #147).
+-- Câmera fixa na mesa e lado de cada jogador (US #30; enquadramento e vista
+-- de longe pedidos no bug #147).
 --
 -- Cada cliente vê a mesa inteira de uma câmera parada no centro, com o seu
 -- lado embaixo da tela. A câmera é do cliente (TheCamera, criada em main.lua
@@ -34,50 +34,51 @@
 --     sobrescreve `targetpos` com a posição do alvo a cada quadro. O
 --     TheFocalPoint (prefabs/focalpoint.lua, preso ao jogador) continua no
 --     jogador: o som e a área ativa (update.lua) seguem com ele.
---   * distância: `SetMinDistance`, `SetMaxDistance`, `SetDistance` e `Snap`
---     (followcamera.lua). O zoom continua livre entre o mínimo e o máximo
---     (docs/investigacao-scripts-dst.md, "Câmera"); o máximo é
---     PLAYER_CAMERA_MAX_DIST = 80 (constants.lua: mais longe, entidades
---     começam a sumir e aparecer).
---   * enquadramento (bug #147: a mesa passou a 15 x 14 tiles, com a coluna
---     de eventos de um lado). Em followcamera.lua o fov vertical é 35
---     (SetDefault) e o pitch sai da distância (Update: lerp de
---     mindistpitch = 30 a maxdistpitch = 60 por
---     (d - mindist) / (maxdist - mindist)); com o mínimo e o máximo do mod
---     (30 e 80), d = 80 dá pitch 60. A câmera olha para o alvo + 1,5 de
---     altura (targetoffset), de d unidades: fica a 1,5 + d sen(p) = 70,8 de
---     altura e d cos(p) = 40,0 atrás do alvo. Um ponto do chão a s unidades
---     do alvo (s > 0 para o alto da tela) aparece na altura da tela
---     (1 + tan(p - a) / tan(17,5)) / 2, onde a = atan(70,8 / (48,0 + s)) é o
---     ângulo dele abaixo do horizonte, com os 8 do DESLOCAMENTO somados
---     aos 40 (Camera.altura_na_tela). A mesa vai de
---     28 unidades abaixo a 28 acima do centro (7 tiles), e a fileira de trás
---     do próprio lado (decks e estruturas) fica a 22 abaixo. Para as 14
---     linhas caberem, a distância é a máxima (80: dá para aproximar com o
---     zoom, não para afastar), e o alvo fica DESLOCAMENTO = 8 unidades para
---     o lado do jogador (ao longo de GetDownVec), senão a fileira de trás
---     ficaria em 5% da altura, sob a barra de inventário. Resultado (de
---     baixo para cima da tela, em 16:9):
---       borda de perto da mesa                    10%
---       fileira de trás do próprio lado (centro)  22%   (US #30, confirmado
---         no jogo acima da barra de inventário: 19%)
---       cartas e criaturas do próprio lado        38% e 45%
---       par de combate                            58% e 65%
---       criaturas e cartas do outro lado          76% e 81%
---       fileira de trás do outro lado             92%
---       borda de longe da mesa                    99%
---     A moldura de pedra de longe sai pelo alto da tela; nenhum espaço fica
---     nela. Na largura, a mesa não é mais simétrica em volta do combate (a
---     coluna de eventos fica de um lado), então o alvo é o centro geométrico
---     da mesa (Mesa.centro_da_mesa_abs), 1 coluna para o lado dos eventos:
---     os cantos da mesa (30 unidades para cada lado) ficam a 75% da meia
---     largura da tela na fileira de perto, a mais larga na tela; a coluna de
---     eventos a 55%; do outro lado, o portal a 85% e a beira do pátio a 97%.
---     Em 4:3 a borda de paralelepípedos de perto encosta na lateral e o
---     pátio do portal sai da tela, mas todos os espaços cabem (o mais
---     aberto, a coluna de eventos, a 73%).
---     Antes: mesa 13 x 11, DISTANCIA = 65, DESLOCAMENTO = 5; mesa 16 x 16,
---     DISTANCIA = 70, DESLOCAMENTO = 8.
+--   * distância e inclinação (bug #147, terceira rodada: a vista do mod
+--     Aerial View, que o dono testou e aprovou; só os números vêm de lá):
+--     `SetMinDistance(5)`, `SetMaxDistance(180)`, `SetPitchRange(40, 60)`,
+--     `SetDistance(80)` e `Snap` (followcamera.lua; os campos são `mindist`,
+--     `maxdist`, `mindistpitch`, `maxdistpitch` e `distancetarget`, e todos
+--     têm setter). O pitch sai da distância (Update e Snap: lerp de
+--     mindistpitch a maxdistpitch por (d - mindist) / (maxdist - mindist)):
+--     em 80 dá 40 + 20 * 75 / 175 = 48,6 graus, e afastar com o zoom
+--     inclina a câmera até 60 graus em 180.
+--   * zoom: livre entre ZOOM_MIN = 30 e 180. O `mindist` fica em 5 porque é
+--     ele que dá a inclinação acima; para a roda do mouse não chegar a 5
+--     (perto demais para uma câmera parada no centro da mesa), `ZoomIn` e
+--     `ContinuousZoomDelta` da TheCamera, com a câmera travada, não deixam
+--     a distância passar para baixo de ZOOM_MIN. Acima de 80
+--     (PLAYER_CAMERA_MAX_DIST, constants.lua) o jogo avisa que entidades
+--     podem sumir e aparecer nas bordas: a conferir no jogo.
+--   * enquadramento. Em followcamera.lua o fov vertical é 35 (SetDefault).
+--     A câmera olha para o alvo + 1,5 de altura (targetoffset), de d
+--     unidades, com pitch p: fica a 1,5 + d sen(p) de altura e d cos(p)
+--     atrás do alvo (em 80: 61,5 e 52,9). Um ponto do chão a s unidades do
+--     centro da mesa (s > 0 para o alto da tela), com o alvo deslocado
+--     DESLOCAMENTO para o lado de quem olha, fica a
+--     f = d cos(p) + DESLOCAMENTO + s da câmera na horizontal e aparece na
+--     altura da tela (1 + tan(p - a) / tan(17,5)) / 2, onde
+--     a = atan((1,5 + d sen(p)) / f) é o ângulo dele abaixo do horizonte
+--     (Camera.altura_na_tela, que faz a mesma conta com o pitch de qualquer
+--     distância).
+--     A mesa 15 x 14 vai de 28 unidades abaixo a 28 acima do centro (7
+--     tiles), e a fileira de trás do próprio lado fica a 22 abaixo. Com
+--     DISTANCIA = 80 e DESLOCAMENTO = 12 (de baixo para cima da tela):
+--       borda de perto da mesa                    21%
+--       fileira de trás do próprio lado (centro)  32%   (referência
+--         confirmada no jogo acima da barra de inventário: 19,3%)
+--       cartas e criaturas do próprio lado        45% e 51%
+--       par de combate                            62% e 67%
+--       criaturas e cartas do outro lado          76% e 80%
+--       fileira de trás do outro lado             88%
+--       borda de longe da mesa                    93%
+--     Na largura (16:9), o alvo é o centro geométrico da mesa
+--     (Mesa.centro_da_mesa_abs), 1 coluna para o lado dos eventos em relação
+--     ao combate: os cantos de perto da mesa (30 unidades para cada lado)
+--     ficam a 76% da meia largura da tela; do outro lado, o portal a 81% e
+--     a beira do pátio a 96%.
+--     Antes: mesa 15 x 14 com a câmera do jogo no máximo (80, pitch 60) e
+--     DESLOCAMENTO = 8; mesa 13 x 11, DISTANCIA = 65, DESLOCAMENTO = 5.
 --   * heading: `SetHeadingTarget(h)`. Em followcamera.lua (Apply), a câmera
 --     olha na horizontal para (-cos h, -sin h) e fica do lado oposto, e
 --     GetDownVec = (cos h, sin h) é a direção do mundo que aponta para baixo
@@ -98,10 +99,16 @@
 --     `SnapCamera(resetrot)` (prefabs/player_classified.lua, DoSnapCamera)
 --     volta o heading para 45; `FocalPoint:Reset` (components/focalpoint.lua)
 --     e o "cameradistance" do player_classified chamam `SetDefault`, que
---     refaz distâncias e `controllable`. Por isso, com a câmera travada,
---     `SetHeadingTarget` e `SetContinuousHeadingTarget` da TheCamera passam
---     a usar sempre o heading do lado, e `SetDefault` reaplica a
---     configuração da mesa logo depois do original.
+--     refaz distâncias, inclinação e `controllable`. Por isso, com a câmera
+--     travada, `SetHeadingTarget` e `SetContinuousHeadingTarget` da
+--     TheCamera passam a usar sempre o heading do lado, e `SetDefault`
+--     reaplica a configuração da mesa logo depois do original.
+--     `SetExtraMaxDistance` também é trocado: o player_classified
+--     (OnPlayerCameraExtraDistDirty, na ativação do jogador e quando um
+--     bônus de distância muda) limita o extra a
+--     PLAYER_CAMERA_MAX_DIST - maxdist, que com maxdist = 180 é negativo e
+--     baixaria o máximo de volta para 80 (e ainda chamaria
+--     MaximizeDistance). Com a câmera travada o extra fica sempre 0.
 --
 -- No console do cliente: `DUELO.Camera.liberar()` devolve a câmera normal
 -- (presa ao jogador) e `DUELO.Camera.aplicar()` trava de novo.
@@ -116,19 +123,28 @@ Camera.LADO = { desconhecido = 0, jogador1 = 1, jogador2 = 2, espectador = 3 }
 Camera.DISTANCIA = 80
 -- Unidades do alvo, a partir do centro da mesa, na direção do lado de quem
 -- olha (ver o cabeçalho, "enquadramento").
-Camera.DESLOCAMENTO = 8
-Camera.DISTANCIA_MIN = 30
-Camera.DISTANCIA_MAX = 80 -- PLAYER_CAMERA_MAX_DIST (constants.lua)
+Camera.DESLOCAMENTO = 12
+-- Valores do mod Aerial View pedidos pelo dono (bug #147): mindist e maxdist
+-- de followcamera.lua. O mínimo entra na conta do pitch; o zoom não desce
+-- abaixo de ZOOM_MIN.
+Camera.DISTANCIA_MIN = 5
+Camera.DISTANCIA_MAX = 180
+Camera.ZOOM_MIN = 30
+Camera.PITCH_MIN = 40 -- mindistpitch
+Camera.PITCH_MAX = 60 -- maxdistpitch
 
 -- Valores de cameras/followcamera.lua (SetDefault) usados na conta do
 -- enquadramento.
 Camera.FOV = 35
-Camera.PITCH_MIN = 30 -- mindistpitch
-Camera.PITCH_MAX = 60 -- maxdistpitch
 Camera.ALTURA_ALVO = 1.5 -- targetoffset.y
 
--- Pitch (graus) que followcamera.lua usa na distância d, com o zoom mínimo
--- e máximo do mod.
+-- Altura da tela (0 = embaixo) de um ponto que, no jogo, ficou visível acima
+-- da barra de inventário (US #30: estruturas a 22 unidades do centro, com a
+-- câmera de então, distância 70, pitch 54 e deslocamento 8).
+Camera.REFERENCIA_INVENTARIO = 0.193
+
+-- Pitch (graus) que followcamera.lua usa na distância d, com o mínimo e o
+-- máximo do mod.
 function Camera.pitch(d)
   local t = (d - Camera.DISTANCIA_MIN) / (Camera.DISTANCIA_MAX - Camera.DISTANCIA_MIN)
   if t < 0 then t = 0 elseif t > 1 then t = 1 end
@@ -140,11 +156,12 @@ end
 -- alto da tela, com a câmera a `d` (padrão DISTANCIA) e o alvo deslocado
 -- `desloc` (padrão DESLOCAMENTO) para o lado de quem olha. Também devolve a
 -- posição horizontal de um ponto `x` unidades para o lado, em meias larguras
--- de tela 16:9 (1 = borda da tela).
-function Camera.altura_na_tela(s, x, d, desloc)
+-- de tela 16:9 (1 = borda da tela). O pitch é o da distância `d`
+-- (Camera.pitch), a não ser que `pitch` (graus) venha dado.
+function Camera.altura_na_tela(s, x, d, desloc, pitch)
   d = d or Camera.DISTANCIA
   desloc = desloc or Camera.DESLOCAMENTO
-  local p = math.rad(Camera.pitch(d))
+  local p = math.rad(pitch or Camera.pitch(d))
   local altura = Camera.ALTURA_ALVO + d * math.sin(p)
   local frente = d * math.cos(p) + s + desloc -- distância horizontal da câmera
   local profundidade = frente * math.cos(p) + altura * math.sin(p)
@@ -229,11 +246,15 @@ local function criar_alvo()
   return inst
 end
 
--- Aplica distância, alvo e heading da mesa na câmera.
+-- Aplica alvo, distâncias, inclinação e heading da mesa na câmera.
 local function configurar(cam)
   cam:SetTarget(estado.alvo)
+  -- Passa pela proteção: zera o extra, para o máximo ser o do mod. Vem antes
+  -- de SetDistance porque o original pode chamar MaximizeDistance.
+  cam:SetExtraMaxDistance(0)
   cam:SetMinDistance(Camera.DISTANCIA_MIN)
   cam:SetMaxDistance(Camera.DISTANCIA_MAX)
+  cam:SetPitchRange(Camera.PITCH_MIN, Camera.PITCH_MAX)
   cam:SetDistance(Camera.DISTANCIA)
   cam:SetHeadingTarget(estado.heading) -- passa pela proteção: usa estado.heading
 end
@@ -246,6 +267,13 @@ local function proteger(cam)
   local set_heading = cam.SetHeadingTarget
   local set_continuo = cam.SetContinuousHeadingTarget
   local set_default = cam.SetDefault
+  local set_extra = cam.SetExtraMaxDistance
+  local zoom_in = cam.ZoomIn
+  local zoom_continuo = cam.ContinuousZoomDelta
+  -- Com a câmera travada, o zoom não aproxima além de ZOOM_MIN.
+  local function segurar_zoom(self)
+    if estado.travada and self:GetDistance() < Camera.ZOOM_MIN then self:SetDistance(Camera.ZOOM_MIN) end
+  end
   cam.SetHeadingTarget = function(self, r)
     if estado.travada then return set_heading(self, estado.heading) end
     return set_heading(self, r)
@@ -257,6 +285,20 @@ local function proteger(cam)
   cam.SetDefault = function(self, ...)
     local ret = set_default(self, ...)
     if estado.travada and estado.alvo ~= nil and estado.alvo:IsValid() then configurar(self) end
+    return ret
+  end
+  cam.SetExtraMaxDistance = function(self, extra)
+    if estado.travada then return set_extra(self, 0) end
+    return set_extra(self, extra)
+  end
+  cam.ZoomIn = function(self, ...)
+    local ret = zoom_in(self, ...)
+    segurar_zoom(self)
+    return ret
+  end
+  cam.ContinuousZoomDelta = function(self, ...)
+    local ret = zoom_continuo(self, ...)
+    segurar_zoom(self)
     return ret
   end
 end

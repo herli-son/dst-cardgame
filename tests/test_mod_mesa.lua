@@ -209,17 +209,36 @@ local function fabrica_net(reg, tipo)
 end
 
 -- Câmera falsa com o comportamento de cameras/followcamera.lua que importa:
--- SetDefault refaz distâncias, Snap copia o alvo, os setters guardam.
+-- SetDefault refaz distâncias e inclinação, Snap copia o alvo, os setters
+-- guardam, o zoom respeita mindist e maxdist, e o extra soma no máximo (e
+-- chama MaximizeDistance quando muda, como o jogo).
 local function camera_falsa()
-  local c = { snaps = 0 }
+  local c = { snaps = 0, extramaxdist = 0, maximizou = 0 }
   function c:SetDefault()
-    self.distancetarget, self.mindist, self.maxdist, self.controllable = 30, 15, 50, true
+    self.distancetarget, self.mindist, self.maxdist, self.controllable = 30, 15, 50 + self.extramaxdist, true
+    self.mindistpitch, self.maxdistpitch = 30, 60
     self.headingtarget = self.headingtarget or 45
   end
   function c:SetTarget(inst) self.target = inst end
   function c:SetMinDistance(d) self.mindist = d end
-  function c:SetMaxDistance(d) self.maxdist = d end
+  function c:SetMaxDistance(d) self.maxdist = d + self.extramaxdist end
+  function c:SetExtraMaxDistance(d)
+    local antes = self.extramaxdist
+    self.maxdist = self.maxdist - antes + d
+    self.extramaxdist = d
+    if d ~= antes then
+      self.maximizou = self.maximizou + 1
+      self.distancetarget = (self.maxdist - self.mindist) * 0.7 + self.mindist
+    end
+  end
+  function c:SetPitchRange(min, max) self.mindistpitch, self.maxdistpitch = min, max end
   function c:SetDistance(d) self.distancetarget = d end
+  function c:GetDistance() return self.distancetarget end
+  function c:ZoomIn(passo) self.distancetarget = math.max(self.mindist, self.distancetarget - (passo or 4)) end
+  function c:ZoomOut(passo) self.distancetarget = math.min(self.maxdist, self.distancetarget + (passo or 4)) end
+  function c:ContinuousZoomDelta(delta)
+    self.distancetarget = math.max(self.mindist, math.min(self.maxdist, self.distancetarget + delta))
+  end
   function c:SetHeadingTarget(r) self.headingtarget = r % 360 end
   function c:SetContinuousHeadingTarget(r) self.headingtarget = r % 360 end
   function c:GetHeadingTarget() return self.headingtarget end
@@ -960,10 +979,34 @@ return {
     T.ok((cx - bx) * (ev.x - bx) > 0, "para o lado da coluna de eventos")
     T.ok(math.abs(az - (cz + amb.Camera.DESLOCAMENTO)) < 1e-9, "alvo deslocado para o lado do jogador 1 (z maior)")
     T.eq(cam.distancetarget, amb.Camera.DISTANCIA, "distância da mesa")
-    T.eq(cam.mindist, amb.Camera.DISTANCIA_MIN, "zoom mínimo")
-    T.eq(cam.maxdist, amb.Camera.DISTANCIA_MAX, "zoom máximo")
+    -- A vista do Aerial View pedida pelo dono (bug #147).
+    T.eq(cam.distancetarget, 80, "distância 80")
+    T.eq(cam.mindist, 5, "mindist 5")
+    T.eq(cam.maxdist, 180, "maxdist 180")
+    T.eq(cam.mindistpitch, 40, "mindistpitch 40")
+    T.eq(cam.maxdistpitch, 60, "maxdistpitch 60")
+    T.eq(cam.mindist, amb.Camera.DISTANCIA_MIN, "mínimo do mod")
+    T.eq(cam.maxdist, amb.Camera.DISTANCIA_MAX, "máximo do mod")
     T.ok(cam.snaps >= 1, "Snap")
     T.eq(cam:CanControl(), true, "zoom continua liberado")
+
+    -- Zoom livre entre 30 e 180: o mindist 5 só serve à inclinação.
+    T.eq(amb.Camera.ZOOM_MIN, 30, "ZOOM_MIN")
+    for _ = 1, 40 do cam:ZoomIn() end
+    T.eq(cam.distancetarget, 30, "a roda do mouse não aproxima além de 30")
+    cam:ContinuousZoomDelta(-100)
+    T.eq(cam.distancetarget, 30, "nem o zoom contínuo")
+    cam:ContinuousZoomDelta(7)
+    T.eq(cam.distancetarget, 37, "acima de 30 o zoom contínuo é livre")
+    for _ = 1, 60 do cam:ZoomOut() end
+    T.eq(cam.distancetarget, 180, "afasta até 180")
+    cam:SetDistance(amb.Camera.DISTANCIA)
+    -- O player_classified limita o extra a PLAYER_CAMERA_MAX_DIST - maxdist
+    -- (80 - 180): sem a proteção o máximo voltaria para 80.
+    cam:SetExtraMaxDistance(-100)
+    T.eq(cam.maxdist, 180, "o extra de distância não baixa o máximo")
+    T.eq(cam.extramaxdist, 0, "o extra fica em 0")
+    T.eq(cam.distancetarget, amb.Camera.DISTANCIA, "nem mexe na distância")
 
     pc:RotLeft()
     T.eq(cam.headingtarget, 90, "Q não gira")
@@ -976,7 +1019,10 @@ return {
     T.eq(cam.headingtarget, 90, "nem a rotação contínua")
     cam:SetDefault() -- FocalPoint:Reset
     T.eq(cam.distancetarget, amb.Camera.DISTANCIA, "SetDefault reaplica a distância")
-    T.eq(cam.maxdist, amb.Camera.DISTANCIA_MAX, "e o zoom máximo")
+    T.eq(cam.mindist, amb.Camera.DISTANCIA_MIN, "o mínimo")
+    T.eq(cam.maxdist, amb.Camera.DISTANCIA_MAX, "o máximo")
+    T.eq(cam.mindistpitch, amb.Camera.PITCH_MIN, "a inclinação mínima")
+    T.eq(cam.maxdistpitch, amb.Camera.PITCH_MAX, "a inclinação máxima")
     T.eq(cam.target, alvo, "e o alvo")
 
     -- O servidor diz que este é o jogador 2: a mesa vira.
@@ -1001,6 +1047,14 @@ return {
     amb.Camera.liberar()
     T.eq(amb.Camera.travada(), false, "liberada")
     T.eq(cam.target, G.TheFocalPoint, "alvo de volta ao TheFocalPoint")
+    T.eq(cam.maxdist, 50, "distâncias do jogo de volta")
+    T.eq(cam.maxdistpitch, 60, "e a inclinação do jogo")
+    T.eq(cam.mindistpitch, 30, "mínima inclusive")
+    cam:ZoomIn()
+    T.eq(cam.distancetarget, 26, "liberada, o zoom do jogo aproxima abaixo de 30")
+    cam:SetExtraMaxDistance(10)
+    T.eq(cam.maxdist, 60, "e o extra de distância volta a valer")
+    cam:SetExtraMaxDistance(0)
     pc:RotLeft()
     T.eq(cam.headingtarget, 45, "Q gira de novo")
     T.eq(pc.originais, 1, "o original volta a ser chamado")
@@ -1472,13 +1526,44 @@ return {
     end
   end },
 
-  { "câmera: as 14 linhas da mesa cabem, com a fileira de trás acima do inventário", function(T)
+  { "câmera: a mesa inteira cabe, com a fileira de trás acima do inventário", function(T)
     local C = carregar("scripts/duelo/mod/camera.lua")
     local Mesa = nova_mesa()
-    T.eq(C.DISTANCIA, C.DISTANCIA_MAX, "a mesa 15 x 14 pede a distância máxima")
-    T.eq(C.pitch(C.DISTANCIA), 60, "pitch de followcamera.lua em 80 (mínimo 30, máximo 80)")
-    T.eq(C.pitch(C.DISTANCIA_MIN), 30, "pitch no zoom mínimo")
-    T.eq(C.pitch(65), 51, "pitch no meio do caminho")
+    -- A vista do Aerial View: distância 80 entre 5 e 180, pitch de 40 a 60.
+    T.eq(C.DISTANCIA, 80, "distância 80")
+    T.eq(C.DISTANCIA_MIN, 5, "mindist")
+    T.eq(C.DISTANCIA_MAX, 180, "maxdist")
+    T.eq(C.PITCH_MIN, 40, "mindistpitch")
+    T.eq(C.PITCH_MAX, 60, "maxdistpitch")
+    T.ok(math.abs(C.pitch(80) - (40 + 20 * 75 / 175)) < 1e-9, "pitch de followcamera.lua em 80: 48,6")
+    T.ok(math.abs(C.pitch(80) - 48.571) < 0.001, "48,6 graus")
+    T.eq(C.pitch(5), 40, "pitch no mínimo")
+    T.eq(C.pitch(180), 60, "pitch no máximo")
+    T.eq(C.pitch(92.5), 50, "pitch no meio do caminho")
+    T.eq(C.pitch(1), 40, "não passa do mínimo")
+    T.eq(C.pitch(500), 60, "nem do máximo")
+    -- A conta, à mão, para o ponto embaixo do alvo: a câmera fica a
+    -- 1,5 + d sen(p) de altura e d cos(p) atrás; o alvo (1,5 acima do chão)
+    -- fica no meio da tela e o chão embaixo dele um pouco abaixo.
+    local p = math.rad(C.pitch(80))
+    local altura, tras = 1.5 + 80 * math.sin(p), 80 * math.cos(p)
+    local a = math.atan(altura / tras)
+    local esperado = (1 + math.tan(p - a) / math.tan(math.rad(17.5))) / 2
+    T.ok(math.abs(C.altura_na_tela(0, 0, 80, 0) - esperado) < 1e-9, "altura_na_tela bate com a fórmula do cabeçalho")
+    T.ok(esperado < 0.5 and esperado > 0.45, "o chão sob o alvo fica logo abaixo do meio da tela: " .. esperado)
+    -- Com a câmera mais longe a inclinação muda: a conta usa o pitch da
+    -- distância pedida.
+    local longe_p = math.rad(60)
+    local a2 = math.atan((1.5 + 180 * math.sin(longe_p)) / (180 * math.cos(longe_p) + 10))
+    T.ok(math.abs(C.altura_na_tela(10, 0, 180, 0) - (1 + math.tan(longe_p - a2) / math.tan(math.rad(17.5))) / 2) < 1e-9,
+      "pitch variável: 60 graus em 180")
+    -- Referência do jogo (US #30, mesa 16 x 16): estruturas a 22 unidades do
+    -- centro, com a câmera de então (distância 70, pitch 54, deslocamento
+    -- 8), ficaram acima da barra de inventário.
+    local confirmado = C.altura_na_tela(-22, 0, 70, 8, 54)
+    T.ok(math.abs(confirmado - 0.193) < 0.001, "referência confirmada no jogo: " .. confirmado)
+    T.eq(C.REFERENCIA_INVENTARIO, 0.193, "guardada no módulo")
+
     -- Distâncias a partir do centro geométrico da mesa (o alvo, sem o
     -- deslocamento), para o lado de quem olha (negativo = embaixo da tela),
     -- tiradas do próprio layout. Vale para o jogador 1; a mesa é simétrica
@@ -1487,30 +1572,24 @@ return {
     local meio_tile = Mesa.TILE_SCALE / 2
     T.eq(centro.col, 12, "centro da mesa na coluna 12: 1 coluna para o lado dos eventos")
     T.eq(centro.lin, Mesa.CENTRO.lin, "e na linha do centro do combate")
-    local borda = (m.lin_max - centro.lin) * Mesa.TILE_SCALE + meio_tile -- 28
-    local fundo = (Mesa.espaco_estrutura(1, 1).lin - centro.lin) * Mesa.TILE_SCALE -- 22
-    local largura = (m.col_max - centro.col) * Mesa.TILE_SCALE + meio_tile -- 30
+    local borda = (m.lin_max - centro.lin) * Mesa.TILE_SCALE + meio_tile
+    local fundo = (Mesa.espaco_estrutura(1, 1).lin - centro.lin) * Mesa.TILE_SCALE
+    local largura = (m.col_max - centro.col) * Mesa.TILE_SCALE + meio_tile
     T.eq(borda, 28, "meia profundidade da mesa")
     T.eq(fundo, 22, "fileira de trás")
     T.eq(largura, 30, "meia largura da mesa")
     T.eq((centro.col - m.col_min) * Mesa.TILE_SCALE + meio_tile, largura, "a mesa fica centrada no alvo")
     local perto = C.altura_na_tela(-borda)
     local longe = C.altura_na_tela(borda)
-    local propria = C.altura_na_tela(-fundo)
     T.ok(perto > 0, "borda de perto na tela: " .. perto)
-    T.ok(longe < 1, "borda de longe na tela: " .. longe)
-    -- Referência do jogo (US #30, mesa 16 x 16): estruturas a 22 unidades do
-    -- centro com DISTANCIA 70 e DESLOCAMENTO 8 ficaram acima da barra de
-    -- inventário.
-    local confirmado = C.altura_na_tela(-22, 0, 70, 8)
-    T.ok(math.abs(confirmado - 0.193) < 0.001, "referência confirmada no jogo: " .. confirmado)
-    T.ok(propria >= 0.20, "fileira de trás do próprio lado acima de 20% da altura: " .. propria)
-    T.ok(propria >= confirmado, "e acima do confirmado no jogo")
-    T.ok(C.altura_na_tela(-fundo - meio_tile) > 0.15, "e o tile inteiro dela")
+    T.ok(longe < 0.97, "borda de longe na tela: " .. longe)
+    -- A fileira de trás do próprio lado inteira (até a beira de perto do
+    -- tile) acima do ponto confirmado no jogo.
+    T.ok(C.altura_na_tela(-fundo - meio_tile) >= C.REFERENCIA_INVENTARIO,
+      "fileira de trás do próprio lado acima do inventário: " .. C.altura_na_tela(-fundo - meio_tile))
     -- O lado de lá inteiro na tela, com folga: a fileira de trás do outro
-    -- jogador (decks e estruturas) até a beira de longe do tile.
-    T.ok(C.altura_na_tela(fundo) < 0.93, "fileira de trás do outro lado: " .. C.altura_na_tela(fundo))
-    T.ok(C.altura_na_tela(fundo + meio_tile) < 0.95, "e o tile inteiro dela")
+    -- jogador até a beira de longe do tile.
+    T.ok(C.altura_na_tela(fundo + meio_tile) < 0.95, "fileira de trás do outro lado: " .. C.altura_na_tela(fundo + meio_tile))
     -- Nenhuma fileira sai da tela, e a ordem é a das linhas.
     local antes = -1
     for lin = m.lin_max, m.lin_min, -1 do
@@ -1529,18 +1608,24 @@ return {
         local s = sinal * (centro.lin - t.lin) * Mesa.TILE_SCALE
         local x = math.abs(t.col - centro.col) * Mesa.TILE_SCALE + meio_tile
         local y, lado = C.altura_na_tela(s - meio_tile, x)
-        T.ok(y > 0.15 and y < 0.95, "tile " .. t.col .. "," .. t.lin .. " na altura da tela: " .. y)
+        T.ok(y >= C.REFERENCIA_INVENTARIO and y < 0.95, "tile " .. t.col .. "," .. t.lin .. " na altura da tela: " .. y)
         T.ok(lado * (16 / 9) / (4 / 3) < 1, "tile " .. t.col .. "," .. t.lin .. " na largura, até em 4:3")
       end
     end
-    -- O portal, do lado oposto aos eventos, continua na tela em 16:9.
+    -- O portal e o pátio inteiro, do lado oposto aos eventos, continuam na
+    -- tela em 16:9.
     local px = math.abs(Mesa.PORTAL.x + (Mesa.LARGURA - 1) / 2 - centro.col) * Mesa.TILE_SCALE
     local _, lado_portal = C.altura_na_tela(0, px)
     T.ok(lado_portal < 1, "portal dentro da largura: " .. lado_portal)
+    local beira = (centro.col - Mesa.PATIO.col_min) * Mesa.TILE_SCALE + meio_tile
+    for lin = Mesa.PATIO.lin_min, Mesa.PATIO.lin_max do
+      local _, lado = C.altura_na_tela((centro.lin - lin) * Mesa.TILE_SCALE - meio_tile, beira)
+      T.ok(lado < 1, "pátio do portal dentro da largura (linha " .. lin .. "): " .. lado)
+    end
     -- Sem o deslocamento, a fileira de trás desceria para baixo da referência.
-    T.ok(C.altura_na_tela(-fundo, 0, C.DISTANCIA, 0) < confirmado, "o deslocamento é necessário")
-    -- E com a distância de antes (65) a mesa não caberia: ou a fileira de
-    -- trás fica sob o inventário, ou a borda de longe sai da tela.
-    T.ok(C.altura_na_tela(-fundo, 0, 65, 8) < 0.20 and C.altura_na_tela(borda, 0, 65, 10) > 1, "a distância 80 é necessária")
+    T.ok(C.altura_na_tela(-fundo - meio_tile, 0, C.DISTANCIA, 0) < C.REFERENCIA_INVENTARIO, "o deslocamento é necessário")
+    -- O zoom vai de 30 a 180: no mais longe a mesa inteira continua na tela.
+    T.ok(C.altura_na_tela(-borda, 0, C.DISTANCIA_MAX) > C.REFERENCIA_INVENTARIO, "em 180 a borda de perto fica acima do inventário")
+    T.ok(C.altura_na_tela(borda, 0, C.DISTANCIA_MAX) < 0.9, "e a de longe dentro da tela")
   end },
 }
