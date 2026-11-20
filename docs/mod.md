@@ -10,6 +10,10 @@ Este repositório **é** o mod: a raiz dele vira a pasta do mod dentro do jogo. 
 | `scripts/duelo/mod/mesa.lua` | Geometria da mesa: grade de tiles, posição de cada espaço, conversão para unidades do mundo. |
 | `scripts/duelo/mod/protecao.lua` | US #31: visão noturna de todos, invencibilidade, fome, sanidade e temperatura paradas. |
 | `scripts/duelo/mod/relogio.lua` | US #31: relógio do mundo travado e andado pela partida, divisão 5/5/6, estação fixa. |
+| `scripts/duelo/mod/calibracao.lua` | US #30: acha a mesa no mapa (portal e carpete), guarda a calibração em `Mesa.calibracao` e a manda aos clientes. |
+| `scripts/duelo/mod/marcadores.lua` | US #30: números e dono dos 16 espaços e o rótulo "Combate" do centro. |
+| `scripts/prefabs/duelo_marcador.lua` | US #30: prefab de rede do marcador (só um texto, sem clique nem física). |
+| `scripts/duelo/mod/camera.lua` | US #30: lado de cada jogador e câmera fixa no centro da mesa, sem Q/E. |
 | `scripts/duelo/mod/layouts/mesa.lua` | Static layout (formato do Tiled) gerado a partir de `mesa.lua`. |
 | `scripts/duelo/core`, `cartas`, `decks`, `sim`, `bot`, `terminal` | Motor de regras, Lua puro (ver `docs/terminal.md`). |
 
@@ -72,8 +76,8 @@ Os testes automáticos (`tests/test_mod_arena.lua`) só verificam que os arquivo
 
 - **Mundo vazio:** nenhum recurso, animal ou monstro nasce. Fora da mesa deve ser vazio (intransitável); a geração não deve mostrar oceano nem outras ilhas. Se aparecer algo (por exemplo, um spawner residual de `prefabs/forest.lua`), anotar o prefab para desligar na próxima US.
 - **Mesa visível:** chão xadrez (`CHECKER`) de 16 x 16 tiles com duas linhas de 6 espaços cinza (`MOSAIC_GREY`), dois espaços azuis (`MOSAIC_BLUE`) atrás de cada linha e o centro de carpete (`CARPET`) de 8 x 4 tiles, como o desenho em `scripts/duelo/mod/mesa.lua`.
-- **Portal:** o `multiplayer_portal` fica na margem da mesa (coluna 3, fora do caminho das criaturas) e o jogador nasce ao lado dele. Se o portal aparecer na margem **leste** em vez da oeste, o gerador espelhou o eixo x (`flip_x` em `map/object_layout.lua`); isso não quebra a mesa, mas a US #30 precisa passar `espelhado = true` para `Mesa.origem_pelo_portal`/`Mesa.posicao`.
-- **Orientação dos eixos:** conferir que a coluna do tile cresce com o `x` do mundo e a linha com o `z` (`TheWorld.Map:GetTileCoordsAtPoint` no console), que é o que `mesa.lua` assume.
+- **Portal:** o `multiplayer_portal` fica na margem da mesa (coluna 3, fora do caminho das criaturas) e o jogador nasce ao lado dele. Se o portal aparecer na margem **leste** em vez da oeste, o gerador espelhou o eixo x (`flip_x` em `map/object_layout.lua`); isso não quebra a mesa, mas a US #30 precisa passar `espelhado = true` para `Mesa.origem_pelo_portal`/`Mesa.posicao`. (Medido na US #30: o portal fica a leste, o eixo x é espelhado; a calibração descobre isso sozinha, ver abaixo.)
+- **Orientação dos eixos:** medido no jogo, a coluna do layout **decresce** com o `x` do mundo (eixo x espelhado pelo gerador, `x_tile = 38 - col`) e a linha cresce com o `z`. A calibração da US #30 detecta o espelhamento sozinha.
 - **Sem cavernas:** o servidor sobe só o shard Master; não há buracos (`cave_entrance`) na mesa.
 - **Relógio e clima:** o relógio nasce travado (US #31, abaixo). Deve ficar no outono (outono muito longo, as outras três estações em `noseason`; a tela exige pelo menos uma estação, e a US #31 ainda trava a estação) e sem chuva, raios nem geada.
 - **Console útil:** `c_select()` em cima do portal e `TheWorld.Map:GetTileCoordsAtPoint(c_sel().Transform:GetWorldPosition())` dão a posição do portal; `TheWorld.Map:GetTile(x, y)` confirma o tile.
@@ -112,3 +116,33 @@ Os testes automáticos (`tests/test_mod_protecao.lua`) rodam `relogio.lua` e `pr
 - Com `Livre` e o relógio correndo, as barras também não mexem: a proteção não depende do relógio.
 
 **Log limpo.** `server_log.txt` do shard Master e `client_log.txt` sem erros do mod; procure por `duelo` para ver os avisos dos comandos.
+
+## O que conferir na US #30 (mesa de tiles, números e câmera)
+
+Os tiles da mesa já vêm da geração (US #29). Os testes automáticos (`tests/test_mod_mesa.lua`) conferem a calibração com os números medidos no jogo, as posições e a numeração dos 16 espaços, e rodam `calibracao.lua`, `marcadores.lua`, `camera.lua` e o prefab `duelo_marcador` com um ambiente falso (servidor, cliente e dedicado). O que segue só se confirma no jogo, com **host + um cliente**.
+
+**Calibração.** Medido no jogo (issue #30): `TheWorld.Map:GetTileCoordsAtPoint` deu o portal no tile (35, 29) e um ponto do carpete no tile (29, 28). No layout o portal é a coluna 3 e o carpete as colunas 6..13, linhas 8..11; no mundo o carpete tem `x` menor que o portal, então o gerador espelhou o eixo x (`x_tile = 38 - col`, `flip_x = -1` em `map/object_layout.lua`); o eixo z não (`flip_y = 1`). O mod não usa esses números: ao carregar o mundo, o servidor acha o `multiplayer_portal`, lê os tiles em volta (20 para cada lado), acha o carpete 8 x 4 e daí tira a origem (centro do carpete = centro do layout) e o espelhamento (lado do portal). Sem carpete, a origem sai só do portal (`espelhado = true`) e o log avisa.
+
+- No `server_log.txt` deve aparecer `[duelo] mesa calibrada pelo carpete: origem (...), espelhado = true, portal no tile (35, 29)`, sem `[duelo] ... dos 16 espaços não estão sobre o tile esperado` nem `carpete da mesa não achado`.
+- Console do host: `DUELO.Mesa.calibracao` mostra `origem_x`, `origem_z`, `espelhado`, `fonte`. No cliente, a mesma tabela chega pela rede (`fonte = "carpete"`).
+- `DUELO.Calibracao.calibrar()` no host refaz a calibração e recria os marcadores (não duplica).
+
+**Marcadores.**
+
+- Em cada espaço cinza (criatura) aparece `J1 1` … `J1 6` (azul) do lado do jogador 1 e `J2 1` … `J2 6` (vermelho) do lado do 2; nos azuis (estrutura), `J1 E1`, `J1 E2`, `J2 E1`, `J2 E2` (os do próprio lado precisam aparecer **acima da barra de inventário**; a câmera fica um pouco deslocada para o lado de quem olha por isso); no meio do carpete, `Combate`. Os textos ficam de pé e legíveis com a câmera da mesa, no host e no cliente.
+- Cada jogador lê os seus números da esquerda para a direita (`1` à esquerda), e o espaço `n` de um fica de frente para o `7 - n` do outro.
+- Os marcadores não são clicáveis (o mouse não mostra nome nem ação sobre eles) e não bloqueiam o andar.
+- Depois de salvar e recarregar o mundo continuam 17 (não persistem; o servidor os recria): `c_countprefabs("duelo_marcador")` dá 17.
+
+**Câmera.**
+
+- Ao entrar, a câmera fica parada no centro da mesa e mostra as duas fileiras de espaços e o centro; andar com o personagem não a move.
+- Q e E (e o analógico do controle) não giram a câmera; o zoom (roda do mouse) continua, entre 30 e 80.
+- O primeiro jogador a entrar é o jogador 1 e vê o lado sul (as suas criaturas, `J1`) embaixo; o segundo é o jogador 2 e vê a mesa **invertida**, com os `J2` embaixo. Um terceiro (espectador) vê como o jogador 1. `ThePlayer.duelo_lado:value()` no console de cada um dá 1, 2 ou 3.
+- Sair e voltar com o mesmo usuário devolve o mesmo lado, se ele ainda estiver livre.
+- Teleportar (`c_teleport(...)`) ou outros eventos que resetam a câmera não a tiram da mesa nem do heading.
+- `DUELO.Camera.liberar()` no console do cliente devolve a câmera normal (segue o jogador, Q/E giram); `DUELO.Camera.aplicar()` trava de novo.
+- `TheCamera:GetHeadingTarget()` dá 90 no jogador 1 e 270 no jogador 2. Se a tela mostrar o próprio lado em cima, a convenção de heading de `cameras/followcamera.lua` (`GetDownVec`) não é a que o mod supõe; anotar.
+- Com a câmera travada, o mapa (M) também não gira: os botões de girar o mapa chamam o mesmo `RotLeft`/`RotRight`.
+
+**Log limpo.** `server_log.txt` e `client_log.txt` sem erros do mod; procure por `duelo` para ver a calibração e os avisos.

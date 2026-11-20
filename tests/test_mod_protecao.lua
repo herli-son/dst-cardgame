@@ -46,6 +46,7 @@ local function ambiente(servidor)
     component_postinits = {}, -- nome -> fn
     prefab_postinits = {}, -- nome -> fn
     player_postinits = {}, -- lista de fn
+    sim_postinits = {}, -- lista de fn
     netvars = {},
     eventos = {}, -- eventos empurrados em TheWorld
   }
@@ -64,8 +65,15 @@ local function ambiente(servidor)
   local ctx = {
     GLOBAL = GLOBAL,
     AddComponentPostInit = function(nome, fn) reg.component_postinits[nome] = fn end,
-    AddPrefabPostInit = function(nome, fn) reg.prefab_postinits[nome] = fn end,
+    AddPrefabPostInit = function(nome, fn)
+      reg.prefab_postinits[nome] = fn
+      -- Lista de todos por nome: o mod registra mais de um no mesmo prefab.
+      reg.prefab_postinits_todos = reg.prefab_postinits_todos or {}
+      reg.prefab_postinits_todos[nome] = reg.prefab_postinits_todos[nome] or {}
+      table.insert(reg.prefab_postinits_todos[nome], fn)
+    end,
     AddPlayerPostInit = function(fn) reg.player_postinits[#reg.player_postinits + 1] = fn end,
+    AddSimPostInit = function(fn) reg.sim_postinits[#reg.sim_postinits + 1] = fn end,
   }
   return ctx, reg, GLOBAL
 end
@@ -197,12 +205,16 @@ return {
       AddPlayerPostInit = ctx.AddPlayerPostInit,
       AddComponentPostInit = ctx.AddComponentPostInit,
       AddPrefabPostInit = ctx.AddPrefabPostInit,
+      AddSimPostInit = ctx.AddSimPostInit,
     }
     rodar("modmain.lua", env)
     T.eq(configs[1], "relogio", "lê a opção relogio")
     T.eq(type(reg.component_postinits.clock), "function", "AddComponentPostInit(clock)")
     T.eq(type(reg.prefab_postinits.forest_network), "function", "AddPrefabPostInit(forest_network)")
-    T.eq(#reg.player_postinits, 1, "um AddPlayerPostInit")
+    T.eq(#reg.prefab_postinits_todos.forest_network, 2, "forest_network do relógio e da calibração (US #30)")
+    T.eq(#reg.player_postinits, 2, "AddPlayerPostInit da proteção e da câmera (US #30)")
+    T.eq(#reg.sim_postinits, 2, "AddSimPostInit da calibração e da câmera (US #30)")
+    T.eq(type(reg.component_postinits.playercontroller), "function", "AddComponentPostInit(playercontroller)")
     T.eq(type(env.DUELO.Relogio.avancar), "function", "DUELO.Relogio no ambiente do mod")
     T.eq(GLOBAL.DUELO, env.DUELO, "DUELO também no ambiente global (console)")
     T.eq(env.DUELO.Mesa, require("duelo/mod/mesa"), "DUELO.Mesa continua")
