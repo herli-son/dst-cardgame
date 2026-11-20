@@ -37,11 +37,15 @@
 --         do outro nunca saem do servidor).
 --       - duelo/mod/partida_cliente.lua (só onde há tela): a visão local da
 --         partida e o envio das ações.
+--   * US #42: início e fim da partida.
+--       - duelo/mod/sala_servidor.lua (só no servidor): quem está pronto, o
+--         começo com os decks fixos e a mesa zerada depois do fim.
+--       - duelo/mod/tela_sala.lua e widgets/duelo_sala.lua (só onde há
+--         tela): o painel com o botão "Pronto" e o resultado.
 --
 -- O que vem nas próximas US:
 --   * US #33: criaturas de verdade nos espaços da mesa.
 --   * US #37: a mão no inventário.
---   * US #42: preparar, começar e terminar a partida.
 
 local require = GLOBAL.require
 local TheNet = GLOBAL.TheNet
@@ -145,6 +149,7 @@ if Partida then
     GLOBAL = GLOBAL,
     rede = Rede,
     partida = Partida,
+    definir_lados = Camera.definir_lados,
   })
 end
 
@@ -172,7 +177,12 @@ if Cliente then
   })
   AddClassPostConstruct("widgets/controls", function(self)
     local DueloSala = require("widgets/duelo_sala")
-    self.duelo_sala = self.top_root:AddChild(DueloSala(function() Tela.clicar() end))
+    -- O clique roda dentro do tratamento de controles do jogo: um erro
+    -- aqui viraria a tela de erro de script.
+    self.duelo_sala = self.top_root:AddChild(DueloSala(function()
+      local ok, err = GLOBAL.pcall(Tela.clicar)
+      if not ok then GLOBAL.print("[duelo] tela: erro no clique do painel: " .. GLOBAL.tostring(err)) end
+    end))
     Tela.ligar_widget(self.duelo_sala)
   end)
 end

@@ -4,8 +4,12 @@
 -- Cada jogador avisa que está pronto pelo botão da tela (duelo/mod/tela_sala
 -- e widgets/duelo_sala). Quando dois jogadores conectados estão prontos, a
 -- partida começa sozinha com os decks fixos: Wilson no lado 1 e Webber no
--- lado 2. O lado de cada um é o da mesa (netvar `duelo_lado` de
--- duelo/mod/camera.lua); sem ela, quem ficou pronto primeiro joga pelo lado 1.
+-- lado 2. Quem já está sentado num lado da mesa (netvar `duelo_lado` de
+-- duelo/mod/camera.lua) joga por ele; quem não está (espectador) fica com o
+-- lado que sobrar, e sem ninguém sentado vale a ordem em que ficaram prontos.
+-- Ao começar, o lado da mesa de todos é acertado pela partida
+-- (ctx.definir_lados, Camera.definir_lados): os dois jogadores veem a mesa
+-- pelo lado em que jogam e os outros viram espectadores.
 --
 -- Fim da partida: a partida terminada (com vencedor, empate ou erro do motor)
 -- fica na mesa até alguém ficar pronto de novo. O primeiro "pronto" depois do
@@ -16,7 +20,11 @@
 -- Com uma partida em curso (sem resultado), ninguém fica pronto: o pedido é
 -- ignorado. Quem sai do servidor deixa de estar pronto; a partida em curso
 -- NÃO é encerrada pela saída de um jogador (ele pode voltar e recebe a
--- fotografia de novo).
+-- fotografia de novo). Enquanto ele não volta, a mesa fica presa: só
+-- `DUELO.Partida.encerrar()` no servidor a libera.
+--
+-- Qualquer jogador conectado pode ficar pronto, também quem assistia: depois
+-- do fim, um espectador pode zerar a mesa e entrar na partida seguinte.
 --
 -- Mensagem "sala", uma por destinatário (cada um só sabe de si e dos totais):
 --   { eu = bool, prontos = n, jogadores = n, aviso = texto | false }
@@ -27,11 +35,12 @@
 --
 -- Interface:
 --   Sala.instalar{ rede = Rede, partida = Partida, GLOBAL = GLOBAL,
---                  log = fn, decks = fn } -> Sala
+--                  log = fn, decks = fn, definir_lados = fn } -> Sala
 --       decks() -> { d1, d2 }, { e1, e2 } (padrão: Wilson x Webber).
+--       definir_lados(um, dois): acerta o lado da mesa de cada jogador.
 --   Sala.receber_pronto(userid, pronto) -> ok, erro
 --   Sala.pedir(userid)      manda a sala só a ele (quem acabou de entrar)
---   Sala.entrou(userid)     alguém entrou: avisa a todos
+--   Sala.entrou()           alguém entrou: avisa a todos
 --   Sala.saiu(userid)       alguém saiu: deixa de estar pronto e avisa
 --   Sala.prontos() -> lista de userids, na ordem em que ficaram prontos
 --
@@ -46,6 +55,7 @@ local estado = {
   GLOBAL = nil,
   log = nil,
   decks = nil,
+  definir_lados = nil,
   prontos = {},   -- userids, na ordem em que ficaram prontos
   aviso = false,  -- texto do último problema ao começar (some no próximo pronto)
 }
@@ -65,8 +75,9 @@ local function decks_fixos()
   return { d1, d2 }, { e1, e2 }
 end
 
--- Userids conectados, sem repetição e sem `fora` (quem está saindo ainda
--- pode aparecer em AllPlayers durante o "ms_playerleft").
+-- Userids conectados, sem repetição e sem `fora` (quem está saindo: no jogo
+-- ele já saiu de AllPlayers quando o "ms_playerleft" dispara, em
+-- prefabs/player_common.lua, mas a sala não depende dessa ordem).
 local function conectados(fora)
   local out, vistos = {}, {}
   for _, userid in ipairs(estado.rede.usuarios() or {}) do
@@ -152,6 +163,10 @@ local function comecar()
   end)
   if ok and a then
     estado.aviso = false
+    if estado.definir_lados then
+      local certo, erro = pcall(estado.definir_lados, um, dois)
+      if not certo then log("os lados da mesa não foram acertados: " .. tostring(erro)) end
+    end
     return true
   end
   log("a partida não começou: " .. tostring(ok and b or a))
@@ -204,13 +219,15 @@ end
 --   ctx.partida: duelo/mod/partida_servidor.lua já instalado;
 --   ctx.GLOBAL: ambiente global do jogo (AllPlayers, print);
 --   ctx.log: função de log (padrão: GLOBAL.print);
---   ctx.decks: função que devolve os baralhos (padrão: Wilson x Webber).
+--   ctx.decks: função que devolve os baralhos (padrão: Wilson x Webber);
+--   ctx.definir_lados: Camera.definir_lados (opcional).
 function Sala.instalar(ctx)
   estado.rede = ctx.rede
   estado.partida = ctx.partida
   estado.GLOBAL = ctx.GLOBAL
   estado.log = ctx.log or (ctx.GLOBAL and ctx.GLOBAL.print) or nil
   estado.decks = ctx.decks
+  estado.definir_lados = ctx.definir_lados
   estado.prontos = {}
   estado.aviso = false
   -- Uma partida começada por outro caminho (console) esvazia a sala.

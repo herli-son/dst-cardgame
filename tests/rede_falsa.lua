@@ -4,7 +4,9 @@
 -- scripts/duelo/mod (eles guardam estado em locais do arquivo), com um GLOBAL
 -- falso. As RPCs são entregues na hora, na ordem.
 --
---   RedeFalsa.nova{ sala = true, decks = fn } -> net
+--   RedeFalsa.nova{ sala = true, decks = fn, definir_lados = fn, mundo = true } -> net
+--       mundo: dá um TheWorld falso a cada máquina e guarda o AddSimPostInit
+--       da rede em m.sim_postinit (m.mundo.ouvintes tem os ouvintes).
 --       sala: instala também duelo/mod/sala_servidor no servidor e
 --       duelo/mod/tela_sala em cada cliente (US #42).
 --   net:maquina{ servidor = bool, userid = texto, lado = n } -> máquina
@@ -71,9 +73,16 @@ local function nova_rede(opcoes)
       GetTimeRealSeconds = function() return net.relogio end,
       print = function(s) m.logs[#m.logs + 1] = tostring(s) end,
     }
+    if opcoes.mundo then
+      -- Um TheWorld falso, para os ouvintes de "ms_playerjoined" e "ms_playerleft".
+      m.mundo = { ouvintes = {} }
+      function m.mundo:ListenForEvent(nome, fn) self.ouvintes[nome] = fn end
+      m.GLOBAL.TheWorld = m.mundo
+    end
     local ctx = {
       GLOBAL = m.GLOBAL,
       AddModRPCHandler = function(ns, nome, fn) m.srv[nome] = fn; m.ordem = (m.ordem or "") .. "s:" .. nome .. ";" end,
+      AddSimPostInit = opcoes.mundo and function(fn) m.sim_postinit = fn end or nil,
       AddClientModRPCHandler = function(ns, nome, fn) m.cli[nome] = fn; m.ordem = (m.ordem or "") .. "c:" .. nome .. ";" end,
       GetModRPC = function(ns, nome) assert(m.srv[nome], "RPC não registrada: " .. nome); return { namespace = ns, id = nome } end,
       GetClientModRPC = function(ns, nome) assert(m.cli[nome], "RPC não registrada: " .. nome); return { namespace = ns, id = nome } end,
@@ -102,7 +111,7 @@ local function nova_rede(opcoes)
       m.Partida = carregar("partida_servidor").instalar({ rede = m.Rede, GLOBAL = m.GLOBAL })
       if opcoes.sala then
         m.Sala = carregar("sala_servidor").instalar({ rede = m.Rede, partida = m.Partida, GLOBAL = m.GLOBAL,
-          decks = opcoes.decks })
+          decks = opcoes.decks, definir_lados = opcoes.definir_lados })
       end
       net.servidor = m
     end

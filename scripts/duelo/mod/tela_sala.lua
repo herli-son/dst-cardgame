@@ -13,7 +13,8 @@
 --   "fim"      a partida acabou: "Vitória", "Derrota", "Empate" (ou, para
 --              quem assiste, "Lado N venceu"; ou "Partida interrompida", se
 --              o motor deu erro). O resultado fica na tela até o jogador
---              clicar, mesmo que o outro já tenha zerado a mesa no servidor.
+--              clicar, mesmo que o outro já tenha zerado a mesa no servidor,
+--              ou até uma partida nova começar (aí o painel passa a ela).
 --              Jogador: botão "Jogar de novo" (dispensa o resultado e fica
 --              pronto; o primeiro pronto zera a mesa para todos). Quem
 --              assiste: botão "Fechar" (só dispensa).
@@ -119,7 +120,14 @@ end
 function Tela.atualizar()
   local w = estado.widget
   if w == nil then return end
-  local ok, err = pcall(function() w:Atualizar(Tela.modelo()) end)
+  -- Um erro ao montar o modelo não desliga o painel: só esta atualização se perde.
+  local ok, modelo = pcall(Tela.modelo)
+  if not ok then
+    log("erro ao montar o painel: " .. tostring(modelo))
+    return
+  end
+  local err
+  ok, err = pcall(function() w:Atualizar(modelo) end)
   if not ok then
     -- O widget morreu (a tela do jogo foi desfeita): desliga até o próximo.
     estado.widget = nil

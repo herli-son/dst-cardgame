@@ -10,7 +10,8 @@ local RedeFalsa = require("rede_falsa")
 -- Servidor dedicado, dois jogadores (lados 1 e 2 da mesa) e um espectador.
 local function mesa(opcoes)
   opcoes = opcoes or {}
-  local net = RedeFalsa.nova{ sala = true, decks = opcoes.decks }
+  local net = RedeFalsa.nova{ sala = true, decks = opcoes.decks, definir_lados = opcoes.definir_lados,
+    mundo = opcoes.mundo }
   local s = net:maquina{ servidor = true }
   local lados = opcoes.lados or { 1, 2, 3 }
   local c1 = net:maquina{ userid = "KU_um", lado = lados[1] or nil }
@@ -170,6 +171,77 @@ return {
     T.eq(#s.Sala.prontos(), 0)
     T.eq(s.Partida.jogo(), g, "a partida segue a mesma")
     T.eq(cs[3].Cliente.sala().eu, false)
+    local ok, erro = s.Sala.receber_pronto("KU_tres", true)
+    T.ok(not ok, "o pedido é recusado")
+    T.eq(erro, "há uma partida em curso")
+    T.ok(s.Partida.em_curso() and not s.Partida.terminada(), "a partida em curso não é encerrada pelo pedido")
+  end },
+
+  { "depois do fim, só um pronto zera a mesa; cancelar não", function(T)
+    local net, s, cs = mesa()
+    comecar(T, net, s, cs)
+    terminar(T, net, s, cs, 1)
+    pronto(net, cs[1], false)
+    T.ok(s.Partida.em_curso(), "cancelar não zera a mesa")
+    T.ok(cs[2].Cliente.visao() ~= nil, "o outro continua com a partida terminada")
+    pronto(net, cs[1], true)
+    T.ok(not s.Partida.em_curso(), "o pronto zera")
+  end },
+
+  { "ao começar, o lado da mesa de cada um é acertado pela partida", function(T)
+    local chamadas = {}
+    local net, s, cs = mesa{ definir_lados = function(um, dois) chamadas[#chamadas + 1] = um .. "/" .. dois end }
+    -- O jogador do lado 1 e o espectador ficam prontos: o espectador joga
+    -- pelo lado 2, e a câmera dele precisa passar para esse lado.
+    pronto(net, cs[1]); pronto(net, cs[3])
+    T.eq(#chamadas, 1)
+    T.eq(chamadas[1], "KU_um/KU_tres")
+    T.eq(cs[3].Cliente.lado(), 2)
+    -- Um erro ao acertar os lados não impede a partida.
+    net, s, cs = mesa{ definir_lados = function() error("sem câmera") end }
+    pronto(net, cs[1]); pronto(net, cs[2])
+    T.ok(s.Partida.em_curso())
+    -- Camera.definir_lados grava o lado de cada jogador conectado.
+    local Camera = RedeFalsa.carregar("camera")
+    local function jogador(userid, lado)
+      local j = { userid = userid, valor = lado }
+      j.duelo_lado = { value = function() return j.valor end, set = function(_, v) j.valor = v end }
+      return j
+    end
+    local a, b, c = jogador("KU_a", 1), jogador("KU_b", 2), jogador("KU_c", 3)
+    Camera.instalar({
+      GLOBAL = { AllPlayers = { a, b, c }, TheWorld = { ismastersim = true }, TheNet = { IsDedicated = function() return true end } },
+      Mesa = {}, Calibracao = { quando_calibrar = function() end },
+      AddPlayerPostInit = function() end, AddComponentPostInit = function() end, AddSimPostInit = function() end,
+    })
+    T.ok(Camera.definir_lados("KU_a", "KU_c"))
+    T.eq(a.valor, 1); T.eq(c.valor, 2, "o espectador que joga passa para o lado 2")
+    T.eq(b.valor, 3, "quem ficou de fora vira espectador")
+  end },
+
+  { "a entrada e a saída de jogadores no mundo chegam à sala", function(T)
+    local net, s, cs = mesa{ mundo = true }
+    T.eq(type(s.sim_postinit), "function", "a rede pede o AddSimPostInit")
+    s.sim_postinit()
+    local ouvintes = s.mundo.ouvintes
+    T.eq(type(ouvintes.ms_playerleft), "function"); T.eq(type(ouvintes.ms_playerjoined), "function")
+    pronto(net, cs[1])
+    T.eq(cs[2].Cliente.sala().prontos, 1)
+    -- No jogo, quem sai já não está em AllPlayers quando o evento dispara.
+    local saindo = table.remove(net.jogadores, 1)
+    ouvintes.ms_playerleft(nil, saindo)
+    T.eq(#s.Sala.prontos(), 0, "quem saiu deixou de estar pronto")
+    T.eq(cs[2].Cliente.sala().prontos, 0)
+    T.eq(cs[2].Cliente.sala().jogadores, 2)
+    net.jogadores[#net.jogadores + 1] = saindo
+    ouvintes.ms_playerjoined(nil, saindo)
+    T.eq(cs[2].Cliente.sala().jogadores, 3, "quem entrou conta para todos")
+    -- Eventos tortos não derrubam o servidor.
+    ouvintes.ms_playerleft(nil, nil)
+    ouvintes.ms_playerjoined(nil, nil)
+    -- No cliente, nada é escutado.
+    cs[1].sim_postinit()
+    T.eq(next(cs[1].mundo.ouvintes), nil, "o cliente não escuta o mundo")
   end },
 
   { "no fim cada um vê o resultado e a partida fica na mesa", function(T)
@@ -195,6 +267,7 @@ return {
     comecar(T, net, s, cs)
     terminar(T, net, s, cs, 2)
     T.eq(cs[1].Tela.modelo().titulo, "Derrota")
+    T.eq(cs[3].Tela.modelo().titulo, "Lado 2 venceu", "o espectador viu o resultado")
     clicar(net, cs[2]) -- o vencedor clica em Jogar de novo
     T.ok(not s.Partida.em_curso(), "a mesa zerou no servidor")
     for i = 1, 3 do T.eq(cs[i].Cliente.visao(), nil, "a mesa zerou no cliente " .. i) end
@@ -212,7 +285,8 @@ return {
     T.eq(cs[2].Tela.modelo().modo, "partida")
     local g = s.Partida.jogo()
     T.eq(g.players[1].life, 20, "a partida nova começa do zero"); T.eq(g.round, 1)
-    -- O espectador que não clicou em nada passa a ver a partida nova.
+    -- O espectador, que viu o resultado e não clicou em nada, passa a ver a
+    -- partida nova (o resultado guardado sai quando outra partida começa).
     T.eq(cs[3].Tela.modelo().modo, "partida")
   end },
 
@@ -237,7 +311,7 @@ return {
     local net, s, cs = mesa()
     pronto(net, cs[1])
     T.eq(cs[2].Cliente.sala().prontos, 1)
-    -- Durante o aviso de saída o jogador ainda está em AllPlayers.
+    -- Mesmo que quem sai ainda apareça entre os conectados, ele não conta.
     s.Sala.saiu("KU_um")
     T.eq(#s.Sala.prontos(), 0)
     T.eq(cs[2].Cliente.sala().prontos, 0)
@@ -362,10 +436,41 @@ return {
     Tela.clicar()
     T.eq(C.prontos[1], true)
     T.eq(#vistos, 2, "o clique atualiza o painel")
+    -- Um erro ao montar o modelo não desliga o painel.
+    local sala = dados.sala
+    dados.sala = { eu = false } -- sala torta: comparar prontos (nil) dá erro
+    Tela.atualizar()
+    T.eq(#logs, 1, "o erro do modelo vira um aviso")
+    dados.sala = sala
+    Tela.atualizar()
+    T.eq(#vistos, 3, "o painel continua ligado")
     Tela.ligar_widget({ Atualizar = function() error("widget morto") end })
-    T.eq(#logs, 1, "o erro vira um aviso")
+    T.eq(#logs, 2, "o erro do widget vira um aviso")
     Tela.atualizar() -- desligado: não tenta de novo
-    T.eq(#logs, 1)
+    T.eq(#logs, 2)
+  end },
+
+  { "host: o fim e o jogar de novo com o painel ligado, tudo na mesma pilha", function(T)
+    local net = RedeFalsa.nova{ sala = true }
+    local h = net:maquina{ servidor = true, userid = "KU_host", lado = 1 }
+    local a = net:maquina{ userid = "KU_amigo", lado = 2 }
+    local visto = {}
+    for nome, m in pairs({ h = h, a = a }) do
+      m.Tela.ligar_widget({ Atualizar = function(_, modelo) visto[nome] = modelo end })
+    end
+    h.Cliente.pedir_estado(); a.Cliente.pedir_estado()
+    h.Tela.clicar(); a.Tela.clicar()
+    T.eq(visto.h.modo, "partida"); T.eq(visto.a.modo, "partida")
+    terminar(T, net, h, { h, a }, 1)
+    T.eq(visto.h.titulo, "Vitória", "o painel do host muda sozinho no fim")
+    T.eq(visto.a.titulo, "Derrota")
+    h.Tela.clicar() -- Jogar de novo: zera a mesa de dentro do clique
+    T.ok(not h.Partida.em_curso())
+    T.eq(visto.h.modo, "sala"); T.eq(visto.h.botao.texto, "Cancelar")
+    T.eq(visto.a.modo, "fim"); T.eq(visto.a.texto, "O outro jogador quer jogar de novo.")
+    a.Tela.clicar()
+    T.ok(h.Partida.em_curso() and not h.Partida.terminada())
+    T.eq(visto.h.modo, "partida"); T.eq(visto.a.modo, "partida")
   end },
 
   { "widgets/duelo_sala mostra o título, o texto e o botão do modelo", function(T)
@@ -414,12 +519,13 @@ return {
       T.eq(w.titulo.texto, "Duelo"); T.eq(w.titulo.visivel, true)
       T.eq(w.texto.texto, "Clique em Pronto para jogar."); T.eq(w.texto.visivel, true)
       T.eq(w.botao.texto, "Pronto"); T.eq(w.botao.visivel, true)
+      local y_com_titulo = w.texto.pos[2]
       clique()
       T.eq(cliques, 1, "o clique chega a quem criou o painel")
       w:Atualizar({ titulo = false, texto = "Partida em curso. Você joga pelo lado 1.", botao = false })
       T.eq(w.titulo.visivel, false); T.eq(w.botao.visivel, false)
       T.eq(w.texto.visivel, true)
-      T.ok(w.texto.pos[2] > -95, "sem título, o texto sobe")
+      T.ok(w.texto.pos[2] > y_com_titulo, "sem título, o texto sobe")
       w:Atualizar(nil)
       T.eq(w.texto.visivel, false)
     end)
