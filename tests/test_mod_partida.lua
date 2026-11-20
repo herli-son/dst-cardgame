@@ -370,6 +370,20 @@ return {
     end
   end },
 
+  { "sem resultado, o vencedor na visão é false (não some)", function(T)
+    local net, s, cs = mesa()
+    local g = iniciar(s)
+    T.eq(Visao.estado_para(g, 1).vencedor, false, "false na fotografia")
+    for lado, c in ipairs(cs) do T.eq(c.Cliente.visao().vencedor, false, "false no cliente do lado " .. lado) end
+    local achou = false
+    for _, linha in ipairs(cs[1].Cliente.resumo()) do
+      if linha:find("vencedor", 1, true) then achou = true end
+    end
+    T.ok(not achou, "o resumo do cliente não fala de vencedor antes do fim")
+    g.winner = 0
+    T.eq(Visao.estado_para(g, 1).vencedor, 0, "o empate é 0")
+  end },
+
   { "todas as RPCs são registradas nos dois lados, na mesma ordem", function(T)
     local net, s, cs = mesa()
     T.eq(s.ordem, "s:acao;s:pedir_estado;c:eventos;c:estado;c:recusada;")
