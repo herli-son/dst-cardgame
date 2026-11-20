@@ -48,8 +48,9 @@
 --     altura (targetoffset), de d unidades: fica a 1,5 + d sen(p) = 70,8 de
 --     altura e d cos(p) = 40,0 atrás do alvo. Um ponto do chão a s unidades
 --     do alvo (s > 0 para o alto da tela) aparece na altura da tela
---     (1 + tan(a - p) / tan(17,5)) / 2, onde a = atan(70,8 / (40,0 + s)) é o
---     ângulo dele abaixo do horizonte (Camera.altura_na_tela). A mesa vai de
+--     (1 + tan(p - a) / tan(17,5)) / 2, onde a = atan(70,8 / (48,0 + s)) é o
+--     ângulo dele abaixo do horizonte, com os 8 do DESLOCAMENTO somados
+--     aos 40 (Camera.altura_na_tela). A mesa vai de
 --     28 unidades abaixo a 28 acima do centro (7 tiles), e a fileira de trás
 --     do próprio lado (decks e estruturas) fica a 22 abaixo. Para as 14
 --     linhas caberem, a distância é a máxima (80: dá para aproximar com o

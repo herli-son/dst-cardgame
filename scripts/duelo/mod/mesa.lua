@@ -130,8 +130,9 @@
 --     espaço aparece inteiro. Com o ROCKY de antes, o Pântano (MARSH) ficava
 --     por baixo; com o ROAD não fica. O ROAD tem `roadways` em tiledefs.lua:
 --     quem anda sobre ele ganha o bônus de velocidade de estrada
---     (components/locomotor.lua, GROUND_ROADWAYS). Só muda o andar do
---     personagem pela mesa.
+--     (components/locomotor.lua, GROUND_ROADWAYS; só locomotores com
+--     `fasteronroad`, isto é, os jogadores). Só muda o andar do personagem
+--     pela mesa.
 --   * pedra = ROCKY (índice 3): a moldura em volta da mesa e o pátio do
 --     portal. É o turf rochoso natural, com borda irregular, que avança um
 --     pouco sobre os paralelepípedos da borda da mesa (nenhum espaço fica
