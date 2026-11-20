@@ -23,9 +23,9 @@
 --     comparado com o tile das estruturas, `WORLD_TILES.MOSAIC_GREY`, e com
 --     o do espaço de eventos, `WORLD_TILES.CARPET2` (o id vem de tiledefs.lua
 --     por tilemanager.lua; o nome sai de Mesa.WORLD_TILE e Mesa.USO). Só os
---     4 espaços de estrutura usam o primeiro piso, nos cantos de um
---     retângulo de 3 x 12 tiles cujo centro é o ponto entre os dois
---     quadrados de combate: os tiles achados vão para Mesa.achar_estruturas,
+--     8 tiles de estrutura usam o primeiro piso: 4 blocos de 1 x 2 nos
+--     cantos de um retângulo de 3 x 14 tiles cujo centro é o centro do
+--     combate e da mesa. Os tiles achados vão para Mesa.achar_estruturas,
 --     e o retângulo para Mesa.calibrar, com
 --     `TheWorld.Map:GetTileCenterPoint(tx, ty)` (components/map.lua,
 --     IsTerraformingBlockedByAnObject; debugcommands.lua) convertendo tile em
@@ -35,8 +35,9 @@
 --     serve de conferência (e de reserva para o espelhamento, se os tiles de
 --     eventos não forem achados). Sem as estruturas, a origem sai só do
 --     portal (Mesa.calibrar_pelo_portal) e o log avisa.
---   * Os 36 tiles de espaço (Mesa.tiles_dos_espacos: cartas, criaturas,
---     estruturas, decks, combate e eventos) são conferidos com
+--   * Os 62 tiles de espaço (Mesa.tiles_dos_espacos: cartas, criaturas,
+--     estruturas, decks, combate, descarte, destruídas e eventos) são
+--     conferidos com
 --     `TheWorld.Map:GetTileAtPoint(x, 0, z)` (components/map.lua) contra o
 --     piso de cada um (Mesa.USO); uma diferença só gera aviso no log.
 --   * A calibração vai aos clientes por variáveis de rede no forest_network

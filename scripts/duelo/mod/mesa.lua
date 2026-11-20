@@ -1,5 +1,5 @@
 -- Geometria da mesa do duelo (US #29; calibração no jogo, US #30; layout
--- aprovado na #30 e refeito no bug #147 depois do teste em jogo).
+-- aprovado na #30 e refeito no bug #147 depois dos testes em jogo).
 --
 -- Este módulo é Lua 5.1 puro, sem nada do Don't Starve Together: ele é a
 -- única fonte das posições da mesa. O static layout da geração do mundo
@@ -7,57 +7,71 @@
 -- (#33, criaturas nos espaços; #34, combate; #38, alvos válidos) leem daqui
 -- onde fica cada espaço.
 --
--- Mapa pedido pelo dono no teste em jogo (#147), visto pelo jogador 1, que
--- fica embaixo (R = paralelepípedos, K = carta, V = criatura, E = estrutura,
--- P = deck principal, X = deck extra, A/D = combate, e = eventos):
+-- Mapa pedido pelo dono na terceira rodada do #147, visto pelo jogador 1,
+-- que fica embaixo (R = paralelepípedos, K = carta, V = criatura,
+-- E = estrutura, P = deck principal, X = deck extra, A/D = combate,
+-- e = eventos, L = descarte, Z = destruídas):
 --
 --   R R R R R R R R R R R R R R R
---   R X R R R E R E R R R P R R R     J2
+--   R X R R R E R E R R R P R Z R     J2: extra, estruturas, deck | destruídas
+--   R X R R R E R E R R R P R Z R
 --   R R R R R R R R R R R R R R R
---   R K R K R K R K R K R K R R R
---   R V R V R V R V R V R V R R R
+--   R K R K R K R K R K R K R L R     cartas J2 | descarte J2
+--   R V R V R V R V R V R V R L R     criaturas J2
 --   R R R R R R R R R R R R R R R
---   R R R R R R D R R R R R R e R
---   R R R R R R A R R R R R R e R
+--   R D R D R D R D R D R D R e R     combate J2 | eventos
+--   R A R A R A R A R A R A R e R     combate J1 | eventos
 --   R R R R R R R R R R R R R R R
---   R V R V R V R V R V R V R R R
---   R K R K R K R K R K R K R R R
+--   R V R V R V R V R V R V R L R     criaturas J1 | descarte J1
+--   R K R K R K R K R K R K R L R     cartas J1
 --   R R R R R R R R R R R R R R R
---   R P R R R E R E R R R X R R R     J1
+--   R P R R R E R E R R R X R Z R     J1: deck, estruturas, extra | destruídas
+--   R P R R R E R E R R R X R Z R
 --   R R R R R R R R R R R R R R R
 --
--- A mesa tem 15 x 14 tiles:
+-- A mesa tem 15 x 16 tiles:
 --   * Espaço de criatura (6 por jogador): 2 tiles, a carta atrás e a
 --     criatura na frente, virada para o centro.
---   * Combate: um par de quadrados no centro da mesa, um por jogador, um em
---     cima do outro (o de cada um do seu lado). Cada duelo acontece ali, um
---     de cada vez: o quadrado de quem tem o token de ataque é o do atacante
---     e o outro o do defensor (lógica da US #34; aqui só o espaço). No mapa,
---     "A" é o quadrado do jogador 1 e "D" o do jogador 2.
---   * Fileira de trás de cada jogador, na numeração dele: deck principal
---     atrás do espaço 1, estruturas atrás dos espaços 3 e 4, deck extra atrás
---     do espaço 6. Como o espaço n de um fica de frente para o 7 - n do
---     outro, o principal de um e o extra do outro ficam na mesma coluna.
---   * Eventos: UM espaço neutro de 2 tiles (como um espaço de carta), numa
---     coluna própria na borda oposta ao portal, alinhado às duas linhas de
---     combate. Os eventos dos dois jogadores vão para uma pilha só e são
---     sorteados pelo dado: o tile do lado do jogador 2 é a pilha e o do lado
---     do jogador 1 é o evento em vigor. O lado e as linhas saem de
---     COLUNA_EVENTO e LINHAS_EVENTO, abaixo; mudar ali muda o layout, a
---     calibração, os contornos e o rótulo.
+--   * Combate: 6 pares de quadrados, um par na frente de cada coluna de
+--     espaços (até 6 combates ao mesmo tempo). São duas fileiras de 6, a de
+--     cada jogador do seu lado, coladas uma na outra, com paralelepípedos
+--     entre as colunas. O quadrado k de um jogador fica na coluna do espaço
+--     k dele (Mesa.espaco_combate(jogador, k)), de frente para o quadrado
+--     7 - k do outro. No mapa, "A" são os quadrados do jogador 1 e "D" os
+--     do jogador 2. Quem luta em cada par é assunto da US #34; aqui só o
+--     espaço.
+--   * Fileira de trás de cada jogador, com 2 tiles de altura, na numeração
+--     dele: deck principal atrás do espaço 1, estruturas atrás dos espaços 3
+--     e 4, deck extra atrás do espaço 6. Na estrutura vale a convenção do
+--     espaço de criatura: o tile de trás é o da carta (`carta`) e o da
+--     frente é onde a estrutura fica em pé (`frente`). Nos decks os 2 tiles
+--     são um bloco só (`tras` e `frente`). Como o espaço n de um fica de
+--     frente para o 7 - n do outro, o principal de um e o extra do outro
+--     ficam na mesma coluna.
+--   * Coluna dos eventos, na borda oposta ao portal, com 5 blocos de 2
+--     tiles. No meio, alinhado às duas linhas de combate, o espaço de
+--     eventos, UM só e neutro: os eventos dos dois jogadores vão para uma
+--     pilha só e são sorteados pelo dado; o tile do lado do jogador 2 é a
+--     pilha e o do lado do jogador 1 é o evento em vigor. De cada lado dele,
+--     o descarte do jogador (nas linhas da carta e da criatura dele) e, na
+--     ponta, as destruídas (nas linhas da fileira de trás, ao lado do deck
+--     daquela ponta). A coluna sai de COLUNA_EVENTO, abaixo; mudar ali muda
+--     o layout, a calibração, os contornos e os rótulos.
 --   * Entre os espaços e na borda da mesa só há paralelepípedos: no DST a
 --     borda de um turf invade o vizinho, e com o mesmo chão em volta o turf
 --     que uma carta de Turf puser embaixo de um espaço aparece inteiro.
---     Nenhum espaço encosta em outro; a única exceção é o par de combate.
+--     Só se encostam os 2 tiles de um mesmo bloco e os 2 quadrados de um
+--     par de combate.
 --   * Em volta da mesa, uma moldura de 1 tile de pedra e o pátio do portal.
 --
 -- Grade: 21 x 21 tiles, cada tile com TILE_SCALE = 4 unidades do mundo
 -- (constants.lua). O layout precisa ser quadrado porque o gerador
 -- (map/object_layout.lua, ReserveAndPlaceLayout) usa #ground como tamanho
 -- dos dois eixos. Na largura cabem justos o pátio (3), a moldura (1), a mesa
--- (15) e a moldura (1), com a coluna 0 fora; na altura sobram 2 linhas em
--- cima e 3 embaixo. O tamanho 21 x 21 é o que já foi gerado e confirmado no
--- jogo com world_size "small".
+-- (15) e a moldura (1), com a coluna 0 fora; na altura, a moldura (1), a
+-- mesa (16) e a moldura (1), com 1 linha fora em cima e 2 embaixo. O
+-- tamanho 21 x 21 é o que já foi gerado e confirmado no jogo com world_size
+-- "small".
 --
 -- Objetos no centro de um tile (revalidado para esta grade): o leitor do
 -- layout (map/static_layout.lua) converte a posição em pixels de um objeto
@@ -83,30 +97,30 @@
 -- Mapa (linhas de cima para baixo; "." = fora, intransitável; "o" = pedra da
 -- moldura e do pátio; "R" = paralelepípedos; "K" = carta; "V" = criatura;
 -- "E" = estrutura; "P" = deck principal; "X" = deck extra; "A" = combate do
--- jogador 1; "D" = combate do jogador 2; "e" = eventos; "@" = portal sobre a
--- pedra do pátio):
+-- jogador 1; "D" = combate do jogador 2; "e" = eventos; "L" = descarte;
+-- "Z" = destruídas; "@" = portal sobre a pedra do pátio):
 --
 --         col           1         2
 --             012345678901234567890
 --   lin  0    .....................
---        1    .....................
---        2    ....ooooooooooooooooo   moldura
---        3    ....oRRRRRRRRRRRRRRRo
---        4    ....oRXRRRERERRRPRRRo   decks e estruturas do jogador 2 (norte)
+--        1    ....ooooooooooooooooo   moldura
+--        2    ....oRRRRRRRRRRRRRRRo
+--        3    ....oRXRRRERERRRPRZRo   fileira de trás do jogador 2 (norte): carta da estrutura, decks, destruídas
+--        4    ....oRXRRRERERRRPRZRo   fileira de trás do jogador 2: estrutura em pé, decks, destruídas
 --        5    ....oRRRRRRRRRRRRRRRo
---        6    ....oRKRKRKRKRKRKRRRo   cartas do jogador 2
---        7    ....oRVRVRVRVRVRVRRRo   criaturas do jogador 2
+--        6    ....oRKRKRKRKRKRKRLRo   cartas do jogador 2; descarte
+--        7    ....oRVRVRVRVRVRVRLRo   criaturas do jogador 2; descarte
 --        8    ....oRRRRRRRRRRRRRRRo
---        9    .ooooRRRRRRDRRRRRReRo   combate do jogador 2; pilha de eventos
---       10    .o@ooRRRRRRARRRRRReRo   combate do jogador 1; evento em vigor
+--        9    .ooooRDRDRDRDRDRDReRo   combate do jogador 2; pilha de eventos
+--       10    .o@ooRARARARARARAReRo   combate do jogador 1; evento em vigor
 --       11    .ooooRRRRRRRRRRRRRRRo
---       12    ....oRVRVRVRVRVRVRRRo   criaturas do jogador 1 (sul)
---       13    ....oRKRKRKRKRKRKRRRo   cartas do jogador 1
+--       12    ....oRVRVRVRVRVRVRLRo   criaturas do jogador 1 (sul); descarte
+--       13    ....oRKRKRKRKRKRKRLRo   cartas do jogador 1; descarte
 --       14    ....oRRRRRRRRRRRRRRRo
---       15    ....oRPRRRERERRRXRRRo   decks e estruturas do jogador 1
---       16    ....oRRRRRRRRRRRRRRRo
---       17    ....ooooooooooooooooo   moldura
---       18    .....................
+--       15    ....oRPRRRERERRRXRZRo   fileira de trás do jogador 1: estrutura em pé, decks, destruídas
+--       16    ....oRPRRRERERRRXRZRo   fileira de trás do jogador 1: carta da estrutura, decks, destruídas
+--       17    ....oRRRRRRRRRRRRRRRo
+--       18    ....ooooooooooooooooo   moldura
 --       19    .....................
 --       20    .....................
 --
@@ -124,13 +138,13 @@
 --   * paralelepípedos = ROAD (índice 2; tiledefs.lua: "Road", textura
 --     "cobblestone"). É o chão da mesa, entre os espaços e na borda dela. Na
 --     ordem de desenho o ROAD vem antes de todos os outros tiles usados aqui
---     e de todos os turfs das cartas (ROAD, depois MARSH, ROCKY, ...,
---     WOODFLOOR, CHECKER, MOSAIC_GREY, CARPET2, CARPET), então a borda de
---     cada espaço e de cada turf avança sobre os paralelepípedos e o tile do
---     espaço aparece inteiro. Com o ROCKY de antes, o Pântano (MARSH) ficava
---     por baixo; com o ROAD não fica. O ROAD tem `roadways` em tiledefs.lua:
---     quem anda sobre ele ganha o bônus de velocidade de estrada
---     (components/locomotor.lua, GROUND_ROADWAYS; só locomotores com
+--     e de todos os turfs das cartas (ROAD, depois MARSH, ROCKY, ..., BRICK,
+--     TILES, ..., WOODFLOOR, CHECKER, MOSAIC_GREY, CARPET2, CARPET), então a
+--     borda de cada espaço e de cada turf avança sobre os paralelepípedos e
+--     o tile do espaço aparece inteiro. Com o ROCKY de antes, o Pântano
+--     (MARSH) ficava por baixo; com o ROAD não fica. O ROAD tem `roadways`
+--     em tiledefs.lua: quem anda sobre ele ganha o bônus de velocidade de
+--     estrada (components/locomotor.lua, GROUND_ROADWAYS; só locomotores com
 --     `fasteronroad`, isto é, os jogadores). Só muda o andar do personagem
 --     pela mesa.
 --   * pedra = ROCKY (índice 3): a moldura em volta da mesa e o pátio do
@@ -140,20 +154,27 @@
 --   * carta e criatura sem turf jogado = CHECKER (índice 11; piso xadrez).
 --     O WOODFLOOR foi descartado aqui porque é o turf da carta "Piso de
 --     madeira": um espaço com essa carta ficaria igual a um espaço vazio.
---   * estrutura = MOSAIC_GREY (índice 47; mosaico cinza). Só os 4 espaços de
+--   * estrutura = MOSAIC_GREY (índice 47; mosaico cinza). Só os 8 tiles de
 --     estrutura usam esse piso: é o padrão que a calibração procura.
 --   * deck = WOODFLOOR (índice 9; piso de madeira). Neutro e diferente dos
 --     outros; os decks não recebem carta de Turf, então a madeira não se
 --     confunde com a carta "Piso de madeira". Não é MOSAIC_GREY para não
 --     entrar no padrão da calibração.
---   * combate = CARPET (índice 10; tapete). Os dois quadrados formam um
---     tapete só, de 1 x 2, no meio dos paralelepípedos, bem diferente do
---     xadrez dos espaços; o dono de cada quadrado vem do contorno.
+--   * combate = CARPET (índice 10; tapete). Os dois quadrados de um par
+--     formam um tapete de 1 x 2 no meio dos paralelepípedos, bem diferente
+--     do xadrez dos espaços; o dono de cada quadrado vem do contorno.
 --   * eventos = CARPET2 (índice 50; o outro tapete do jogo). Só os 2 tiles
 --     do espaço de eventos usam esse piso: é o que a calibração procura para
 --     saber de que lado a coluna de eventos ficou.
---   Os pisos dos decks, do combate e dos eventos são escolhas de aparência,
---   a confirmar no jogo; cada um se troca numa linha de Mesa.USO.
+--   * descarte = TILES (índice 27; tiledefs.lua: "Glowing Tiles", os
+--     ladrilhos das ruínas) e destruídas = BRICK (índice 25; "Glowing
+--     Bricks", os tijolos das ruínas). São pisos feitos, diferentes entre si
+--     e de todos os outros da mesa; nenhum dos dois é MOSAIC_GREY nem
+--     CARPET2, que a calibração procura, e os mosaicos vermelho e azul
+--     ficaram de fora para não se confundirem com as cores dos jogadores.
+--   Os pisos dos decks, do combate, dos eventos, do descarte e das
+--   destruídas são escolhas de aparência, a confirmar no jogo; cada um se
+--   troca numa linha de Mesa.USO.
 --
 -- Ordem dos espaços: cada jogador conta os seus espaços da esquerda para a
 -- direita olhando para o centro. Nas listas abaixo (que valem para o eixo x
@@ -162,8 +183,8 @@
 -- espaço n de um jogador fica de frente para o espaço 7 - n do outro (o
 -- motor não depende disso: quem bloqueia quem é escolhido por jogada,
 -- duelo/core/combate.lua). As estruturas (1 atrás do espaço 3, 2 atrás do
--- 4) e os decks (principal atrás do 1, extra atrás do 6) seguem a numeração
--- do dono.
+-- 4), os decks (principal atrás do 1, extra atrás do 6) e os quadrados de
+-- combate (o k na frente do espaço k) seguem a numeração do dono.
 --
 -- Espelhamento (medido no jogo, US #30): o gerador espelha o eixo x de todo
 -- static layout (flip_x = -1 em map/object_layout.lua, ReserveAndPlaceLayout,
@@ -176,12 +197,12 @@
 -- Calibração (US #30, refeita no #147): no jogo,
 -- scripts/duelo/mod/calibracao.lua acha o portal e, em volta dele, os tiles
 -- de estrutura (MOSAIC_GREY) e os de eventos (CARPET2).
---   * Os 4 tiles de estrutura são o padrão inequívoco: só eles usam esse
---     piso, e formam os cantos de um retângulo de 3 x 12 tiles (2 colunas e
---     11 linhas entre os centros). Mesa.achar_estruturas confere o padrão (e
---     recusa a mesa girada, 12 x 3). O centro do retângulo é o ponto entre
---     os dois quadrados de combate (Mesa.CENTRO); a origem (centro do
---     layout) sai dele.
+--   * Os 8 tiles de estrutura são o padrão inequívoco: só eles usam esse
+--     piso, e formam 4 blocos de 1 x 2 nos cantos de um retângulo de 3 x 14
+--     tiles (2 colunas e 13 linhas entre os centros dos tiles de fora).
+--     Mesa.achar_estruturas confere o padrão (e recusa a mesa girada,
+--     14 x 3). O centro do retângulo é o centro do combate e da mesa nas
+--     linhas (Mesa.CENTRO); a origem (centro do layout) sai dele.
 --   * O espelhamento sai da própria mesa: os 2 tiles de eventos ficam de um
 --     lado só do retângulo das estruturas (Mesa.achar_eventos). Assim a
 --     geometria não depende do portal, que só serve para dizer onde procurar
@@ -189,8 +210,9 @@
 --     do portal, com aviso; sem os dois, vale o medido (espelhado).
 -- O resultado fica em Mesa.calibracao (servidor e clientes) e dá as posições
 -- absolutas (Mesa.espaco_criatura_abs, Mesa.espaco_estrutura_abs,
--- Mesa.espaco_deck_abs, Mesa.espaco_combate_abs, Mesa.espaco_evento_abs,
--- Mesa.centro_abs, Mesa.centro_da_mesa_abs, Mesa.tiles_dos_espacos).
+-- Mesa.espaco_deck_abs, Mesa.espaco_combate_abs, Mesa.espaco_descarte_abs,
+-- Mesa.espaco_destruidas_abs, Mesa.espaco_evento_abs, Mesa.centro_abs,
+-- Mesa.centro_da_mesa_abs, Mesa.rotulo_combate_abs, Mesa.tiles_dos_espacos).
 --
 -- Esquerda e direita de quem olha: o espelhamento troca leste e oeste, e a
 -- tela do DST não mostra o +x à direita (cameras/followcamera.lua,
@@ -199,8 +221,10 @@
 -- de cada jogador são ordenados pela projeção na direita da câmera dele
 -- (Mesa.heading). No caso medido (espelhado) a ordem dá a mesma das listas de
 -- colunas abaixo; sem espelhamento, daria a inversa, e a numeração absoluta
--- continuaria certa para quem olha (os decks e as estruturas acompanham: o
--- deck principal é sempre o que fica atrás do espaço 1 de quem olha).
+-- continuaria certa para quem olha (os decks, as estruturas e os quadrados
+-- de combate acompanham: o deck principal é sempre o que fica atrás do
+-- espaço 1 de quem olha, e o quadrado de combate k o que fica na frente do
+-- espaço k).
 
 local Mesa = {}
 
@@ -213,7 +237,8 @@ Mesa.ALTURA = 21 -- linhas (eixo z)
 -- está, isto é, IMPASSABLE da sala Blank, que é o que fica fora da mesa.
 -- Conferido em map/static_layout.lua, contando um a um:
 --   1 IMPASSABLE, 2 ROAD, 3 ROCKY, 9 WOODFLOOR, 10 CARPET, 11 CHECKER,
---   47 MOSAIC_GREY, 48 MOSAIC_RED, 49 MOSAIC_BLUE, 50 CARPET2.
+--   25 BRICK, 27 TILES, 47 MOSAIC_GREY, 48 MOSAIC_RED, 49 MOSAIC_BLUE,
+--   50 CARPET2.
 Mesa.TILE = {
   FORA = 0,
   IMPASSAVEL = 1,
@@ -222,6 +247,8 @@ Mesa.TILE = {
   MADEIRA = 9,
   TAPETE = 10,
   XADREZ = 11,
+  TIJOLO = 25,
+  LADRILHO = 27,
   MOSAICO_CINZA = 47,
   TAPETE2 = 50,
 }
@@ -234,6 +261,8 @@ Mesa.WORLD_TILE = {
   MADEIRA = "WOODFLOOR",
   TAPETE = "CARPET",
   XADREZ = "CHECKER",
+  TIJOLO = "BRICK",
+  LADRILHO = "TILES",
   MOSAICO_CINZA = "MOSAIC_GREY",
   TAPETE2 = "CARPET2",
 }
@@ -251,10 +280,12 @@ Mesa.USO = {
   deck = "MADEIRA",
   combate = "TAPETE",
   evento = "TAPETE2",
+  descarte = "LADRILHO",
+  destruidas = "TIJOLO",
 }
 
 -- Retângulos, em tiles, inclusivos.
-Mesa.MESA = { col_min = 5, col_max = 19, lin_min = 3, lin_max = 16 } -- 15 x 14
+Mesa.MESA = { col_min = 5, col_max = 19, lin_min = 2, lin_max = 17 } -- 15 x 16
 Mesa.MOLDURA = 1 -- tiles de pedra em volta da mesa
 Mesa.PATIO = { col_min = 1, col_max = 3, lin_min = 9, lin_max = 11 } -- pátio do portal
 
@@ -262,14 +293,12 @@ Mesa.PATIO = { col_min = 1, col_max = 3, lin_min = 9, lin_max = 11 } -- pátio d
 -- no caso espelhado (ver o cabeçalho).
 local COLUNAS_CRIATURA = { 6, 8, 10, 12, 14, 16 }
 
--- Coluna do par de combate: no meio das colunas de criatura.
-local COLUNA_COMBATE = 11
-
--- Linhas de cada lado: a fileira de trás (decks e estruturas), a carta, a
--- criatura e o quadrado de combate.
+-- Linhas de cada lado: a fileira de trás (2 tiles: `fundo` é o de trás,
+-- longe do centro, e `fundo_frente` o da frente), a carta, a criatura e o
+-- quadrado de combate.
 local LINHAS = {
-  [1] = { fundo = 15, carta = 13, criatura = 12, combate = 10 },
-  [2] = { fundo = 4, carta = 6, criatura = 7, combate = 9 },
+  [1] = { fundo = 16, fundo_frente = 15, carta = 13, criatura = 12, combate = 10 },
+  [2] = { fundo = 3, fundo_frente = 4, carta = 6, criatura = 7, combate = 9 },
 }
 
 -- Atrás de que espaço de criatura (na numeração do próprio jogador) fica
@@ -278,26 +307,47 @@ local ESPACO_DA_ESTRUTURA = { 3, 4 }
 local ESPACO_DO_DECK = { principal = 1, extra = 6 }
 Mesa.DECKS = { "principal", "extra" }
 
--- Espaço de eventos (suposição registrada no #147; o dono pode mudar o lado
--- ou o tamanho): a coluna, do lado oposto ao portal, com 1 coluna de
--- paralelepípedos entre ela e a última coluna de cartas, e as linhas, que
--- são as do combate. O tile do lado do jogador 2 é a pilha e o do lado do
--- jogador 1 é o evento em vigor. Para mudar, basta trocar estes valores (e
--- Mesa.MESA, se a coluna sair da mesa).
+-- Coluna dos eventos, do lado oposto ao portal, com 1 coluna de
+-- paralelepípedos entre ela e a última coluna de cartas. De cima para baixo
+-- ela leva as destruídas e o descarte do jogador 2, o espaço de eventos (nas
+-- duas linhas de combate) e o descarte e as destruídas do jogador 1. No
+-- espaço de eventos, o tile do lado do jogador 2 é a pilha e o do lado do
+-- jogador 1 é o evento em vigor. Para mudar o lado, basta trocar esta coluna
+-- (e Mesa.MESA, se ela sair da mesa).
 local COLUNA_EVENTO = 18
 local LINHAS_EVENTO = { pilha = LINHAS[2].combate, em_vigor = LINHAS[1].combate }
 Mesa.PARTES_DO_EVENTO = { "pilha", "em_vigor" }
 
--- Ponto entre os dois quadrados de combate (rótulo "Combate"): o centro do
--- retângulo das estruturas e o ponto de onde sai o heading das câmeras.
-Mesa.CENTRO = { col = COLUNA_COMBATE, lin = (LINHAS[1].combate + LINHAS[2].combate) / 2 }
+-- Partes (tiles) de cada bloco de 2 tiles, de trás para a frente.
+Mesa.PARTES = {
+  criatura = { "carta", "criatura" },
+  estrutura = { "carta", "frente" },
+  deck = { "tras", "frente" },
+  descarte = { "tras", "frente" },
+  destruidas = { "tras", "frente" },
+}
 
--- Centro geométrico da mesa 15 x 14 (alvo da câmera): com a coluna de
+-- Centro do combate e da mesa nas linhas: o ponto entre as duas fileiras de
+-- combate, na coluna do meio das 6 colunas de criatura (uma coluna de
+-- paralelepípedos, entre os pares 3 e 4). É o centro do retângulo das
+-- estruturas e o ponto de onde sai o heading das câmeras.
+Mesa.CENTRO = {
+  col = (COLUNAS_CRIATURA[1] + COLUNAS_CRIATURA[#COLUNAS_CRIATURA]) / 2,
+  lin = (LINHAS[1].combate + LINHAS[2].combate) / 2,
+}
+
+-- Centro geométrico da mesa 15 x 16 (alvo da câmera): com a coluna de
 -- eventos, fica 1 coluna para o lado dela em relação ao combate.
 Mesa.CENTRO_DA_MESA = {
   col = (Mesa.MESA.col_min + Mesa.MESA.col_max) / 2,
   lin = (Mesa.MESA.lin_min + Mesa.MESA.lin_max) / 2,
 }
+
+-- Onde fica o rótulo "Combate": na coluna de paralelepípedos da borda da
+-- mesa do lado do portal (a que fica ao lado da primeira coluna de espaços),
+-- entre as duas fileiras de combate. Não fica sobre os quadrados porque é
+-- em cima deles que as criaturas duelam.
+Mesa.ROTULO_COMBATE = { col = Mesa.MESA.col_min, lin = Mesa.CENTRO.lin }
 
 local function invertida(lista)
   local r = {}
@@ -315,18 +365,37 @@ local function espaco_de_criatura(col, linhas)
   }
 end
 
+-- Um bloco de 2 tiles numa coluna: `atras` e `frente` são os nomes das
+-- partes (Mesa.PARTES) e lin_atras e lin_frente as linhas.
+local function bloco(col, atras, lin_atras, frente, lin_frente)
+  return {
+    col = col,
+    [atras] = { col = col, lin = lin_atras },
+    [frente] = { col = col, lin = lin_frente },
+  }
+end
+
 local function lado(jogador, nome, colunas_criatura)
   local linhas = LINHAS[jogador]
-  local criaturas, estruturas, decks = {}, {}, {}
-  for i, col in ipairs(colunas_criatura) do criaturas[i] = espaco_de_criatura(col, linhas) end
-  for i, n in ipairs(ESPACO_DA_ESTRUTURA) do estruturas[i] = { col = criaturas[n].col, lin = linhas.fundo } end
-  for qual, n in pairs(ESPACO_DO_DECK) do decks[qual] = { col = criaturas[n].col, lin = linhas.fundo } end
+  local criaturas, estruturas, decks, combate = {}, {}, {}, {}
+  for i, col in ipairs(colunas_criatura) do
+    criaturas[i] = espaco_de_criatura(col, linhas)
+    combate[i] = { col = col, lin = linhas.combate }
+  end
+  for i, n in ipairs(ESPACO_DA_ESTRUTURA) do
+    estruturas[i] = bloco(criaturas[n].col, "carta", linhas.fundo, "frente", linhas.fundo_frente)
+  end
+  for qual, n in pairs(ESPACO_DO_DECK) do
+    decks[qual] = bloco(criaturas[n].col, "tras", linhas.fundo, "frente", linhas.fundo_frente)
+  end
   return {
     lado = nome,
     criaturas = criaturas,
     estruturas = estruturas,
     decks = decks,
-    combate = { col = COLUNA_COMBATE, lin = linhas.combate },
+    combate = combate,
+    descarte = bloco(COLUNA_EVENTO, "tras", linhas.carta, "frente", linhas.criatura),
+    destruidas = bloco(COLUNA_EVENTO, "tras", linhas.fundo, "frente", linhas.fundo_frente),
   }
 end
 
@@ -352,24 +421,41 @@ local function dentro(ret, col, lin, folga)
 end
 
 -- Devolve o uso do tile ("carta", "criatura", "estrutura", "deck",
--- "combate", "evento", "chao", "moldura", "patio" ou "fora") e, quando é um
--- espaço, o jogador (0 no espaço de eventos, que é neutro) e o número do
--- espaço na ordem das listas do layout (nos decks, "principal" ou "extra";
--- nos eventos, "pilha" ou "em_vigor"; no combate, nada).
+-- "combate", "evento", "descarte", "destruidas", "chao", "moldura", "patio"
+-- ou "fora") e, quando é um espaço:
+--   * o jogador (0 no espaço de eventos, que é neutro);
+--   * o número do espaço na ordem das listas do layout (nos decks,
+--     "principal" ou "extra"; no combate, o número do quadrado; nos eventos,
+--     "pilha" ou "em_vigor"; no descarte e nas destruídas, nada);
+--   * a parte do bloco de 2 tiles (Mesa.PARTES; nada no combate e nos
+--     eventos).
 function Mesa.uso_em(col, lin)
+  local function parte_em(e, uso)
+    for _, parte in ipairs(Mesa.PARTES[uso]) do
+      if e[parte].col == col and e[parte].lin == lin then return parte end
+    end
+    return nil
+  end
   for jogador, l in ipairs(Mesa.JOGADORES) do
     for n, e in ipairs(l.criaturas) do
-      if e.carta.col == col and e.carta.lin == lin then return "carta", jogador, n end
-      if e.criatura.col == col and e.criatura.lin == lin then return "criatura", jogador, n end
+      local parte = parte_em(e, "criatura")
+      if parte ~= nil then return parte, jogador, n, parte end
     end
     for n, e in ipairs(l.estruturas) do
-      if e.col == col and e.lin == lin then return "estrutura", jogador, n end
+      local parte = parte_em(e, "estrutura")
+      if parte ~= nil then return "estrutura", jogador, n, parte end
     end
     for _, qual in ipairs(Mesa.DECKS) do
-      local e = l.decks[qual]
-      if e.col == col and e.lin == lin then return "deck", jogador, qual end
+      local parte = parte_em(l.decks[qual], "deck")
+      if parte ~= nil then return "deck", jogador, qual, parte end
     end
-    if l.combate.col == col and l.combate.lin == lin then return "combate", jogador end
+    for k, e in ipairs(l.combate) do
+      if e.col == col and e.lin == lin then return "combate", jogador, k end
+    end
+    for _, uso in ipairs({ "descarte", "destruidas" }) do
+      local parte = parte_em(l[uso], uso)
+      if parte ~= nil then return uso, jogador, nil, parte end
+    end
   end
   for _, parte in ipairs(Mesa.PARTES_DO_EVENTO) do
     local e = Mesa.EVENTO[parte]
@@ -400,7 +486,7 @@ end
 
 -- Mapa ASCII da grade (o mesmo do cabeçalho), uma string por linha.
 local SIMBOLO = { fora = ".", moldura = "o", patio = "o", chao = "R", carta = "K", criatura = "V",
-  estrutura = "E", evento = "e" }
+  estrutura = "E", evento = "e", descarte = "L", destruidas = "Z" }
 local SIMBOLO_DECK = { principal = "P", extra = "X" }
 local SIMBOLO_COMBATE = { [1] = "A", [2] = "D" }
 
@@ -458,19 +544,37 @@ function Mesa.espaco_criatura(jogador, n)
   return Mesa.JOGADORES[jogador].criaturas[n]
 end
 
--- Espaço de estrutura n (1..2) de um jogador, na ordem do layout: {col, lin}.
+-- Espaço de estrutura n (1..2) de um jogador, na ordem do layout:
+-- { col, carta = {col, lin}, frente = {col, lin} }. Como no espaço de
+-- criatura, o tile de trás é o da carta e o da frente é onde a estrutura
+-- fica em pé.
 function Mesa.espaco_estrutura(jogador, n)
   return Mesa.JOGADORES[jogador].estruturas[n]
 end
 
--- Deck de um jogador, `qual` = "principal" ou "extra": {col, lin}.
+-- Deck de um jogador, `qual` = "principal" ou "extra":
+-- { col, tras = {col, lin}, frente = {col, lin} }, um bloco só de 2 tiles.
 function Mesa.espaco_deck(jogador, qual)
   return Mesa.JOGADORES[jogador].decks[qual]
 end
 
--- Quadrado de combate de um jogador: {col, lin}.
-function Mesa.espaco_combate(jogador)
-  return Mesa.JOGADORES[jogador].combate
+-- Quadrado de combate k (1..6) de um jogador, na ordem do layout: {col, lin}.
+-- O quadrado k fica na coluna do espaço de criatura k do mesmo jogador, de
+-- frente para o quadrado 7 - k do outro.
+function Mesa.espaco_combate(jogador, k)
+  return Mesa.JOGADORES[jogador].combate[k]
+end
+
+-- Descarte de um jogador: { col, tras = {col, lin}, frente = {col, lin} },
+-- na coluna dos eventos, nas linhas da carta e da criatura dele.
+function Mesa.espaco_descarte(jogador)
+  return Mesa.JOGADORES[jogador].descarte
+end
+
+-- Destruídas de um jogador: { col, tras = {col, lin}, frente = {col, lin} },
+-- na coluna dos eventos, nas linhas da fileira de trás dele.
+function Mesa.espaco_destruidas(jogador)
+  return Mesa.JOGADORES[jogador].destruidas
 end
 
 -- Espaço de eventos (um só, dos dois jogadores):
@@ -483,13 +587,16 @@ end
 -- Calibração no jogo (US #30, refeita no #147)
 -- ---------------------------------------------------------------------------
 
--- Distância, em tiles, entre as colunas e entre as linhas das estruturas:
--- 2 colunas (10 e 12) e 11 linhas (4 e 15).
+-- Padrão das estruturas: 4 blocos de 1 x 2 tiles (8 tiles), nos cantos de um
+-- retângulo. Distância, em tiles, entre as colunas (10 e 12: 2) e entre as
+-- linhas de fora (3 e 16: 13), e a altura de cada bloco (2).
 Mesa.ESTRUTURAS_DX = math.abs(Mesa.JOGADORES[1].estruturas[2].col - Mesa.JOGADORES[1].estruturas[1].col)
 Mesa.ESTRUTURAS_DZ = LINHAS[1].fundo - LINHAS[2].fundo
+Mesa.ESTRUTURAS_ALTURA = #Mesa.PARTES.estrutura
+Mesa.TILES_DE_ESTRUTURA = 2 * #ESPACO_DA_ESTRUTURA * Mesa.ESTRUTURAS_ALTURA
 
--- Centro do retângulo das estruturas, em tiles do layout: (11; 9,5), o ponto
--- entre os dois quadrados de combate.
+-- Centro do retângulo das estruturas, em tiles do layout: (11; 9,5), o
+-- centro do combate (Mesa.CENTRO).
 local CENTRO_ESTRUTURAS = {
   col = (Mesa.JOGADORES[1].estruturas[1].col + Mesa.JOGADORES[1].estruturas[2].col) / 2,
   lin = (LINHAS[1].fundo + LINHAS[2].fundo) / 2,
@@ -526,29 +633,24 @@ end
 
 -- Recebe a lista dos tiles de estrutura (MOSAIC_GREY) achados em volta do
 -- portal, cada um { x = tile_x, y = tile_y } (coordenadas de TheWorld.Map),
--- e devolve o retângulo { x_min, x_max, y_min, y_max } se eles forem
--- exatamente os 4 cantos de um retângulo com ESTRUTURAS_DX colunas e
--- ESTRUTURAS_DZ linhas entre eles. Senão devolve nil e o motivo.
+-- e devolve o retângulo { x_min, x_max, y_min, y_max } que os contém se eles
+-- forem exatamente os 8 tiles do padrão: 4 blocos de 1 x ESTRUTURAS_ALTURA
+-- nos cantos de um retângulo com ESTRUTURAS_DX colunas e ESTRUTURAS_DZ
+-- linhas entre os tiles de fora. Senão devolve nil e o motivo.
 function Mesa.achar_estruturas(tiles)
   if tiles == nil or #tiles == 0 then return nil, "nenhum tile de estrutura" end
   local unicos = sem_repetidos(tiles)
-  local xs, ys, nx, ny = {}, {}, 0, 0
-  for _, t in ipairs(unicos) do
-    if not xs[t.x] then xs[t.x] = true; nx = nx + 1 end
-    if not ys[t.y] then ys[t.y] = true; ny = ny + 1 end
-  end
-  if #unicos ~= 4 then
-    return nil, string.format("%d tiles de estrutura, esperados 4", #unicos)
-  end
-  if nx ~= 2 or ny ~= 2 then
-    return nil, "os 4 tiles de estrutura não formam um retângulo"
+  if #unicos ~= Mesa.TILES_DE_ESTRUTURA then
+    return nil, string.format("%d tiles de estrutura, esperados %d", #unicos, Mesa.TILES_DE_ESTRUTURA)
   end
   local r = { x_min = math.huge, x_max = -math.huge, y_min = math.huge, y_max = -math.huge }
+  local achados = {}
   for _, t in ipairs(unicos) do
     if t.x < r.x_min then r.x_min = t.x end
     if t.x > r.x_max then r.x_max = t.x end
     if t.y < r.y_min then r.y_min = t.y end
     if t.y > r.y_max then r.y_max = t.y end
+    achados[t.x .. "," .. t.y] = true
   end
   local dx, dy = r.x_max - r.x_min, r.y_max - r.y_min
   if dx == Mesa.ESTRUTURAS_DZ and dy == Mesa.ESTRUTURAS_DX then
@@ -557,6 +659,16 @@ function Mesa.achar_estruturas(tiles)
   if dx ~= Mesa.ESTRUTURAS_DX or dy ~= Mesa.ESTRUTURAS_DZ then
     return nil, string.format("estruturas a %d x %d tiles uma da outra, esperado %d x %d",
       dx, dy, Mesa.ESTRUTURAS_DX, Mesa.ESTRUTURAS_DZ)
+  end
+  -- Os tiles têm de ser os dos 4 blocos: nas duas colunas de fora, as
+  -- ESTRUTURAS_ALTURA linhas de cada ponta.
+  for _, x in ipairs({ r.x_min, r.x_max }) do
+    for i = 0, Mesa.ESTRUTURAS_ALTURA - 1 do
+      if not achados[x .. "," .. (r.y_min + i)] or not achados[x .. "," .. (r.y_max - i)] then
+        return nil, string.format("os %d tiles de estrutura não formam 4 blocos de 1 x %d nos cantos",
+          Mesa.TILES_DE_ESTRUTURA, Mesa.ESTRUTURAS_ALTURA)
+      end
+    end
   end
   return r
 end
@@ -606,8 +718,8 @@ end
 --     do mundo (no jogo, TheWorld.Map:GetTileCenterPoint);
 --   eventos: lista dos tiles de eventos achados, { x, y } (pode faltar);
 --   portal: { x, z }, posição do multiplayer_portal no mundo (pode faltar).
--- O centro do retângulo das estruturas é Mesa.CENTRO, o ponto entre os dois
--- quadrados de combate. O espelhamento sai do lado em que a coluna de
+-- O centro do retângulo das estruturas é Mesa.CENTRO, o centro da mesa e do
+-- combate. O espelhamento sai do lado em que a coluna de
 -- eventos ficou (no layout, a leste do centro: se no mundo ela aparece com x
 -- menor, o eixo x foi espelhado). Sem os eventos, sai do lado do portal (a
 -- oeste no layout), com aviso; sem os dois, vale o medido no jogo
@@ -709,13 +821,14 @@ function Mesa.posicao_abs(col, lin, calib)
   return Mesa.posicao(col, lin, calib.origem_x, calib.origem_z, calib.espelhado)
 end
 
--- Ponto entre os dois quadrados de combate, no mundo.
+-- Centro do combate (entre as duas fileiras, no meio das 6 colunas), no
+-- mundo.
 function Mesa.centro_abs(calib)
   calib = calib_ou_atual(calib)
   return Mesa.posicao_abs(Mesa.CENTRO.col, Mesa.CENTRO.lin, calib)
 end
 
--- Centro geométrico da mesa 15 x 14, no mundo (alvo da câmera).
+-- Centro geométrico da mesa 15 x 16, no mundo (alvo da câmera).
 function Mesa.centro_da_mesa_abs(calib)
   calib = calib_ou_atual(calib)
   return Mesa.posicao_abs(Mesa.CENTRO_DA_MESA.col, Mesa.CENTRO_DA_MESA.lin, calib)
@@ -732,8 +845,8 @@ end
 -- tela. Em cameras/followcamera.lua, GetDownVec = (cos h, sin h) é a direção
 -- do mundo que aponta para baixo na tela (a câmera olha para (-cos h, -sin h)
 -- e fica atrás do alvo nessa direção). Então h = atan2(dz, dx) do vetor que
--- vai do centro (o ponto entre os quadrados de combate, na coluna do meio
--- das criaturas) até a fileira de criaturas do jogador. Com o eixo z não
+-- vai do centro (entre as duas fileiras de combate, na coluna do meio das
+-- criaturas) até a fileira de criaturas do jogador. Com o eixo z não
 -- espelhado, o jogador 1 (sul, z maior) dá 90 e o jogador 2 dá 270.
 function Mesa.heading(jogador, calib)
   calib = calib_ou_atual(calib)
@@ -791,43 +904,77 @@ function Mesa.espaco_criatura_abs(jogador, n, calib)
   }
 end
 
--- O tile da fileira de trás do jogador que fica atrás (na mesma coluna) do
--- espaço de criatura n da numeração da câmera.
+-- O bloco da lista que fica atrás (na mesma coluna) do espaço de criatura n
+-- da numeração da câmera.
 local function atras_do_espaco(lista, jogador, n, calib)
   local espaco = Mesa.espaco_criatura_abs(jogador, n, calib)
   if espaco == nil then return nil end
   for _, e in pairs(lista) do
-    if e.col == espaco.carta.col then return tile_abs(e, calib) end
+    if e.col == espaco.carta.col then return e end
   end
   return nil
 end
 
+-- Bloco de 2 tiles em posição absoluta: cada parte { x, z, col, lin } e
+-- centro = { x, z }, a junção dos dois tiles.
+local function bloco_abs(e, partes, calib)
+  local r = { centro = { x = 0, z = 0 } }
+  for _, parte in ipairs(partes) do
+    r[parte] = tile_abs(e[parte], calib)
+    r.centro.x = r.centro.x + r[parte].x / #partes
+    r.centro.z = r.centro.z + r[parte].z / #partes
+  end
+  return r
+end
+
 -- Espaço de estrutura n (1..2): a 1 fica atrás do espaço 3 e a 2 atrás do 4
--- de quem olha. Devolve x, z, col, lin.
+-- de quem olha. Devolve { carta, frente }, cada um { x, z, col, lin } (a
+-- carta no tile de trás, a estrutura em pé no da frente), e centro = { x, z }.
 function Mesa.espaco_estrutura_abs(jogador, n, calib)
   calib = calib_ou_atual(calib)
   if calib == nil or ESPACO_DA_ESTRUTURA[n] == nil then return nil end
-  local t = atras_do_espaco(Mesa.JOGADORES[jogador].estruturas, jogador, ESPACO_DA_ESTRUTURA[n], calib)
-  if t == nil then return nil end
-  return t.x, t.z, t.col, t.lin
+  local e = atras_do_espaco(Mesa.JOGADORES[jogador].estruturas, jogador, ESPACO_DA_ESTRUTURA[n], calib)
+  if e == nil then return nil end
+  return bloco_abs(e, Mesa.PARTES.estrutura, calib)
 end
 
 -- Deck do jogador, `qual` = "principal" (atrás do espaço 1 de quem olha) ou
--- "extra" (atrás do 6). Devolve x, z, col, lin.
+-- "extra" (atrás do 6). Devolve { tras, frente }, cada um { x, z, col, lin },
+-- e centro = { x, z } (a junção dos 2 tiles, onde fica o rótulo).
 function Mesa.espaco_deck_abs(jogador, qual, calib)
   calib = calib_ou_atual(calib)
   if calib == nil or ESPACO_DO_DECK[qual] == nil then return nil end
-  local t = atras_do_espaco(Mesa.JOGADORES[jogador].decks, jogador, ESPACO_DO_DECK[qual], calib)
-  if t == nil then return nil end
+  local e = atras_do_espaco(Mesa.JOGADORES[jogador].decks, jogador, ESPACO_DO_DECK[qual], calib)
+  if e == nil then return nil end
+  return bloco_abs(e, Mesa.PARTES.deck, calib)
+end
+
+-- Quadrado de combate k (1..6) do jogador, na numeração de quem olha pela
+-- câmera dele: o quadrado k fica na coluna do espaço de criatura k, de
+-- frente para o quadrado 7 - k do outro. Devolve x, z, col, lin.
+function Mesa.espaco_combate_abs(jogador, k, calib)
+  calib = calib_ou_atual(calib)
+  if calib == nil or Mesa.JOGADORES[jogador] == nil then return nil end
+  local e = atras_do_espaco(Mesa.JOGADORES[jogador].combate, jogador, k, calib)
+  if e == nil then return nil end
+  local t = tile_abs(e, calib)
   return t.x, t.z, t.col, t.lin
 end
 
--- Quadrado de combate do jogador. Devolve x, z, col, lin.
-function Mesa.espaco_combate_abs(jogador, calib)
+-- Descarte do jogador. Devolve { tras, frente }, cada um { x, z, col, lin },
+-- e centro = { x, z }.
+function Mesa.espaco_descarte_abs(jogador, calib)
   calib = calib_ou_atual(calib)
   if calib == nil or Mesa.JOGADORES[jogador] == nil then return nil end
-  local t = tile_abs(Mesa.JOGADORES[jogador].combate, calib)
-  return t.x, t.z, t.col, t.lin
+  return bloco_abs(Mesa.JOGADORES[jogador].descarte, Mesa.PARTES.descarte, calib)
+end
+
+-- Destruídas do jogador. Devolve { tras, frente }, cada um { x, z, col, lin },
+-- e centro = { x, z }.
+function Mesa.espaco_destruidas_abs(jogador, calib)
+  calib = calib_ou_atual(calib)
+  if calib == nil or Mesa.JOGADORES[jogador] == nil then return nil end
+  return bloco_abs(Mesa.JOGADORES[jogador].destruidas, Mesa.PARTES.destruidas, calib)
 end
 
 -- Espaço de eventos (neutro). Devolve { pilha, em_vigor }, cada um
@@ -836,54 +983,59 @@ end
 function Mesa.espaco_evento_abs(calib)
   calib = calib_ou_atual(calib)
   if calib == nil then return nil end
-  local e = { centro = { x = 0, z = 0 } }
-  local n = #Mesa.PARTES_DO_EVENTO
-  for _, parte in ipairs(Mesa.PARTES_DO_EVENTO) do
-    e[parte] = tile_abs(Mesa.EVENTO[parte], calib)
-    e.centro.x = e.centro.x + e[parte].x / n
-    e.centro.z = e.centro.z + e[parte].z / n
-  end
-  return e
+  return bloco_abs(Mesa.EVENTO, Mesa.PARTES_DO_EVENTO, calib)
+end
+
+-- Ponto do rótulo "Combate" no mundo (Mesa.ROTULO_COMBATE). Devolve x, z.
+function Mesa.rotulo_combate_abs(calib)
+  calib = calib_ou_atual(calib)
+  if calib == nil then return nil end
+  return Mesa.posicao_abs(Mesa.ROTULO_COMBATE.col, Mesa.ROTULO_COMBATE.lin, calib)
 end
 
 -- Todos os tiles de espaço em posição absoluta, com a numeração da câmera:
--- 12 cartas, 12 criaturas, 4 estruturas, 4 decks, 2 de combate e 2 de
--- eventos (36). Cada item: { x, z, col, lin, jogador, tipo, n }, com
---   tipo "carta" | "criatura" | "estrutura": n = número do espaço;
---   tipo "deck": n = "principal" | "extra";
---   tipo "combate": sem n;
+-- 12 cartas, 12 criaturas, 8 de estrutura, 8 de deck, 12 de combate, 4 de
+-- descarte, 4 de destruídas e 2 de eventos (62). Cada item:
+-- { x, z, col, lin, jogador, tipo, n, parte }, com
+--   tipo "carta" | "criatura": n = número do espaço;
+--   tipo "estrutura": n = número da estrutura, parte = "carta" | "frente";
+--   tipo "deck": n = "principal" | "extra", parte = "tras" | "frente";
+--   tipo "combate": n = número do quadrado (o do espaço da mesma coluna);
+--   tipo "descarte" | "destruidas": sem n, parte = "tras" | "frente";
 --   tipo "evento": jogador = 0 (neutro), n = "pilha" | "em_vigor".
 -- O `tipo` é o uso do tile (Mesa.USO[tipo] dá o piso esperado).
 function Mesa.tiles_dos_espacos(calib)
   calib = calib_ou_atual(calib)
   if calib == nil then return nil end
   local lista = {}
-  local function por(x, z, col, lin, jogador, tipo, n)
-    lista[#lista + 1] = { x = x, z = z, col = col, lin = lin, jogador = jogador, tipo = tipo, n = n }
+  local function por(t, jogador, tipo, n, parte)
+    lista[#lista + 1] = { x = t.x, z = t.z, col = t.col, lin = t.lin, jogador = jogador, tipo = tipo, n = n,
+      parte = parte }
+  end
+  local function por_bloco(e, jogador, tipo, n)
+    for _, parte in ipairs(Mesa.PARTES[tipo]) do por(e[parte], jogador, tipo, n, parte) end
   end
   for p = 1, 2 do
     for n = 1, #Mesa.JOGADORES[p].criaturas do
       local e = Mesa.espaco_criatura_abs(p, n, calib)
-      for _, tipo in ipairs({ "carta", "criatura" }) do
-        local t = e[tipo]
-        por(t.x, t.z, t.col, t.lin, p, tipo, n)
-      end
+      for _, tipo in ipairs(Mesa.PARTES.criatura) do por(e[tipo], p, tipo, n) end
     end
     for n = 1, #Mesa.JOGADORES[p].estruturas do
-      local x, z, col, lin = Mesa.espaco_estrutura_abs(p, n, calib)
-      por(x, z, col, lin, p, "estrutura", n)
+      por_bloco(Mesa.espaco_estrutura_abs(p, n, calib), p, "estrutura", n)
     end
     for _, qual in ipairs(Mesa.DECKS) do
-      local x, z, col, lin = Mesa.espaco_deck_abs(p, qual, calib)
-      por(x, z, col, lin, p, "deck", qual)
+      por_bloco(Mesa.espaco_deck_abs(p, qual, calib), p, "deck", qual)
     end
-    local x, z, col, lin = Mesa.espaco_combate_abs(p, calib)
-    por(x, z, col, lin, p, "combate", nil)
+    for k = 1, #Mesa.JOGADORES[p].combate do
+      local x, z, col, lin = Mesa.espaco_combate_abs(p, k, calib)
+      por({ x = x, z = z, col = col, lin = lin }, p, "combate", k)
+    end
+    por_bloco(Mesa.espaco_descarte_abs(p, calib), p, "descarte", nil)
+    por_bloco(Mesa.espaco_destruidas_abs(p, calib), p, "destruidas", nil)
   end
   local evento = Mesa.espaco_evento_abs(calib)
   for _, parte in ipairs(Mesa.PARTES_DO_EVENTO) do
-    local t = evento[parte]
-    por(t.x, t.z, t.col, t.lin, 0, "evento", parte)
+    por(evento[parte], 0, "evento", parte)
   end
   return lista
 end

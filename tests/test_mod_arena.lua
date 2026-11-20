@@ -220,13 +220,15 @@ return {
       usados[v] = (usados[v] or 0) + 1
     end
     T.eq(usados[Mesa.TILE.XADREZ], 24, "12 espaços de criatura com 2 tiles cada")
-    T.eq(usados[Mesa.TILE.MOSAICO_CINZA], 4, "4 espaços de estrutura")
-    T.eq(usados[Mesa.TILE.MADEIRA], 4, "4 decks")
-    T.eq(usados[Mesa.TILE.TAPETE], 2, "2 quadrados de combate")
+    T.eq(usados[Mesa.TILE.MOSAICO_CINZA], 8, "4 espaços de estrutura com 2 tiles cada")
+    T.eq(usados[Mesa.TILE.MADEIRA], 8, "4 decks com 2 tiles cada")
+    T.eq(usados[Mesa.TILE.TAPETE], 12, "6 pares de quadrados de combate")
     T.eq(usados[Mesa.TILE.TAPETE2], 2, "2 tiles do espaço de eventos")
-    T.eq(usados[Mesa.TILE.PARALELEPIPEDO], 15 * 14 - 36, "paralelepípedos: o resto da mesa 15 x 14")
-    T.eq(usados[Mesa.TILE.PEDRA], 17 * 16 - 15 * 14 + 3 * 3, "pedra: a moldura de 1 tile e o pátio 3 x 3")
-    T.eq(usados[Mesa.TILE.FORA], 21 * 21 - 17 * 16 - 3 * 3, "fora da moldura e do pátio")
+    T.eq(usados[Mesa.TILE.LADRILHO], 4, "2 descartes com 2 tiles cada")
+    T.eq(usados[Mesa.TILE.TIJOLO], 4, "2 blocos de destruídas com 2 tiles cada")
+    T.eq(usados[Mesa.TILE.PARALELEPIPEDO], 15 * 16 - 62, "paralelepípedos: o resto da mesa 15 x 16")
+    T.eq(usados[Mesa.TILE.PEDRA], 17 * 18 - 15 * 16 + 3 * 3, "pedra: a moldura de 1 tile e o pátio 3 x 3")
+    T.eq(usados[Mesa.TILE.FORA], 21 * 21 - 17 * 18 - 3 * 3, "fora da moldura e do pátio")
     T.eq(usados[Mesa.TILE.IMPASSAVEL], nil, "nenhum tile intransitável explícito")
 
     local portal, spawn
@@ -263,12 +265,12 @@ return {
 
   { "tiles do layout conferidos em GROUND_TYPES", function(T)
     -- map/static_layout.lua, GROUND_TYPES, contando um a um: 2 = ROAD,
-    -- 3 = ROCKY, 9 = WOODFLOOR, 10 = CARPET, 11 = CHECKER, 47 = MOSAIC_GREY,
-    -- 50 = CARPET2.
+    -- 3 = ROCKY, 9 = WOODFLOOR, 10 = CARPET, 11 = CHECKER, 25 = BRICK,
+    -- 27 = TILES, 47 = MOSAIC_GREY, 50 = CARPET2.
     local esperado = {
       PARALELEPIPEDO = { 2, "ROAD" }, PEDRA = { 3, "ROCKY" }, MADEIRA = { 9, "WOODFLOOR" },
-      TAPETE = { 10, "CARPET" }, XADREZ = { 11, "CHECKER" }, MOSAICO_CINZA = { 47, "MOSAIC_GREY" },
-      TAPETE2 = { 50, "CARPET2" },
+      TAPETE = { 10, "CARPET" }, XADREZ = { 11, "CHECKER" }, TIJOLO = { 25, "BRICK" }, LADRILHO = { 27, "TILES" },
+      MOSAICO_CINZA = { 47, "MOSAIC_GREY" }, TAPETE2 = { 50, "CARPET2" },
     }
     for nome, e in pairs(esperado) do
       T.eq(Mesa.TILE[nome], e[1], nome .. ": índice de " .. e[2])
@@ -289,7 +291,7 @@ return {
     end
     -- Cada tipo de espaço tem o seu piso (carta e criatura dividem o xadrez).
     local pisos = {}
-    for _, uso in ipairs({ "criatura", "estrutura", "deck", "combate", "evento" }) do
+    for _, uso in ipairs({ "criatura", "estrutura", "deck", "combate", "evento", "descarte", "destruidas" }) do
       T.ok(not pisos[Mesa.USO[uso]], uso .. " com piso próprio")
       pisos[Mesa.USO[uso]] = uso
     end
@@ -299,65 +301,84 @@ return {
   { "espaços de mesa.lua caem nos tiles certos, sem sobreposição", function(T)
     local bg = require("duelo/mod/layouts/mesa").layers[1].data
     local function tile(col, lin) return bg[lin * Mesa.LARGURA + col + 1] end
-    local ocupados = {}
+    local ocupados, total = {}, 0
     local function marcar(e, nome)
       local chave = e.col .. "," .. e.lin
       T.ok(not ocupados[chave], nome .. " sobrepõe " .. tostring(ocupados[chave]))
       ocupados[chave] = nome
+      total = total + 1
+    end
+    -- Bloco de 2 tiles: as duas partes na mesma coluna, encostadas, sobre o
+    -- piso `piso`.
+    local function marcar_bloco(e, partes, piso, nome)
+      for _, parte in ipairs(partes) do
+        T.eq(e[parte].col, e.col, nome .. ": " .. parte .. " na coluna do bloco")
+        T.eq(tile(e[parte].col, e[parte].lin), piso, nome .. " (" .. parte .. ")")
+        marcar(e[parte], nome .. " (" .. parte .. ")")
+      end
+      T.eq(math.abs(e[partes[1]].lin - e[partes[2]].lin), 1, nome .. ": os 2 tiles encostados")
     end
     for jogador = 1, 2 do
       local j = Mesa.JOGADORES[jogador]
       T.eq(#j.criaturas, 6, "6 criaturas do jogador " .. jogador)
       T.eq(#j.estruturas, 2, "2 estruturas do jogador " .. jogador)
+      T.eq(#j.combate, 6, "6 quadrados de combate do jogador " .. jogador)
       for n, e in ipairs(j.criaturas) do
         T.eq(Mesa.espaco_criatura(jogador, n), e, "espaco_criatura")
-        T.eq(tile(e.carta.col, e.carta.lin), Mesa.TILE.XADREZ, "carta " .. jogador .. "/" .. n)
-        T.eq(tile(e.criatura.col, e.criatura.lin), Mesa.TILE.XADREZ, "criatura " .. jogador .. "/" .. n)
-        T.eq(e.combate, nil, "o espaço de criatura não tem mais tile de combate próprio")
-        marcar(e.carta, "carta " .. jogador .. "/" .. n)
-        marcar(e.criatura, "criatura " .. jogador .. "/" .. n)
+        T.eq(e.combate, nil, "o quadrado de combate não faz parte do espaço de criatura")
+        marcar_bloco(e, { "carta", "criatura" }, Mesa.TILE.XADREZ, "criatura " .. jogador .. "/" .. n)
       end
       for n, e in ipairs(j.estruturas) do
-        T.eq(tile(e.col, e.lin), Mesa.TILE.MOSAICO_CINZA, "estrutura " .. jogador .. "/" .. n)
         T.eq(Mesa.espaco_estrutura(jogador, n), e, "espaco_estrutura")
-        marcar(e, "estrutura " .. jogador .. "/" .. n)
+        marcar_bloco(e, { "carta", "frente" }, Mesa.TILE.MOSAICO_CINZA, "estrutura " .. jogador .. "/" .. n)
       end
       for _, qual in ipairs({ "principal", "extra" }) do
-        local e = Mesa.espaco_deck(jogador, qual)
-        T.eq(tile(e.col, e.lin), Mesa.TILE.MADEIRA, "deck " .. qual .. " do jogador " .. jogador)
-        marcar(e, "deck " .. jogador .. "/" .. qual)
+        marcar_bloco(Mesa.espaco_deck(jogador, qual), { "tras", "frente" }, Mesa.TILE.MADEIRA, "deck " .. jogador .. "/" .. qual)
       end
-      local c = Mesa.espaco_combate(jogador)
-      T.eq(tile(c.col, c.lin), Mesa.TILE.TAPETE, "combate do jogador " .. jogador)
-      marcar(c, "combate " .. jogador)
+      for k = 1, 6 do
+        local c = Mesa.espaco_combate(jogador, k)
+        T.eq(c, j.combate[k], "espaco_combate")
+        T.eq(tile(c.col, c.lin), Mesa.TILE.TAPETE, "combate " .. jogador .. "/" .. k)
+        marcar(c, "combate " .. jogador .. "/" .. k)
+      end
+      T.eq(Mesa.espaco_combate(jogador, 7), nil, "não há quadrado de combate 7")
+      marcar_bloco(Mesa.espaco_descarte(jogador), { "tras", "frente" }, Mesa.TILE.LADRILHO, "descarte " .. jogador)
+      marcar_bloco(Mesa.espaco_destruidas(jogador), { "tras", "frente" }, Mesa.TILE.TIJOLO, "destruídas " .. jogador)
     end
     local ev = Mesa.espaco_evento()
     for _, parte in ipairs({ "pilha", "em_vigor" }) do
       T.eq(tile(ev[parte].col, ev[parte].lin), Mesa.TILE.TAPETE2, "evento " .. parte)
       marcar(ev[parte], "evento " .. parte)
     end
-    -- Colunas da mesa (0..14, a partir da borda oeste): espaços em 1, 3,
-    -- ..., 11; combate em 6; eventos em 13.
+    T.eq(total, 62, "62 tiles de espaço")
+    -- Colunas da mesa (0..14, a partir da borda oeste): espaços e combate em
+    -- 1, 3, ..., 11; eventos, descarte e destruídas em 13.
     local m = Mesa.MESA
-    for n = 1, 6 do T.eq(Mesa.espaco_criatura(1, n).col - m.col_min, 2 * n - 1, "coluna do espaço " .. n) end
-    T.eq(Mesa.espaco_combate(1).col - m.col_min, 6, "combate na coluna 6 da mesa")
+    for n = 1, 6 do
+      T.eq(Mesa.espaco_criatura(1, n).col - m.col_min, 2 * n - 1, "coluna do espaço " .. n)
+      T.eq(Mesa.espaco_combate(1, n).col - m.col_min, 2 * n - 1, "coluna do quadrado de combate " .. n)
+    end
     T.eq(ev.pilha.col - m.col_min, 13, "eventos na coluna 13 da mesa")
-    -- Linhas da mesa (0..13): 1 fileira de trás do J2, 3 cartas do J2,
-    -- 4 criaturas do J2, 6 combate do J2, 7 combate do J1, 9 criaturas do J1,
-    -- 10 cartas do J1, 12 fileira de trás do J1.
+    -- Linhas da mesa (0..15): 1 e 2 fileira de trás do J2, 4 cartas do J2,
+    -- 5 criaturas do J2, 7 combate do J2, 8 combate do J1, 10 criaturas do
+    -- J1, 11 cartas do J1, 13 e 14 fileira de trás do J1.
     local function lin(t) return t.lin - m.lin_min end
-    T.eq(lin(Mesa.espaco_estrutura(2, 1)), 1, "estruturas do J2")
-    T.eq(lin(Mesa.espaco_deck(2, "principal")), 1, "decks do J2")
-    T.eq(lin(Mesa.espaco_criatura(2, 1).carta), 3, "cartas do J2")
-    T.eq(lin(Mesa.espaco_criatura(2, 1).criatura), 4, "criaturas do J2")
-    T.eq(lin(Mesa.espaco_combate(2)), 6, "combate do J2")
-    T.eq(lin(Mesa.espaco_combate(1)), 7, "combate do J1")
-    T.eq(lin(Mesa.espaco_criatura(1, 1).criatura), 9, "criaturas do J1")
-    T.eq(lin(Mesa.espaco_criatura(1, 1).carta), 10, "cartas do J1")
-    T.eq(lin(Mesa.espaco_estrutura(1, 1)), 12, "estruturas do J1")
-    T.eq(lin(Mesa.espaco_deck(1, "extra")), 12, "decks do J1")
+    T.eq(lin(Mesa.espaco_estrutura(2, 1).carta), 1, "carta das estruturas do J2")
+    T.eq(lin(Mesa.espaco_estrutura(2, 1).frente), 2, "estruturas do J2 em pé")
+    T.eq(lin(Mesa.espaco_deck(2, "principal").tras), 1, "decks do J2 (trás)")
+    T.eq(lin(Mesa.espaco_deck(2, "principal").frente), 2, "decks do J2 (frente)")
+    T.eq(lin(Mesa.espaco_criatura(2, 1).carta), 4, "cartas do J2")
+    T.eq(lin(Mesa.espaco_criatura(2, 1).criatura), 5, "criaturas do J2")
+    T.eq(lin(Mesa.espaco_combate(2, 1)), 7, "combate do J2")
+    T.eq(lin(Mesa.espaco_combate(1, 1)), 8, "combate do J1")
+    T.eq(lin(Mesa.espaco_criatura(1, 1).criatura), 10, "criaturas do J1")
+    T.eq(lin(Mesa.espaco_criatura(1, 1).carta), 11, "cartas do J1")
+    T.eq(lin(Mesa.espaco_estrutura(1, 1).frente), 13, "estruturas do J1 em pé")
+    T.eq(lin(Mesa.espaco_estrutura(1, 1).carta), 14, "carta das estruturas do J1")
+    T.eq(lin(Mesa.espaco_deck(1, "extra").frente), 13, "decks do J1 (frente)")
+    T.eq(lin(Mesa.espaco_deck(1, "extra").tras), 14, "decks do J1 (trás)")
     T.eq(m.col_max - m.col_min + 1, 15, "15 colunas")
-    T.eq(m.lin_max - m.lin_min + 1, 14, "14 linhas")
+    T.eq(m.lin_max - m.lin_min + 1, 16, "16 linhas")
     -- Cada jogador conta da sua esquerda: o espaço n de um fica de frente
     -- para o 7 - n do outro (mesma coluna).
     for n = 1, 6 do
@@ -379,8 +400,8 @@ return {
     x, z = Mesa.centro_do_tile(10, 10)
     T.eq(x, 0, "o tile (10, 10) é o centro do layout")
     T.eq(z, 0, "o tile (10, 10) é o centro do layout")
-    -- O centro (ponto entre os dois quadrados de combate) fica na coluna 11,
-    -- na junção das linhas 9 e 10.
+    -- O centro (entre as duas fileiras de combate, no meio das 6 colunas)
+    -- fica na coluna 11, na junção das linhas 9 e 10.
     T.eq(Mesa.CENTRO.col, 11, "centro na coluna 11")
     T.eq(Mesa.CENTRO.lin, 9.5, "entre as linhas 9 e 10")
     x, z = Mesa.centro_do_tile(Mesa.CENTRO.col, Mesa.CENTRO.lin)
@@ -413,37 +434,48 @@ return {
   -- Layout do bug #147 (pedido do dono no teste em jogo)
   -- -------------------------------------------------------------------------
 
-  { "paralelepípedos em volta de cada espaço e nenhum espaço encostado em outro, fora o par de combate", function(T)
+  { "paralelepípedos em volta de cada bloco: só se encostam os tiles de um bloco e os 2 quadrados de um par de combate", function(T)
     local bg = require("duelo/mod/layouts/mesa").layers[1].data
     local function tile(col, lin) return bg[lin * Mesa.LARGURA + col + 1] end
-    -- Dono de cada tile de espaço (carta e criatura do mesmo espaço contam
-    -- como o mesmo espaço; os 2 tiles de eventos também).
+    -- Bloco de cada tile de espaço: os 2 tiles de um espaço de criatura, de
+    -- uma estrutura, de um deck, do descarte, das destruídas ou dos eventos
+    -- são o mesmo bloco; cada quadrado de combate é o seu.
     local function espaco(col, lin)
       local uso, jogador, n = Mesa.uso_em(col, lin)
       if uso == "carta" or uso == "criatura" then return jogador .. "/criatura/" .. n end
       if uso == "estrutura" or uso == "deck" then return jogador .. "/" .. uso .. "/" .. n end
-      if uso == "combate" then return jogador .. "/combate" end
+      if uso == "combate" then return jogador .. "/combate/" .. n end
+      if uso == "descarte" or uso == "destruidas" then return jogador .. "/" .. uso end
       if uso == "evento" then return "evento" end
       return nil
     end
-    local tiles_de_espaco, encostados = 0, 0
+    local tiles_de_espaco, encostados, tamanho = 0, 0, {}
     for lin = 0, Mesa.ALTURA - 1 do
       for col = 0, Mesa.LARGURA - 1 do
         local dono = espaco(col, lin)
         if dono then
           tiles_de_espaco = tiles_de_espaco + 1
-          -- Os 8 vizinhos: ou são do mesmo espaço, ou são paralelepípedos; a
-          -- única exceção é o quadrado de combate do outro jogador.
+          tamanho[dono] = (tamanho[dono] or 0) + 1
+          -- Os 8 vizinhos: ou são do mesmo bloco, ou são paralelepípedos; a
+          -- única exceção é o quadrado de combate do outro jogador que forma
+          -- o par, logo acima ou abaixo.
           for dl = -1, 1 do
             for dc = -1, 1 do
               if dl ~= 0 or dc ~= 0 then
                 local outro = espaco(col + dc, lin + dl)
                 local nome = dono .. " em " .. col .. "," .. lin .. " vizinho " .. (col + dc) .. "," .. (lin + dl)
                 if outro and outro ~= dono then
-                  T.ok(dono:find("/combate") and outro:find("/combate"), nome .. " encosta em outro espaço")
+                  T.ok(dono:find("/combate/") and outro:find("/combate/"), nome .. " encosta em outro espaço")
                   T.eq(dc, 0, nome .. ": um em cima do outro")
+                  -- O par: o quadrado k de um com o 7 - k do outro.
+                  local p1, k1 = dono:match("^(%d)/combate/(%d)$")
+                  local p2, k2 = outro:match("^(%d)/combate/(%d)$")
+                  T.ok(p1 ~= p2, nome .. ": de jogadores diferentes")
+                  T.eq(tonumber(k1) + tonumber(k2), 7, nome .. ": o quadrado k de um com o 7 - k do outro")
                   encostados = encostados + 1
-                elseif not outro then
+                elseif outro == dono then
+                  T.eq(dc, 0, nome .. ": os 2 tiles do bloco na mesma coluna")
+                else
                   T.eq(tile(col + dc, lin + dl), Mesa.TILE.PARALELEPIPEDO, nome .. " é paralelepípedo")
                 end
               end
@@ -452,8 +484,14 @@ return {
         end
       end
     end
-    T.eq(tiles_de_espaco, 36, "36 tiles de espaço")
-    T.eq(encostados, 2, "só o par de combate se encosta (visto dos dois lados)")
+    T.eq(tiles_de_espaco, 62, "62 tiles de espaço")
+    T.eq(encostados, 12, "só os 6 pares de combate se encostam (vistos dos dois lados)")
+    local blocos = 0
+    for dono, n in pairs(tamanho) do
+      blocos = blocos + 1
+      T.eq(n, dono:find("/combate/") and 1 or 2, dono .. ": 1 tile por quadrado de combate, 2 por bloco")
+    end
+    T.eq(blocos, 12 + 4 + 4 + 12 + 2 + 2 + 1, "12 criaturas, 4 estruturas, 4 decks, 12 quadrados, 2 descartes, 2 destruídas e os eventos")
   end },
 
   { "paralelepípedos na borda da mesa, moldura de pedra em volta e o pátio do portal", function(T)
@@ -511,43 +549,83 @@ return {
     end
   end },
 
-  { "combate: um par de quadrados no centro, um por jogador, cada um do seu lado", function(T)
+  { "combate: 6 pares de quadrados, um par na frente de cada coluna de espaços", function(T)
     local m = Mesa.MESA
-    local c1, c2 = Mesa.espaco_combate(1), Mesa.espaco_combate(2)
-    T.eq(c1.col, c2.col, "um em cima do outro")
-    T.eq(c1.lin - c2.lin, 1, "encostados, o do jogador 1 ao sul")
-    T.eq(c1.col, (Mesa.espaco_criatura(1, 1).col + Mesa.espaco_criatura(1, 6).col) / 2, "no meio das colunas de criatura")
-    T.eq((c1.lin + c2.lin) / 2, (m.lin_min + m.lin_max) / 2, "no meio das linhas da mesa")
-    T.eq(Mesa.CENTRO.col, c1.col, "Mesa.CENTRO na coluna do combate")
-    T.eq(Mesa.CENTRO.lin, (c1.lin + c2.lin) / 2, "Mesa.CENTRO entre os dois quadrados")
-    local combates = 0
+    for k = 1, 6 do
+      local c1, c2 = Mesa.espaco_combate(1, k), Mesa.espaco_combate(2, 7 - k)
+      T.eq(c1.col, Mesa.espaco_criatura(1, k).col, "quadrado " .. k .. " do J1 na coluna do espaço " .. k .. " dele")
+      T.eq(c2.col, Mesa.espaco_criatura(2, 7 - k).col, "quadrado " .. (7 - k) .. " do J2 na coluna do espaço " .. (7 - k) .. " dele")
+      T.eq(c1.col, c2.col, "o " .. k .. " de um de frente para o " .. (7 - k) .. " do outro")
+      T.eq(c1.lin - c2.lin, 1, "encostados, o do jogador 1 ao sul")
+      T.eq((c1.lin + c2.lin) / 2, (m.lin_min + m.lin_max) / 2, "no meio das linhas da mesa")
+      T.eq((c1.lin + c2.lin) / 2, Mesa.CENTRO.lin, "Mesa.CENTRO entre as duas fileiras")
+      -- Paralelepípedos entre as colunas de combate.
+      T.eq(Mesa.uso_em(c1.col - 1, c1.lin), "chao", "paralelepípedos à esquerda do par " .. k)
+      T.eq(Mesa.uso_em(c1.col + 1, c2.lin), "chao", "paralelepípedos à direita do par " .. k)
+      local uso, jogador, n = Mesa.uso_em(c1.col, c1.lin)
+      T.eq(uso, "combate", "uso")
+      T.eq(jogador, 1, "do jogador 1")
+      T.eq(n, k, "número do quadrado")
+    end
+    T.eq(Mesa.CENTRO.col, (Mesa.espaco_criatura(1, 1).col + Mesa.espaco_criatura(1, 6).col) / 2, "Mesa.CENTRO no meio das colunas de criatura")
+    T.eq(Mesa.uso_em(Mesa.CENTRO.col, 9), "chao", "o centro fica numa coluna de paralelepípedos, entre os pares 3 e 4")
+    local combates = { 0, 0 }
     for lin = 0, Mesa.ALTURA - 1 do
       for col = 0, Mesa.LARGURA - 1 do
         local uso, jogador = Mesa.uso_em(col, lin)
         if jogador == 1 then T.ok(lin > Mesa.CENTRO.lin, "jogador 1 ao sul do centro") end
         if jogador == 2 then T.ok(lin < Mesa.CENTRO.lin, "jogador 2 ao norte do centro") end
-        if uso == "combate" then combates = combates + 1 end
+        if uso == "combate" then combates[jogador] = combates[jogador] + 1 end
       end
     end
-    T.eq(combates, 2, "só 2 tiles de combate: não é mais a fileira inteira")
+    T.eq(combates[1], 6, "6 quadrados do jogador 1")
+    T.eq(combates[2], 6, "6 quadrados do jogador 2")
     T.eq(Mesa.COMBATE, nil, "a zona de combate de fileira inteira não existe mais")
     T.eq(Mesa.CENTRO_COMBATE, nil, "nem o centro antigo")
+    -- O rótulo "Combate": na coluna de paralelepípedos da borda, do lado do
+    -- portal, entre as duas fileiras.
+    local r = Mesa.ROTULO_COMBATE
+    T.eq(r.col, m.col_min, "rótulo na coluna da borda")
+    T.eq(r.col, Mesa.espaco_combate(1, 1).col - 1, "ao lado da primeira coluna de espaços")
+    T.eq(r.lin, Mesa.CENTRO.lin, "entre as duas fileiras")
+    T.eq(Mesa.uso_em(r.col, 9), "chao", "sobre paralelepípedos")
+    T.eq(Mesa.uso_em(r.col, 10), "chao", "nas duas linhas")
   end },
 
-  { "fileira de trás: principal atrás do 1, estruturas atrás do 3 e do 4, extra atrás do 6", function(T)
+  { "fileira de trás de 2 tiles: principal atrás do 1, estruturas atrás do 3 e do 4, extra atrás do 6", function(T)
     for jogador = 1, 2 do
       local nome = "jogador " .. jogador
-      local fundo = Mesa.espaco_estrutura(jogador, 1).lin
+      local e1 = Mesa.espaco_estrutura(jogador, 1)
       local carta = Mesa.espaco_criatura(jogador, 1).carta.lin
-      T.eq(math.abs(fundo - Mesa.CENTRO.lin), math.abs(carta - Mesa.CENTRO.lin) + 2, nome .. ": 2 linhas atrás das cartas")
+      local function longe(t) return math.abs(t.lin - Mesa.CENTRO.lin) end
+      -- Estrutura: a carta atrás e a estrutura em pé na frente, como no
+      -- espaço de criatura.
+      T.eq(longe(e1.frente), math.abs(carta - Mesa.CENTRO.lin) + 2, nome .. ": 1 linha de paralelepípedos atrás das cartas")
+      T.eq(longe(e1.carta), longe(e1.frente) + 1, nome .. ": a carta da estrutura atrás dela")
       T.eq(Mesa.espaco_deck(jogador, "principal").col, Mesa.espaco_criatura(jogador, 1).col, nome .. ": principal atrás do 1")
-      T.eq(Mesa.espaco_estrutura(jogador, 1).col, Mesa.espaco_criatura(jogador, 3).col, nome .. ": estrutura 1 atrás do 3")
+      T.eq(e1.col, Mesa.espaco_criatura(jogador, 3).col, nome .. ": estrutura 1 atrás do 3")
       T.eq(Mesa.espaco_estrutura(jogador, 2).col, Mesa.espaco_criatura(jogador, 4).col, nome .. ": estrutura 2 atrás do 4")
       T.eq(Mesa.espaco_deck(jogador, "extra").col, Mesa.espaco_criatura(jogador, 6).col, nome .. ": extra atrás do 6")
+      T.eq(Mesa.espaco_estrutura(jogador, 2).carta.lin, e1.carta.lin, nome .. ": estruturas na mesma fileira (carta)")
+      T.eq(Mesa.espaco_estrutura(jogador, 2).frente.lin, e1.frente.lin, nome .. ": estruturas na mesma fileira (frente)")
       for _, e in ipairs({ Mesa.espaco_deck(jogador, "principal"), Mesa.espaco_deck(jogador, "extra"),
-        Mesa.espaco_estrutura(jogador, 2) }) do
-        T.eq(e.lin, fundo, nome .. ": tudo na mesma fileira")
+        Mesa.espaco_destruidas(jogador) }) do
+        T.eq(e.tras.lin, e1.carta.lin, nome .. ": tile de trás na linha de fora")
+        T.eq(e.frente.lin, e1.frente.lin, nome .. ": tile da frente na linha de dentro")
+        T.eq(e.tras.col, e.frente.col, nome .. ": os 2 tiles na mesma coluna")
       end
+      -- uso_em diz a parte de cada tile.
+      local uso, dono, n, parte = Mesa.uso_em(e1.carta.col, e1.carta.lin)
+      T.eq(uso, "estrutura", nome .. ": uso do tile da carta")
+      T.eq(dono, jogador, nome .. ": dono")
+      T.eq(n, 1, nome .. ": número da estrutura")
+      T.eq(parte, "carta", nome .. ": parte")
+      T.eq(select(4, Mesa.uso_em(e1.frente.col, e1.frente.lin)), "frente", nome .. ": parte do tile da frente")
+      local d = Mesa.espaco_deck(jogador, "extra")
+      uso, dono, n, parte = Mesa.uso_em(d.tras.col, d.tras.lin)
+      T.eq(uso, "deck", nome .. ": uso do deck")
+      T.eq(n, "extra", nome .. ": qual deck")
+      T.eq(parte, "tras", nome .. ": parte do deck")
       T.eq(Mesa.espaco_deck(jogador, "outro"), nil, "não há outro deck")
     end
     -- O espaço n de um fica de frente para o 7 - n do outro: o principal de
@@ -560,8 +638,8 @@ return {
   { "eventos: um espaço neutro de 2 tiles, alinhado ao combate, na borda oposta ao portal", function(T)
     local m, ev = Mesa.MESA, Mesa.espaco_evento()
     T.eq(ev.pilha.col, ev.em_vigor.col, "os 2 tiles na mesma coluna")
-    T.eq(ev.pilha.lin, Mesa.espaco_combate(2).lin, "pilha na linha do combate do jogador 2")
-    T.eq(ev.em_vigor.lin, Mesa.espaco_combate(1).lin, "evento em vigor na linha do combate do jogador 1")
+    T.eq(ev.pilha.lin, Mesa.espaco_combate(2, 1).lin, "pilha na linha do combate do jogador 2")
+    T.eq(ev.em_vigor.lin, Mesa.espaco_combate(1, 1).lin, "evento em vigor na linha do combate do jogador 1")
     T.eq(ev.pilha.col, m.col_max - 1, "na penúltima coluna: paralelepípedos na borda")
     T.eq(ev.pilha.col - Mesa.espaco_criatura(1, 6).col, 2, "1 coluna de paralelepípedos depois da última carta")
     T.eq(Mesa.uso_em(ev.pilha.col - 1, ev.pilha.lin), "chao", "coluna de separação")
@@ -582,23 +660,25 @@ return {
     -- Mapa do comentário da issue #147, visto pelo jogador 1 (embaixo).
     local pedido = {
       "RRRRRRRRRRRRRRR",
-      "RXRRRERERRRPRRR",
+      "RXRRRERERRRPRZR",
+      "RXRRRERERRRPRZR",
       "RRRRRRRRRRRRRRR",
-      "RKRKRKRKRKRKRRR",
-      "RVRVRVRVRVRVRRR",
+      "RKRKRKRKRKRKRLR",
+      "RVRVRVRVRVRVRLR",
       "RRRRRRRRRRRRRRR",
-      "RRRRRRDRRRRRReR",
-      "RRRRRRARRRRRReR",
+      "RDRDRDRDRDRDReR",
+      "RARARARARARAReR",
       "RRRRRRRRRRRRRRR",
-      "RVRVRVRVRVRVRRR",
-      "RKRKRKRKRKRKRRR",
+      "RVRVRVRVRVRVRLR",
+      "RKRKRKRKRKRKRLR",
       "RRRRRRRRRRRRRRR",
-      "RPRRRERERRRXRRR",
+      "RPRRRERERRRXRZR",
+      "RPRRRERERRRXRZR",
       "RRRRRRRRRRRRRRR",
     }
     local m = Mesa.MESA
     local gerado = Mesa.mapa_ascii()
-    T.eq(#pedido, m.lin_max - m.lin_min + 1, "14 linhas")
+    T.eq(#pedido, m.lin_max - m.lin_min + 1, "16 linhas")
     for i, linha in ipairs(pedido) do
       T.eq(gerado[m.lin_min + i]:sub(m.col_min + 1, m.col_max + 1), linha, "linha " .. (i - 1) .. " da mesa")
     end
@@ -610,7 +690,7 @@ return {
     f:close()
     local linhas = {}
     for linha in texto:gmatch("[^\n]+") do
-      local lin, grade = linha:match("^%-%-[%slin]+(%d+)%s+([%.oRKVEPXADe@]+)")
+      local lin, grade = linha:match("^%-%-[%slin]+(%d+)%s+([%.oRKVEPXADeLZ@]+)")
       if lin and #grade == Mesa.LARGURA then linhas[tonumber(lin) + 1] = grade end
     end
     local gerado = Mesa.mapa_ascii()

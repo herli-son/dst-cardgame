@@ -13,8 +13,8 @@
 --       - duelo/mod/calibracao.lua: o servidor acha a mesa no mapa (estruturas
 --         e coluna de eventos, em volta do portal) e manda a calibração aos clientes (Mesa.calibracao).
 --       - duelo/mod/marcadores.lua + prefabs/duelo_marcador.lua: número e
---         dono de cada espaço (criaturas, estruturas e decks) e os rótulos
---         "Combate" e "Eventos" das zonas compartilhadas.
+--         dono de cada espaço (criaturas, estruturas, decks, descarte e
+--         destruídas) e os rótulos "Combate" e "Eventos".
 --       - duelo/mod/contornos.lua: contorno (tile_outline do jogo, local a
 --         cada cliente) em cada tile de espaço, na cor do dono (bug #147).
 --       - duelo/mod/camera.lua: lado de cada jogador (1, 2 ou espectador) e

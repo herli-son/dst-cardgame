@@ -61,22 +61,39 @@
 --     a = atan((1,5 + d sen(p)) / f) é o ângulo dele abaixo do horizonte
 --     (Camera.altura_na_tela, que faz a mesma conta com o pitch de qualquer
 --     distância).
---     A mesa 15 x 14 vai de 28 unidades abaixo a 28 acima do centro (7
---     tiles), e a fileira de trás do próprio lado fica a 22 abaixo. Com
---     DISTANCIA = 80 e DESLOCAMENTO = 12 (de baixo para cima da tela):
---       borda de perto da mesa                    21%
---       fileira de trás do próprio lado (centro)  32%   (referência
---         confirmada no jogo acima da barra de inventário: 19,3%)
---       cartas e criaturas do próprio lado        45% e 51%
---       par de combate                            62% e 67%
---       criaturas e cartas do outro lado          76% e 80%
---       fileira de trás do outro lado             88%
---       borda de longe da mesa                    93%
---     Na largura (16:9), o alvo é o centro geométrico da mesa
---     (Mesa.centro_da_mesa_abs), 1 coluna para o lado dos eventos em relação
---     ao combate: os cantos de perto da mesa (30 unidades para cada lado)
---     ficam a 76% da meia largura da tela; do outro lado, o portal a 81% e
---     a beira do pátio a 96%.
+--     A mesa 15 x 16 vai de 32 unidades abaixo a 32 acima do centro (8
+--     tiles). A fileira de trás do próprio lado tem 2 tiles: o de trás (a
+--     carta da estrutura, os decks, as destruídas) com o centro a 26 abaixo
+--     e a beira de perto a 28; o da frente a 22. DISTANCIA = 80 é a pedida
+--     pelo dono; sem deslocar o alvo, o tile de trás ficaria em -1% da
+--     altura, fora da tela. Com DESLOCAMENTO = 12 unidades para o lado de
+--     quem olha (ao longo de GetDownVec), a beira de perto desse tile fica
+--     em 20,8%, acima do ponto confirmado no jogo como visível sobre a
+--     barra de inventário (19,3%, Camera.REFERENCIA_INVENTARIO), e o outro
+--     lado ainda cabe inteiro. De baixo para cima da tela, em 16:9:
+--       borda de perto da mesa                          13%
+--       fileira de trás do próprio lado (tile de trás)  25% (beira: 21%)
+--       fileira de trás do próprio lado (tile da frente) 32%
+--       cartas e criaturas do próprio lado              45% e 51%
+--       as duas fileiras de combate                     62% e 67%
+--       criaturas e cartas do outro lado                76% e 80%
+--       fileira de trás do outro lado                   88% e 91% (beira: 93%)
+--       borda de longe da mesa                          96%
+--     A moldura de pedra de longe fica em 99%, no limite da tela. Com menos
+--     deslocamento a fileira de trás desce (10: beira em 17%); com mais, a
+--     borda de longe sai (16: 99%).
+--     Na largura, a mesa não é simétrica em volta do combate (a coluna dos
+--     eventos fica de um lado), então o alvo é o centro geométrico da mesa
+--     (Mesa.centro_da_mesa_abs), 1 coluna para o lado dos eventos: os
+--     cantos de perto da mesa (30 unidades para cada lado) ficam a 79% da
+--     meia largura da tela; a coluna dos eventos, com o descarte e as
+--     destruídas, a no máximo 66%; do outro lado, o portal a 81% e a beira
+--     do pátio a 96%. Em 4:3 todos os espaços cabem (o mais aberto, as
+--     destruídas de perto, a 88%), mas a borda de paralelepípedos de perto
+--     e o pátio do portal saem pela lateral.
+--     Com o zoom: em 180 (pitch 60) a mesa inteira ocupa de 33% a 79% da
+--     altura; abaixo de uns 70 ela já não cabe inteira (a borda de longe
+--     sai por cima e a fileira de trás de perto desce para a barra).
 --     Antes: mesa 15 x 14 com a câmera do jogo no máximo (80, pitch 60) e
 --     DESLOCAMENTO = 8; mesa 13 x 11, DISTANCIA = 65, DESLOCAMENTO = 5.
 --   * heading: `SetHeadingTarget(h)`. Em followcamera.lua (Apply), a câmera
@@ -304,7 +321,7 @@ local function proteger(cam)
 end
 
 -- Posição do alvo da câmera: o centro geométrico da mesa (que, com a coluna
--- de eventos, fica 1 coluna para o lado dela em relação ao par de combate)
+-- de eventos, fica 1 coluna para o lado dela em relação ao combate)
 -- deslocado DESLOCAMENTO unidades na direção que fica embaixo da tela,
 -- (cos h, sin h).
 function Camera.alvo(calib, heading)

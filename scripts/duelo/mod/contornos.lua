@@ -1,9 +1,10 @@
 -- Contornos dos espaços da mesa (bug #147, decisão da #30).
 --
--- Cada tile de espaço (36: carta e criatura dos 12 espaços de criatura, 4
--- estruturas, 4 decks, os 2 quadrados de combate e os 2 tiles do espaço de
--- eventos) ganha um contorno no chão do tamanho de um tile, na cor do dono:
--- azul para o jogador 1, vermelho para o 2 e amarelo para o espaço de
+-- Cada tile de espaço (62: carta e criatura dos 12 espaços de criatura, 8 de
+-- estrutura, 8 de deck, os 12 quadrados de combate, 4 de descarte, 4 de
+-- destruídas e os 2 tiles do espaço de eventos) ganha um contorno no chão
+-- do tamanho de um tile, na cor do dono: azul para o jogador 1, vermelho
+-- para o 2 e amarelo para o espaço de
 -- eventos, que não tem dono. O contorno é o `tile_outline` do próprio jogo
 -- (prefabs/gridplacer.lua), o mesmo quadrado do `gridplacer` que aparece ao
 -- colocar turf (mesmo bank, build e animação), mas sem o componente `placer`.
@@ -67,7 +68,7 @@ Contornos.SEM_DESTAQUE = { 0, 0, 0, 0 }
 local estado = {
   GLOBAL = nil,
   Mesa = nil,
-  contornos = {}, -- lista de { inst, jogador, tipo, n }
+  contornos = {}, -- lista de { inst, jogador, tipo, n, parte }
   avisou = false,
 }
 
@@ -96,7 +97,7 @@ function Contornos.remover()
 end
 
 -- Cliente com tela (inclusive o host): remove os contornos antigos e cria um
--- tile_outline em cada um dos 36 tiles de espaço. Devolve a lista.
+-- tile_outline em cada um dos 62 tiles de espaço. Devolve a lista.
 function Contornos.criar(calib)
   if dedicado() then return nil end
   Contornos.remover()
@@ -112,7 +113,8 @@ function Contornos.criar(calib)
     local r, g, b = Contornos.cor(t.jogador)
     inst.AnimState:SetMultColour(r, g, b, 1)
     inst.persists = false
-    estado.contornos[#estado.contornos + 1] = { inst = inst, jogador = t.jogador, tipo = t.tipo, n = t.n }
+    estado.contornos[#estado.contornos + 1] = { inst = inst, jogador = t.jogador, tipo = t.tipo, n = t.n,
+      parte = t.parte }
   end
   return estado.contornos
 end
@@ -123,9 +125,10 @@ end
 
 -- Destaca (ou apaga o destaque de) um espaço. `tipo`:
 --   "criatura": os 2 tiles (carta e criatura) do espaço `n` do jogador;
---   "estrutura": a estrutura `n`;
---   "deck": o deck `n` ("principal" ou "extra");
---   "combate": o quadrado de combate do jogador (sem `n`);
+--   "estrutura": os 2 tiles (carta e frente) da estrutura `n`;
+--   "deck": os 2 tiles do deck `n` ("principal" ou "extra");
+--   "combate": o quadrado de combate `n` do jogador (nil: os 6);
+--   "descarte" | "destruidas": os 2 tiles do bloco do jogador (sem `n`);
 --   "evento": o espaço de eventos, com jogador 0; `n` = "pilha" ou
 --     "em_vigor", ou nil para os 2 tiles.
 -- `n` na numeração da câmera. Devolve quantos contornos mudaram. Para a
