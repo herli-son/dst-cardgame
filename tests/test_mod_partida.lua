@@ -1102,6 +1102,150 @@ return {
     T.eq(c.Cliente.seq(), 4)
   end },
 
+  { "pedido de fotografia perdido é repetido por tempo, dentro do limite do servidor", function(T)
+    local net, s, cs = mesa()
+    local g = iniciar(s, { first = 1 })
+    local c = cs[2]
+    net.relogio = 100
+    -- O lote da próxima ação some para o jogador 2, e as fotografias também.
+    net.perder = function(userid, tipo) return userid == "KU_dois" and (tipo == "eventos" or tipo == "estado") end
+    T.ok(cs[1].Cliente.enviar({ type = "pass" }))
+    net.perder = function(userid, tipo) return userid == "KU_dois" and tipo == "estado" end
+    net.relogio = 101
+    T.ok(cs[2].Cliente.enviar({ type = "pass" }))
+    T.eq(net.rpcs_servidor.pedir_estado, 1, "buraco: pediu a fotografia")
+    T.eq(c.Cliente.esperando_estado(), true, "e ela não chegou")
+    T.eq(c.Cliente.seq(), 1)
+    -- Antes de 1 s nada é repetido, por mais que o tique rode.
+    for _, t in ipairs({ 101.1, 101.25, 101.5, 101.75, 101.99 }) do
+      net.relogio = t
+      T.eq(c.Cliente.tique(), false, "cedo demais em t = " .. t)
+    end
+    T.eq(net.rpcs_servidor.pedir_estado, 1)
+    -- Passado 1 s, repete; a resposta se perde de novo.
+    net.relogio = 102
+    T.eq(c.Cliente.tique(), true, "repetiu o pedido")
+    T.eq(net.rpcs_servidor.pedir_estado, 2)
+    net.relogio = 102.5
+    T.eq(c.Cliente.tique(), false)
+    -- Na terceira vez a fotografia chega e o cliente volta a ficar em dia.
+    net.perder = nil
+    net.relogio = 103.01
+    T.eq(c.Cliente.tique(), true)
+    T.eq(net.rpcs_servidor.pedir_estado, 3)
+    T.eq(c.Cliente.esperando_estado(), false, "a fotografia chegou")
+    T.eq(c.Cliente.seq(), 3)
+    conferir_visoes(T, s, cs, "depois das retentativas")
+    -- Sem pedido no ar, o tique não faz nada.
+    for _, t in ipairs({ 104, 105, 110 }) do
+      net.relogio = t
+      T.eq(c.Cliente.tique(), false)
+    end
+    T.eq(net.rpcs_servidor.pedir_estado, 3, "sem pedidos à toa")
+    -- Nenhum pedido foi ignorado pelo limite do servidor: os três foram respondidos.
+    local respostas = 0
+    for _, msg in ipairs(net.mensagens.KU_dois) do
+      if msg.tipo == "estado" and msg.m.seq and msg.m.seq >= 2 then respostas = respostas + 1 end
+    end
+    T.eq(respostas, 3, "o servidor respondeu a todos os pedidos")
+    T.eq(c.Cliente.ESPERA_PEDIDO, 1)
+    T.ok(1 / c.Cliente.ESPERA_PEDIDO <= s.Rede.LIMITES.ESTADOS_POR_SEGUNDO, "dentro do limite do servidor")
+  end },
+
+  { "o jogador local, ao ativar, pede a fotografia e liga a tarefa periódica das retentativas", function(T)
+    local relogio = 50
+    local pedidos, tarefas, eventos = 0, {}, {}
+    local jogador = { userid = "KU_x" }
+    function jogador:ListenForEvent(nome, fn) eventos[nome] = fn end
+    function jogador:DoStaticPeriodicTask(intervalo, fn) tarefas[#tarefas + 1] = { intervalo = intervalo, fn = fn }; return {} end
+    function jogador:DoPeriodicTask() error("a tarefa tem de ser a estática, que roda na pausa") end
+    local outro = { userid = "KU_y" }
+    function outro:ListenForEvent(nome, fn) self.ativar = fn end
+    local rede = { pedir_estado = function() pedidos = pedidos + 1 end, enviar_acao = function() return true end }
+    local Cliente = carregar("partida_cliente").instalar({
+      rede = rede,
+      GLOBAL = { ThePlayer = jogador, GetTime = function() error("relógio da simulação não serve") end },
+      AddPlayerPostInit = function(fn) fn(jogador); fn(outro) end,
+      agora = function() return relogio end,
+    })
+    outro.ativar()
+    T.eq(pedidos, 0, "outro jogador ativando não pede nada")
+    eventos.playeractivated()
+    T.eq(pedidos, 1, "pediu a fotografia ao ativar")
+    T.eq(#tarefas, 1, "ligou a tarefa periódica")
+    T.eq(tarefas[1].intervalo, Cliente.INTERVALO_TIQUE)
+    eventos.playeractivated()
+    T.eq(#tarefas, 1, "uma tarefa só, mesmo ativando de novo")
+    -- A tarefa repete o pedido quando passa o tempo, pelo relógio injetado.
+    relogio = 50.5
+    tarefas[1].fn()
+    T.eq(pedidos, 1)
+    relogio = 51.2
+    tarefas[1].fn()
+    T.eq(pedidos, 2, "repetiu depois de 1 s")
+    Cliente.receber("estado", { partida = false })
+    relogio = 60
+    tarefas[1].fn()
+    T.eq(pedidos, 2, "com a resposta recebida, para de pedir")
+  end },
+
+  { "taxa: usa o tempo real (não para na pausa) e esquece as janelas vencidas e de quem saiu", function(T)
+    local net, s, cs = mesa()
+    local g = iniciar(s, { first = 1 })
+    local conta = vigiar(g)
+    local max = s.Rede.LIMITES.ACOES_POR_SEGUNDO
+    -- O relógio da simulação (GLOBAL.GetTime) está parado em 0 nesta mesa:
+    -- se a taxa o usasse, a janela aberta aqui nunca venceria.
+    T.eq(s.GLOBAL.GetTime(), 0)
+    net.relogio = 500
+    for _ = 1, max + 5 do cs[2].Cliente.enviar({ type = "pass" }) end
+    T.eq(conta.can_act, max, "a janela encheu")
+    net.relogio = 501.2
+    cs[2].Cliente.enviar({ type = "pass" })
+    T.eq(conta.can_act, max + 1, "com o servidor pausado, a janela vence pelo tempo real")
+    -- As janelas vencidas somem quando chega o próximo pedido, de quem for.
+    cs[1].Cliente.pedir_estado()
+    cs[3].Cliente.pedir_estado()
+    T.eq(s.Rede.janelas(), 3, "três jogadores com janela aberta")
+    net.relogio = 510
+    cs[1].Cliente.pedir_estado()
+    T.eq(s.Rede.janelas(), 1, "as vencidas foram apagadas")
+    -- Quem sai é esquecido na hora.
+    s.Rede.esquecer("KU_um")
+    T.eq(s.Rede.janelas(), 0)
+    -- E a ligação com o jogo: ms_playerleft no TheWorld, só no servidor.
+    local function instalar_com_mundo(servidor)
+      local ouvintes, posts = {}, {}
+      local mundo = { ListenForEvent = function(_, nome, fn) ouvintes[nome] = fn end }
+      local relogio = 7
+      local ctx = {
+        GLOBAL = { TheNet = { GetIsServer = function() return servidor end }, TheWorld = mundo, AllPlayers = {},
+          GetTime = function() error("relógio da simulação não serve") end },
+        AddModRPCHandler = function(_, nome, fn) posts[nome] = fn end,
+        AddClientModRPCHandler = function() end,
+        GetModRPC = function() end, GetClientModRPC = function(_, nome) return nome end,
+        SendModRPCToServer = function() end, SendModRPCToClient = function() end,
+        AddSimPostInit = function(fn) posts.sim = fn end,
+        agora = function() return relogio end,
+      }
+      local R = carregar("rede").instalar(ctx)
+      posts.sim()
+      return R, ouvintes, posts
+    end
+    local R, ouvintes, posts = instalar_com_mundo(true)
+    T.eq(type(ouvintes.ms_playerleft), "function", "o servidor escuta ms_playerleft")
+    R.ligar_servidor({ pedir_estado = function() end, receber_acao = function() return { ok = true } end })
+    posts.pedir_estado({ userid = "KU_sai" })
+    posts.pedir_estado({ userid = "KU_fica" })
+    T.eq(R.janelas(), 2)
+    ouvintes.ms_playerleft(nil, { userid = "KU_sai" })
+    T.eq(R.janelas(), 1, "a janela de quem saiu foi apagada")
+    ouvintes.ms_playerleft(nil, nil)
+    T.eq(R.janelas(), 1, "evento sem jogador não quebra nada")
+    local _, no_cliente = instalar_com_mundo(false)
+    T.eq(no_cliente.ms_playerleft, nil, "o cliente não escuta")
+  end },
+
   { "host sozinho: iniciar_teste põe o jogador nos dois lados e as ações valem para quem age", function(T)
     local net = nova_rede()
     local h = net:maquina{ servidor = true, userid = "KU_host", lado = 1 }
