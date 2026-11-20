@@ -308,11 +308,12 @@ col           1         2
 **Como funciona:**
 
 - No alto da tela, ao centro, há um painel com o botão **Pronto**. Quem clica fica pronto (o botão vira **Cancelar**). Cada jogador só fica sabendo de si e dos totais (quantos prontos, quantos conectados).
-- Quando **dois jogadores conectados** estão prontos, a partida começa sozinha com os decks fixos: **Wilson no lado 1, Webber no lado 2**. Cada um joga pelo lado da mesa em que está (o da câmera); sem lado na mesa, quem ficou pronto primeiro joga pelo lado 1. Quem não está entre os dois assiste.
+- Quando **dois jogadores conectados** estão prontos, a partida começa sozinha com os decks fixos: **Wilson no lado 1, Webber no lado 2**. Quem já está sentado num lado da mesa joga por ele; quem assistia fica com o lado que sobrar (sem ninguém sentado, quem ficou pronto primeiro joga pelo lado 1). Ao começar, a câmera de todos é acertada pela partida: os dois jogadores veem a mesa pelo lado em que jogam e os demais viram espectadores.
 - Durante a partida o painel mostra só `Partida em curso. Você joga pelo lado N.` (as jogadas ainda são pelo console, até a Feature #36). Ninguém fica pronto com a partida em curso.
 - No fim, cada um vê o resultado: **Vitória**, **Derrota** ou **Empate**; quem assiste vê `Lado N venceu`; se o motor der erro, `Partida interrompida`.
-- A partida terminada fica na mesa até alguém clicar em **Jogar de novo**: o primeiro clique **zera a mesa para todos** (`Partida.encerrar`) e já deixa quem clicou pronto. O outro jogador continua vendo o resultado dele, com `O outro jogador quer jogar de novo.`, até clicar também; aí a partida seguinte começa. Quem assiste tem o botão **Fechar**, que só tira o resultado da tela dele.
-- Quem sai do servidor deixa de estar pronto. **A saída de um jogador não encerra a partida em curso** (ele pode voltar e recebe a fotografia de novo); para destravar a mesa, `DUELO.Partida.encerrar()` no servidor.
+- A partida terminada fica na mesa até alguém clicar em **Jogar de novo**: o primeiro clique **zera a mesa para todos** (`Partida.encerrar`) e já deixa quem clicou pronto. O outro jogador continua vendo o resultado dele, com `O outro jogador quer jogar de novo.`, até clicar também; aí a partida seguinte começa. Quem assiste tem o botão **Fechar**, que só tira o resultado da tela dele. Um resultado que ninguém dispensou sai da tela quando outra partida começa.
+- **Qualquer jogador conectado pode ficar pronto**, também quem assistia: depois do fim, um espectador pode zerar a mesa e entrar na partida seguinte no lugar de um dos dois.
+- Quem sai do servidor deixa de estar pronto. **A saída de um jogador não encerra a partida em curso** (ele pode voltar e recebe a fotografia de novo). **Limitação conhecida:** enquanto ele não volta, ninguém começa outra partida; só `DUELO.Partida.encerrar()` no servidor destrava a mesa.
 - `DUELO.Partida.iniciar_teste()` continua valendo para testar sozinho (um jogador nos dois lados) e esvazia a sala.
 
 **Mensagens novas:**
@@ -339,4 +340,5 @@ As RPCs são registradas pela ordem: quem tiver uma versão antiga do mod num do
   - O segundo clica: a partida começa nos dois, cada um no lado da mesa em que está (`DUELO.Cliente.imprimir()`: `eu sou lado 1` num, `lado 2` no outro; Wilson na mão ou no baralho do lado 1).
   - No fim, um vê **Vitória** e o outro **Derrota**. Um clica em **Jogar de novo**: o outro continua vendo o resultado, com o aviso de que o outro quer jogar. Quando ele clica, a segunda partida começa.
   - Um jogador pronto sai do servidor: o outro volta a ver a sala sem ninguém pronto.
-- **A confirmar no jogo:** a posição e o tamanho do painel (alto da tela, ao centro) e se o botão padrão do jogo (`TEMPLATES.StandardButton`) aparece com a textura certa dentro da partida.
+- **Limitação conhecida:** o botão é só de mouse (sem caminho para controle).
+- **A confirmar no jogo:** a posição e o tamanho do painel (alto da tela, ao centro, abaixo dos anúncios de entrada e saída de jogadores) e se o botão padrão do jogo (`TEMPLATES.StandardButton`) aparece com a textura certa dentro da partida.
