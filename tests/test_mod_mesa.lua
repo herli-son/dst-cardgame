@@ -322,7 +322,7 @@ local function instalar_tudo(amb)
     AddPlayerPostInit = ctx.AddPlayerPostInit, AddComponentPostInit = ctx.AddComponentPostInit,
     AddSimPostInit = ctx.AddSimPostInit })
   local Contornos = carregar("scripts/duelo/mod/contornos.lua")
-  Contornos.instalar({ GLOBAL = G, Mesa = ctx.Mesa, Calibracao = Calibracao, Marcadores = Marcadores })
+  Contornos.instalar({ GLOBAL = G, Mesa = ctx.Mesa, Calibracao = Calibracao })
   amb.Calibracao, amb.Marcadores, amb.Camera, amb.Contornos = Calibracao, Marcadores, Camera, Contornos
   return amb
 end
@@ -1100,7 +1100,7 @@ return {
     end
   end },
 
-  { "contornos: um gridplacer por tile de espaço, na cor do dono", function(T)
+  { "contornos: um tile_outline em cada um dos 36 tiles de espaço, na cor do dono", function(T)
     for _, caso in ipairs(CASOS) do
       local amb = instalar_tudo(ambiente_jogo({ servidor = true, caso = caso }))
       carregar_mundo(amb)
@@ -1140,16 +1140,23 @@ return {
         end
         T.eq(x, e.x, "espaço " .. c.jogador .. "/" .. c.tipo .. "/" .. tostring(c.n) .. " (x)")
         T.eq(z, e.z, "espaço " .. c.jogador .. "/" .. c.tipo .. "/" .. tostring(c.n) .. " (z)")
-        -- Cor do dono, a mesma dos rótulos.
-        local r, gg, b = amb.Marcadores.cor(amb.Marcadores.TIPO.criatura, c.jogador)
+        -- Cor do dono: saturada (a do rótulo, clara, saiu quase branca no
+        -- jogo), só por multiplicação.
+        local r, gg, b = amb.Contornos.cor(c.jogador)
         T.eq(g.AnimState.mult[1], r, "cor r")
         T.eq(g.AnimState.mult[2], gg, "cor g")
         T.eq(g.AnimState.mult[3], b, "cor b")
         T.eq(g.AnimState.mult[4], 1, "opaco")
-        if c.jogador == 1 then T.ok(b > r, "jogador 1 azul") end
-        if c.jogador == 2 then T.ok(r > b, "jogador 2 vermelho") end
-        if c.jogador == 0 then T.eq(c.tipo, "evento", "só os eventos não têm dono") end
-        T.eq(g.AnimState.add[1], 0, "sem destaque")
+        if c.jogador == 1 then
+          T.ok(b == 1 and r <= 0.2 and gg <= 0.4, "jogador 1 azul nítido")
+        elseif c.jogador == 2 then
+          T.ok(r == 1 and gg <= 0.2 and b <= 0.2, "jogador 2 vermelho nítido")
+        else
+          T.eq(c.jogador, 0, "sem dono")
+          T.eq(c.tipo, "evento", "só os eventos não têm dono")
+          T.ok(r == 1 and gg >= 0.7 and b <= 0.2, "eventos em amarelo: nem azul nem vermelho")
+        end
+        for i = 1, 4 do T.eq(g.AnimState.add[i], 0, "sem cor somada (só o destaque soma)") end
         -- Sem colisão, sem clique e sem rede (o gridplacer do jogo).
         T.ok(g:HasTag("NOCLICK"), "NOCLICK")
         T.eq(g.Physics, nil, "sem física")
@@ -1207,18 +1214,32 @@ return {
     local amb = instalar_tudo(ambiente_jogo({ servidor = true }))
     carregar_mundo(amb)
     local C = amb.Contornos
-    T.eq(C.destacar(1, "criatura", 3, true), 2, "espaço de criatura: carta e criatura")
-    for _, c in ipairs(C.lista()) do
-      local alvo = c.jogador == 1 and c.n == 3 and (c.tipo == "carta" or c.tipo == "criatura")
-      T.eq(c.inst.AnimState.add[1], alvo and C.DESTAQUE[1] or 0, "destaque só no espaço 1/3")
+    local function so(texto, alvo)
+      for _, c in ipairs(C.lista()) do
+        T.eq(c.inst.AnimState.add[1], alvo(c) and C.DESTAQUE[1] or 0, texto)
+      end
     end
+    T.eq(C.destacar(1, "criatura", 3, true), 2, "espaço de criatura: carta e criatura")
+    so("destaque só no espaço 1/3", function(c)
+      return c.jogador == 1 and c.n == 3 and (c.tipo == "carta" or c.tipo == "criatura")
+    end)
     T.eq(C.destacar(2, "estrutura", 1, true), 1, "estrutura: 1 tile")
     T.eq(C.destacar(1, "criatura", 3, false), 2, "apaga o destaque")
-    for _, c in ipairs(C.lista()) do
-      local alvo = c.jogador == 2 and c.n == 1 and c.tipo == "estrutura"
-      T.eq(c.inst.AnimState.add[1], alvo and C.DESTAQUE[1] or 0, "só a estrutura 2/1 destacada")
-    end
+    so("só a estrutura 2/1 destacada", function(c) return c.jogador == 2 and c.n == 1 and c.tipo == "estrutura" end)
+    T.eq(C.destacar(2, "estrutura", 1, false), 1, "apaga")
     T.eq(C.destacar(1, "criatura", 7, true), 0, "espaço que não existe")
+    -- Os espaços novos.
+    T.eq(C.destacar(1, "deck", "extra", true), 1, "deck extra: 1 tile")
+    so("só o deck extra do 1", function(c) return c.jogador == 1 and c.tipo == "deck" and c.n == "extra" end)
+    T.eq(C.destacar(1, "deck", "extra", false), 1, "apaga")
+    T.eq(C.destacar(2, "combate", nil, true), 1, "quadrado de combate: 1 tile")
+    so("só o combate do 2", function(c) return c.jogador == 2 and c.tipo == "combate" end)
+    T.eq(C.destacar(2, "combate", nil, false), 1, "apaga")
+    T.eq(C.destacar(0, "evento", nil, true), 2, "espaço de eventos: os 2 tiles")
+    so("só os eventos", function(c) return c.tipo == "evento" end)
+    T.eq(C.destacar(0, "evento", "pilha", false), 1, "apaga só a pilha")
+    so("só o evento em vigor", function(c) return c.tipo == "evento" and c.n == "em_vigor" end)
+    T.eq(C.destacar(1, "evento", nil, true), 0, "o espaço de eventos não é de um jogador")
   end },
 
   { "câmera: as 14 linhas da mesa cabem, com a fileira de trás acima do inventário", function(T)

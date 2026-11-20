@@ -1,9 +1,10 @@
 -- Contornos dos espaços da mesa (bug #147, decisão da #30).
 --
--- Cada tile de espaço (carta e criatura dos 12 espaços de criatura e as 4
--- estruturas, 28 tiles) ganha um contorno no chão do tamanho de um tile, na
--- cor do dono (azul J1, vermelho J2, as mesmas cores dos rótulos de
--- duelo/mod/marcadores.lua). O contorno é o `tile_outline` do próprio jogo
+-- Cada tile de espaço (36: carta e criatura dos 12 espaços de criatura, 4
+-- estruturas, 4 decks, os 2 quadrados de combate e os 2 tiles do espaço de
+-- eventos) ganha um contorno no chão do tamanho de um tile, na cor do dono:
+-- azul para o jogador 1, vermelho para o 2 e amarelo para o espaço de
+-- eventos, que não tem dono. O contorno é o `tile_outline` do próprio jogo
 -- (prefabs/gridplacer.lua), o mesmo quadrado do `gridplacer` que aparece ao
 -- colocar turf (mesmo bank, build e animação), mas sem o componente `placer`.
 --
@@ -31,10 +32,20 @@
 -- `Transform:SetPosition` no centro do tile.
 --
 -- Cor: `AnimState:SetMultColour(r, g, b, 1)` (o gridplacer do jogo usa
--- SetMultColour para ficar vermelho em OnCannotBuild). Destaque:
--- `AnimState:SetAddColour(...)` clareia o contorno (prefabs/seeds.lua usa
--- SetAddColour num tile_outline); `Contornos.destacar` fica pronto para a
--- US #38 marcar os alvos válidos, mas ainda não é chamado.
+-- SetMultColour para ficar vermelho em OnCannotBuild). A multiplicação só
+-- tira cor da arte, que é clara: no primeiro teste em jogo, com as cores dos
+-- rótulos (azul claro 0,45/0,75/1 e salmão 1/0,5/0,45), o contorno do
+-- jogador 1 saiu quase branco e o do 2 laranja, porque as outras componentes
+-- continuavam altas. Por isso os contornos têm cores próprias
+-- (Contornos.CORES), saturadas: a componente do dono em 1 e as outras bem
+-- baixas, o que dá azul e vermelho nítidos sobre arte branca. A cor não usa
+-- SetAddColour: somar cor a uma arte clara a leva para o branco, o contrário
+-- do que se quer; a soma fica só para o destaque. Os rótulos continuam com
+-- as cores claras, que se leem melhor em texto.
+-- Destaque: `AnimState:SetAddColour(...)` clareia o contorno
+-- (prefabs/seeds.lua usa SetAddColour num tile_outline);
+-- `Contornos.destacar` fica pronto para a US #38 marcar os alvos válidos,
+-- mas ainda não é chamado.
 --
 -- Este arquivo é Lua puro: tudo do jogo chega por `ctx` em `instalar`, para
 -- os testes (tests/test_mod_mesa.lua) rodarem com um ambiente falso.
@@ -42,6 +53,13 @@
 local Contornos = {}
 
 Contornos.PREFAB = "tile_outline"
+-- Cores dos contornos (r, g, b de SetMultColour): azul para o jogador 1,
+-- vermelho para o 2 e amarelo para o que não tem dono (jogador 0).
+Contornos.CORES = {
+  [1] = { 0.1, 0.3, 1 },
+  [2] = { 1, 0.1, 0.1 },
+  neutro = { 1, 0.8, 0.1 },
+}
 -- Cor somada ao contorno destacado (r, g, b, a).
 Contornos.DESTAQUE = { 0.35, 0.35, 0.35, 0 }
 Contornos.SEM_DESTAQUE = { 0, 0, 0, 0 }
@@ -49,7 +67,6 @@ Contornos.SEM_DESTAQUE = { 0, 0, 0, 0 }
 local estado = {
   GLOBAL = nil,
   Mesa = nil,
-  Marcadores = nil,
   contornos = {}, -- lista de { inst, jogador, tipo, n }
   avisou = false,
 }
@@ -64,10 +81,10 @@ local function avisar(msg)
   p("[duelo] " .. msg)
 end
 
--- Cor do dono (r, g, b): a mesma dos rótulos.
+-- Cor do contorno do dono (r, g, b); neutra sem dono.
 function Contornos.cor(jogador)
-  local M = estado.Marcadores
-  return M.cor(M.TIPO.criatura, jogador)
+  local c = Contornos.CORES[jogador] or Contornos.CORES.neutro
+  return c[1], c[2], c[3]
 end
 
 -- Remove os contornos criados neste lado.
@@ -79,7 +96,7 @@ function Contornos.remover()
 end
 
 -- Cliente com tela (inclusive o host): remove os contornos antigos e cria um
--- tile_outline em cada um dos 28 tiles de espaço. Devolve a lista.
+-- tile_outline em cada um dos 36 tiles de espaço. Devolve a lista.
 function Contornos.criar(calib)
   if dedicado() then return nil end
   Contornos.remover()
@@ -104,16 +121,21 @@ function Contornos.lista()
   return estado.contornos
 end
 
--- Destaca (ou apaga o destaque de) um espaço: `tipo` "criatura" (os 2
--- tiles, carta e criatura) ou "estrutura"; `n` na numeração da câmera.
--- Devolve quantos contornos mudaram. Para a US #38 (alvos válidos).
+-- Destaca (ou apaga o destaque de) um espaço. `tipo`:
+--   "criatura": os 2 tiles (carta e criatura) do espaço `n` do jogador;
+--   "estrutura": a estrutura `n`;
+--   "deck": o deck `n` ("principal" ou "extra");
+--   "combate": o quadrado de combate do jogador (sem `n`);
+--   "evento": o espaço de eventos, com jogador 0; `n` = "pilha" ou
+--     "em_vigor", ou nil para os 2 tiles.
+-- `n` na numeração da câmera. Devolve quantos contornos mudaram. Para a
+-- US #38 (alvos válidos).
 function Contornos.destacar(jogador, tipo, n, ligado)
   local cor = ligado == false and Contornos.SEM_DESTAQUE or Contornos.DESTAQUE
   local mudou = 0
   for _, c in ipairs(estado.contornos) do
-    local mesmo_tipo = (tipo == "estrutura" and c.tipo == "estrutura")
-      or (tipo == "criatura" and (c.tipo == "carta" or c.tipo == "criatura"))
-    if mesmo_tipo and c.jogador == jogador and c.n == n and c.inst:IsValid() then
+    local mesmo_tipo = c.tipo == tipo or (tipo == "criatura" and c.tipo == "carta")
+    if mesmo_tipo and c.jogador == jogador and (n == nil or c.n == n) and c.inst:IsValid() then
       c.inst.AnimState:SetAddColour(cor[1], cor[2], cor[3], cor[4])
       mudou = mudou + 1
     end
@@ -124,13 +146,11 @@ end
 -- Liga o módulo no ambiente do mod.
 --   ctx.GLOBAL: ambiente global do jogo;
 --   ctx.Mesa: duelo/mod/mesa;
---   ctx.Calibracao: duelo/mod/calibracao (já instalado);
---   ctx.Marcadores: duelo/mod/marcadores (cores dos donos).
+--   ctx.Calibracao: duelo/mod/calibracao (já instalado).
 -- Fora do servidor dedicado, cria os contornos a cada calibração.
 function Contornos.instalar(ctx)
   estado.GLOBAL = ctx.GLOBAL
   estado.Mesa = ctx.Mesa
-  estado.Marcadores = ctx.Marcadores
   estado.contornos = {}
   estado.avisou = false
   ctx.Calibracao.quando_calibrar(function(calib)

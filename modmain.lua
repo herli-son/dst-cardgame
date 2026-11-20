@@ -84,7 +84,6 @@ local Contornos = require("duelo/mod/contornos").instalar({
   GLOBAL = GLOBAL,
   Mesa = Mesa,
   Calibracao = Calibracao,
-  Marcadores = Marcadores,
 })
 
 -- Câmera e lado dos jogadores (AddPlayerPostInit e
