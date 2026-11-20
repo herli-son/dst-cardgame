@@ -699,7 +699,7 @@ return {
     T.ok(no_log(amb.reg, "estruturas da mesa não achadas"), "avisa no log")
     T.ok(no_log(amb.reg, "4 dos 36 tiles de espaço não estão sobre os tiles esperados"), "a conferência acha as 4 estruturas faltando")
     T.eq(netvar(amb.reg, "duelo.mesa_fonte"):value(), 2, "netvar fonte = portal")
-    T.eq(#amb.Marcadores.lista(), 17, "marcadores criados mesmo assim")
+    T.eq(#amb.Marcadores.lista(), 22, "marcadores criados mesmo assim")
 
     amb = instalar_tudo(ambiente_jogo({ servidor = true, sem_portal = true }))
     carregar_mundo(amb)
@@ -738,31 +738,37 @@ return {
     for _, nv in ipairs(cli.reg.netvars) do T.eq(nv.sets, 0, "cliente não escreve " .. nv.nome) end
   end },
 
-  { "servidor cria 17 marcadores com os números certos nas posições da mesa", function(T)
+  { "servidor cria 22 marcadores com os números certos nas posições da mesa", function(T)
     local amb = instalar_tudo(ambiente_jogo({ servidor = true }))
     carregar_mundo(amb)
     local lista = amb.Marcadores.lista()
-    T.eq(#lista, 17, "17 marcadores")
+    T.eq(#lista, 22, "22 marcadores")
     local marcadores = 0
     for _, nome in ipairs(amb.reg.spawns) do
       if nome == "duelo_marcador" then marcadores = marcadores + 1 end
     end
-    T.eq(marcadores, 17, "17 SpawnPrefab do marcador")
+    T.eq(marcadores, 22, "22 SpawnPrefab do marcador")
     local calib, Mesa = amb.Mesa.calibracao, amb.Mesa
-    local vistos, por_tipo = {}, { 0, 0, 0 }
+    local TIPO = amb.Marcadores.TIPO
+    local vistos, por_tipo = {}, { 0, 0, 0, 0, 0 }
     for _, m in ipairs(lista) do
       T.eq(m.persists, false, "não persiste")
       local tipo, jog, num = m.duelo_tipo:value(), m.duelo_jogador:value(), m.duelo_numero:value()
+      T.ok(tipo >= 1 and tipo <= 7 and jog <= 7 and num <= 7, "valores cabem num net_tinybyte (0..7)")
       por_tipo[tipo] = por_tipo[tipo] + 1
       local chave = tipo .. "/" .. jog .. "/" .. num
       T.ok(not vistos[chave], "marcador repetido " .. chave)
       vistos[chave] = true
       local x, _, z = m.Transform:GetWorldPosition()
       local ex, ez
-      if tipo == 1 then
+      if tipo == TIPO.criatura then
         local carta = Mesa.espaco_criatura_abs(jog, num, calib).carta
         ex, ez = carta.x, carta.z
-      elseif tipo == 2 then ex, ez = Mesa.espaco_estrutura_abs(jog, num, calib)
+      elseif tipo == TIPO.estrutura then ex, ez = Mesa.espaco_estrutura_abs(jog, num, calib)
+      elseif tipo == TIPO.deck then ex, ez = Mesa.espaco_deck_abs(jog, num == 1 and "principal" or "extra", calib)
+      elseif tipo == TIPO.evento then
+        local c = Mesa.espaco_evento_abs(calib).centro
+        ex, ez = c.x, c.z
       else ex, ez = Mesa.centro_abs(calib) end
       T.eq(x, ex, chave .. " x")
       T.eq(z, ez, chave .. " z")
@@ -770,34 +776,61 @@ return {
       T.eq(m.Label.texto, amb.Marcadores.texto(tipo, jog, num), chave .. " texto no host")
       T.eq(m.Label.ativo, true, chave .. " visível")
     end
-    T.eq(por_tipo[1], 12, "12 criaturas")
-    T.eq(por_tipo[2], 4, "4 estruturas")
-    T.eq(por_tipo[3], 1, "1 centro")
+    T.eq(por_tipo[TIPO.criatura], 12, "12 criaturas")
+    T.eq(por_tipo[TIPO.estrutura], 4, "4 estruturas")
+    T.eq(por_tipo[TIPO.combate], 1, "1 Combate")
+    T.eq(por_tipo[TIPO.deck], 4, "4 decks")
+    T.eq(por_tipo[TIPO.evento], 1, "1 Eventos")
     for p = 1, 2 do
       for n = 1, 6 do T.ok(vistos["1/" .. p .. "/" .. n], "criatura " .. p .. "/" .. n) end
       for n = 1, 2 do T.ok(vistos["2/" .. p .. "/" .. n], "estrutura " .. p .. "/" .. n) end
+      for n = 1, 2 do T.ok(vistos["4/" .. p .. "/" .. n], "deck " .. p .. "/" .. n) end
     end
-    T.ok(vistos["3/0/0"], "centro")
+    T.ok(vistos["3/0/0"], "Combate, sem jogador")
+    T.ok(vistos["5/0/0"], "Eventos, sem jogador")
     -- Recalibrar (console) troca os marcadores, sem duplicar.
     amb.Calibracao.calibrar()
-    T.eq(amb.reg.removidos, 17 + 36, "os 17 marcadores antigos (e os 36 contornos do host) removidos")
-    T.eq(#amb.Marcadores.lista(), 17, "17 de novo")
+    T.eq(amb.reg.removidos, 22 + 36, "os 22 marcadores antigos (e os 36 contornos do host) removidos")
+    T.eq(#amb.Marcadores.lista(), 22, "22 de novo")
   end },
   { "textos e cores dos marcadores", function(T)
     local M = carregar("scripts/duelo/mod/marcadores.lua")
+    T.eq(M.TIPO.criatura, 1, "tipo criatura")
+    T.eq(M.TIPO.estrutura, 2, "tipo estrutura")
+    T.eq(M.TIPO.combate, 3, "tipo combate")
+    T.eq(M.TIPO.deck, 4, "tipo deck")
+    T.eq(M.TIPO.evento, 5, "tipo evento")
     T.eq(M.texto(1, 1, 3), "J1 3", "criatura")
     T.eq(M.texto(1, 2, 6), "J2 6", "criatura do 2")
     T.eq(M.texto(2, 1, 1), "J1 E1", "estrutura")
     T.eq(M.texto(2, 2, 2), "J2 E2", "estrutura do 2")
-    T.eq(M.texto(3, 0, 0), "Combate", "centro")
+    T.eq(M.texto(3, 0, 0), "Combate", "combate")
+    T.eq(M.texto(4, 1, 1), "J1 Deck", "deck principal")
+    T.eq(M.texto(4, 2, 2), "J2 Extra", "deck extra")
+    T.eq(M.texto(4, 1, 3), nil, "não há terceiro deck")
+    T.eq(M.texto(5, 0, 0), "Eventos", "eventos")
     T.eq(M.texto(0, 0, 0), nil, "ainda não definido")
     T.eq(M.texto(1, 0, 3), nil, "sem jogador")
+    T.eq(M.texto(4, 0, 1), nil, "deck sem jogador")
     T.eq(M.texto(1, 1, 0), nil, "sem número")
     local r1, g1, b1 = M.cor(1, 1)
     local r2, g2, b2 = M.cor(1, 2)
     T.ok(r1 ~= r2 or g1 ~= g2 or b1 ~= b2, "cores diferentes por jogador")
     T.ok(b1 > r1, "jogador 1 azulado")
     T.ok(r2 > b2, "jogador 2 avermelhado")
+    -- Sem dono (jogador 0) e nas zonas compartilhadas: cor neutra, nem azul
+    -- nem vermelha.
+    for _, caso in ipairs({ { 5, 0 }, { 3, 0 }, { 1, 0 }, { 5, 1 } }) do
+      local r, g, b = M.cor(caso[1], caso[2])
+      T.eq(r, M.CORES.neutro[1], "neutro r")
+      T.eq(g, M.CORES.neutro[2], "neutro g")
+      T.eq(b, M.CORES.neutro[3], "neutro b")
+      T.ok(r > b and g > b and math.abs(r - g) < 0.2, "amarelado: nem azul nem vermelho")
+    end
+    local rd, gd, bd = M.cor(4, 2)
+    T.eq(rd, r2, "deck na cor do dono (r)")
+    T.eq(gd, g2, "deck na cor do dono (g)")
+    T.eq(bd, b2, "deck na cor do dono (b)")
   end },
 
   { "cliente monta o texto do marcador pelas netvars", function(T)
@@ -1009,26 +1042,61 @@ return {
   -- Layout aprovado na #30 (bug #147): rótulos, contornos e enquadramento
   -- -------------------------------------------------------------------------
 
-  { "rótulos: número no tile da carta, estruturas E1/E2 e Combate no centro", function(T)
+  { "rótulos: número no tile da carta, E1/E2, Deck, Extra, Combate e Eventos", function(T)
     for _, caso in ipairs(CASOS) do
       local amb = instalar_tudo(ambiente_jogo({ servidor = true, caso = caso }))
       carregar_mundo(amb)
+      local TIPO = amb.Marcadores.TIPO
+      local uso_do_tipo = { [TIPO.criatura] = "carta", [TIPO.estrutura] = "estrutura", [TIPO.deck] = "deck" }
       local por_texto = {}
       for _, m in ipairs(amb.Marcadores.lista()) do
         local x, _, z = m.Transform:GetWorldPosition()
-        local uso = uso_no_mapa(amb.grade, tile_no_ponto(x, z))
-        por_texto[m.Label.texto] = uso
-        local tipo = m.duelo_tipo:value()
-        if tipo == 1 then T.eq(uso, "carta", caso.nome .. ": " .. m.Label.texto .. " no tile da carta") end
-        if tipo == 2 then T.eq(uso, "estrutura", caso.nome .. ": " .. m.Label.texto .. " no tile da estrutura") end
-        if tipo == 3 then T.eq(uso, "combate", caso.nome .. ": Combate na zona de combate") end
+        local tipo, jog = m.duelo_tipo:value(), m.duelo_jogador:value()
+        T.eq(por_texto[m.Label.texto], nil, caso.nome .. ": " .. m.Label.texto .. " aparece uma vez só")
+        por_texto[m.Label.texto] = { x = x, z = z, tipo = tipo }
+        local r, g, b = amb.Marcadores.cor(tipo, jog)
+        T.eq(m.Label.cor[1], r, m.Label.texto .. ": cor r")
+        T.eq(m.Label.cor[2], g, m.Label.texto .. ": cor g")
+        T.eq(m.Label.cor[3], b, m.Label.texto .. ": cor b")
+        if uso_do_tipo[tipo] then
+          T.eq(uso_no_mapa(amb.grade, tile_no_ponto(x, z)), uso_do_tipo[tipo],
+            caso.nome .. ": " .. m.Label.texto .. " no tile de " .. uso_do_tipo[tipo])
+          T.eq(m.Label.tamanho, amb.Marcadores.TAMANHO.espaco, m.Label.texto .. ": tamanho de espaço")
+        else
+          T.eq(jog, 0, m.Label.texto .. ": sem dono")
+          T.eq(m.Label.tamanho, amb.Marcadores.TAMANHO.zona, m.Label.texto .. ": tamanho de zona")
+        end
       end
-      for _, t in ipairs({ "J1 E1", "J1 E2", "J2 E1", "J2 E2" }) do
-        T.eq(por_texto[t], "estrutura", caso.nome .. ": " .. t)
+      for p = 1, 2 do
+        for n = 1, 6 do T.ok(por_texto["J" .. p .. " " .. n], caso.nome .. ": J" .. p .. " " .. n) end
+        for _, t in ipairs({ "E1", "E2", "Deck", "Extra" }) do
+          T.ok(por_texto["J" .. p .. " " .. t], caso.nome .. ": J" .. p .. " " .. t)
+        end
+        -- Fileira de trás, da esquerda para a direita de quem olha: Deck,
+        -- E1, E2, Extra, atrás dos espaços 1, 3, 4 e 6.
+        local rx, rz = amb.Mesa.direita(amb.Mesa.heading(p))
+        local antes = -math.huge
+        for i, t in ipairs({ "Deck", "E1", "E2", "Extra" }) do
+          local m = por_texto["J" .. p .. " " .. t]
+          local d = m.x * rx + m.z * rz
+          T.ok(d > antes, caso.nome .. ": J" .. p .. " " .. t .. " à direita do anterior")
+          antes = d
+          local carta = amb.Mesa.espaco_criatura_abs(p, ({ 1, 3, 4, 6 })[i]).carta
+          T.eq(d, carta.x * rx + carta.z * rz, caso.nome .. ": J" .. p .. " " .. t .. " atrás do espaço " .. ({ 1, 3, 4, 6 })[i])
+        end
       end
-      T.eq(por_texto["Combate"], "combate", caso.nome .. ": Combate")
-      local x, _, z = amb.Marcadores.lista()[17].Transform:GetWorldPosition()
-      T.eq((amb.Mesa.tile_do_layout(x, z)), amb.Mesa.CENTRO.col, "Combate na coluna do centro")
+      -- "Combate" na junção dos dois quadrados de combate.
+      local c = por_texto["Combate"]
+      local c1x, c1z = amb.Mesa.espaco_combate_abs(1)
+      local c2x, c2z = amb.Mesa.espaco_combate_abs(2)
+      T.eq(c.x, (c1x + c2x) / 2, caso.nome .. ": Combate entre os dois quadrados (x)")
+      T.eq(c.z, (c1z + c2z) / 2, caso.nome .. ": Combate entre os dois quadrados (z)")
+      -- "Eventos" na junção da pilha com o evento em vigor: um rótulo só.
+      local e, ev = por_texto["Eventos"], amb.Mesa.espaco_evento_abs()
+      T.eq(e.x, ev.pilha.x, caso.nome .. ": Eventos na coluna de eventos")
+      T.eq(e.z, (ev.pilha.z + ev.em_vigor.z) / 2, caso.nome .. ": Eventos entre os 2 tiles")
+      T.eq(e.z, c.z, caso.nome .. ": Eventos alinhado ao Combate")
+      T.eq(por_texto["Evento"], nil, "não há um rótulo de evento por jogador")
     end
   end },
 
@@ -1132,7 +1200,7 @@ return {
     carregar_mundo(sem)
     T.eq(#sem.Contornos.lista(), 0, "nenhum contorno")
     T.ok(no_log(sem.reg, "tile_outline não achado"), "avisa no log")
-    T.eq(#sem.Marcadores.lista(), 17, "os rótulos continuam")
+    T.eq(#sem.Marcadores.lista(), 22, "os rótulos continuam")
   end },
 
   { "contornos: destacar um espaço muda só os tiles dele", function(T)

@@ -1,11 +1,19 @@
--- Números e zonas da mesa (US #30; posições do layout aprovado, bug #147).
+-- Números e zonas da mesa (US #30; posições e rótulos do layout do bug
+-- #147).
 --
--- Em cada um dos 16 espaços fica um marcador com o número e o dono
--- ("J1 3", "J2 E1"), na cor do jogador, e no centro da zona de combate um
--- rótulo "Combate". No espaço de criatura (2 tiles) o número fica no tile da
--- carta (o de trás), que é onde ficam as informações da carta; o tile da
--- frente é da criatura viva. O contorno de cada tile, na mesma cor do dono,
--- é desenhado por duelo/mod/contornos.lua.
+-- Cada espaço com dono tem um marcador com o dono e o que ele é, na cor do
+-- jogador: os espaços de criatura ("J1 3"), as estruturas ("J2 E1") e os
+-- decks ("J1 Deck", "J1 Extra"). No espaço de criatura (2 tiles) o número
+-- fica no tile da carta (o de trás), que é onde ficam as informações da
+-- carta; o tile da frente é da criatura viva. As duas zonas compartilhadas
+-- têm um rótulo só cada, em cor neutra, na junção dos seus 2 tiles:
+-- "Combate", entre os dois quadrados de combate, e "Eventos", entre a pilha
+-- e o evento em vigor. No combate o rótulo fica entre os quadrados, e não um
+-- "J1"/"J2" em cada um, porque é em cima deles que as criaturas duelam (o
+-- texto ficaria embaixo delas) e o dono de cada quadrado já vem do contorno.
+-- O contorno de cada tile, na cor do dono, é desenhado por
+-- duelo/mod/contornos.lua. São 22 marcadores: 12 criaturas, 4 estruturas,
+-- 4 decks, "Combate" e "Eventos".
 -- O marcador é o prefab do mod `duelo_marcador`
 -- (scripts/prefabs/duelo_marcador.lua, registrado por PrefabFiles no
 -- modmain): uma entidade de rede sem física, sem arte e sem clique, só com
@@ -14,7 +22,8 @@
 -- Por que um prefab de rede com netvars: o texto do Label é local (o motor
 -- não o replica), então o servidor manda o que cada marcador é por três
 -- `net_tinybyte` (netvars.lua: 0..7) — tipo (1 criatura, 2 estrutura,
--- 3 centro), jogador (0, 1, 2) e número (0..6) — e cada lado monta o
+-- 3 combate, 4 deck, 5 eventos), jogador (0 = nenhum, a cor neutra; 1; 2) e
+-- número (0..6; nos decks, 1 = principal e 2 = extra) — e cada lado monta o
 -- texto quando o evento "dirty" chega (netvars.lua: o "dirty" dispara no
 -- servidor e nos clientes; no host o próprio servidor desenha). Num cliente
 -- o rótulo também é montado uma vez numa tarefa de 0 s, para o caso de os
@@ -46,17 +55,21 @@
 local Marcadores = {}
 
 Marcadores.PREFAB = "duelo_marcador"
-Marcadores.TIPO = { criatura = 1, estrutura = 2, centro = 3 }
-Marcadores.TEXTO_CENTRO = "Combate"
+Marcadores.TIPO = { criatura = 1, estrutura = 2, combate = 3, deck = 4, evento = 5 }
+-- Rótulo das zonas sem dono e de cada deck (pelo número do marcador).
+Marcadores.TEXTO_ZONA = { [3] = "Combate", [5] = "Eventos" }
+Marcadores.DECK = { principal = 1, extra = 2 }
+Marcadores.TEXTO_DECK = { [1] = "Deck", [2] = "Extra" }
 
--- Cores (r, g, b em 0..1): azul para o jogador 1, vermelho para o 2.
+-- Cores dos rótulos (r, g, b em 0..1): azul para o jogador 1, vermelho para
+-- o 2 e amarelo claro para o que não tem dono (jogador 0).
 Marcadores.CORES = {
   [1] = { 0.45, 0.75, 1 },
   [2] = { 1, 0.5, 0.45 },
-  centro = { 1, 0.9, 0.6 },
+  neutro = { 1, 0.9, 0.6 },
 }
 
-Marcadores.TAMANHO = { espaco = 28, centro = 36 }
+Marcadores.TAMANHO = { espaco = 28, zona = 36 }
 
 local DIRTY = "duelo_marcador.dirty"
 
@@ -73,20 +86,22 @@ end
 
 -- Texto do marcador, ou nil se o marcador ainda não foi definido.
 function Marcadores.texto(tipo, jogador, numero)
-  if tipo == Marcadores.TIPO.centro then return Marcadores.TEXTO_CENTRO end
+  if Marcadores.TEXTO_ZONA[tipo] ~= nil then return Marcadores.TEXTO_ZONA[tipo] end
   if jogador ~= 1 and jogador ~= 2 then return nil end
   if numero == nil or numero < 1 then return nil end
   if tipo == Marcadores.TIPO.criatura then
     return "J" .. jogador .. " " .. numero
   elseif tipo == Marcadores.TIPO.estrutura then
     return "J" .. jogador .. " E" .. numero
+  elseif tipo == Marcadores.TIPO.deck and Marcadores.TEXTO_DECK[numero] ~= nil then
+    return "J" .. jogador .. " " .. Marcadores.TEXTO_DECK[numero]
   end
   return nil
 end
 
+-- Cor do rótulo: a do dono; neutra nas zonas sem dono e sem jogador (0).
 function Marcadores.cor(tipo, jogador)
-  local c = tipo == Marcadores.TIPO.centro and Marcadores.CORES.centro or Marcadores.CORES[jogador]
-  c = c or Marcadores.CORES.centro
+  local c = Marcadores.TEXTO_ZONA[tipo] == nil and Marcadores.CORES[jogador] or Marcadores.CORES.neutro
   return c[1], c[2], c[3]
 end
 
@@ -103,7 +118,7 @@ function Marcadores.atualizar_rotulo(inst)
   end
   label:SetText(texto)
   label:SetColour(Marcadores.cor(tipo, jogador))
-  label:SetFontSize(tipo == Marcadores.TIPO.centro and Marcadores.TAMANHO.centro or Marcadores.TAMANHO.espaco)
+  label:SetFontSize(Marcadores.TEXTO_ZONA[tipo] ~= nil and Marcadores.TAMANHO.zona or Marcadores.TAMANHO.espaco)
   label:Enable(true)
   return texto
 end
@@ -150,9 +165,10 @@ local function criar_um(x, z, tipo, jogador, numero)
   return inst
 end
 
--- Servidor: remove os marcadores antigos e cria os 17 (12 criaturas, no
--- tile da carta; 4 estruturas; e o centro da zona de combate) nas posições
--- da calibração. Devolve a lista.
+-- Servidor: remove os marcadores antigos e cria os 22 (12 criaturas, no
+-- tile da carta; 4 estruturas; 4 decks; "Combate" entre os dois quadrados de
+-- combate; "Eventos" entre os 2 tiles do espaço de eventos) nas posições da
+-- calibração. Devolve a lista.
 function Marcadores.criar(calib)
   if not servidor() then return nil end
   local Mesa = estado.Mesa
@@ -167,9 +183,15 @@ function Marcadores.criar(calib)
       local x, z = Mesa.espaco_estrutura_abs(p, n, calib)
       criar_um(x, z, T.estrutura, p, n)
     end
+    for _, qual in ipairs(Mesa.DECKS) do
+      local x, z = Mesa.espaco_deck_abs(p, qual, calib)
+      criar_um(x, z, T.deck, p, Marcadores.DECK[qual])
+    end
   end
   local cx, cz = Mesa.centro_abs(calib)
-  criar_um(cx, cz, T.centro, 0, 0)
+  criar_um(cx, cz, T.combate, 0, 0)
+  local evento = Mesa.espaco_evento_abs(calib).centro
+  criar_um(evento.x, evento.z, T.evento, 0, 0)
   return estado.marcadores
 end
 

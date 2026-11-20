@@ -10,10 +10,11 @@
 --     (modworldgenmain.lua) e das configurações do nível; aqui só a
 --     geometria da mesa (duelo/mod/mesa.lua) é exposta.
 --   * US #30: mesa de tiles, números e câmera. Os tiles já vêm da geração.
---       - duelo/mod/calibracao.lua: o servidor acha a mesa no mapa (portal e
---         estruturas) e manda a calibração aos clientes (Mesa.calibracao).
+--       - duelo/mod/calibracao.lua: o servidor acha a mesa no mapa (estruturas
+--         e coluna de eventos, em volta do portal) e manda a calibração aos clientes (Mesa.calibracao).
 --       - duelo/mod/marcadores.lua + prefabs/duelo_marcador.lua: número e
---         dono de cada um dos 16 espaços e o rótulo "Combate" no centro.
+--         dono de cada espaço (criaturas, estruturas e decks) e os rótulos
+--         "Combate" e "Eventos" das zonas compartilhadas.
 --       - duelo/mod/contornos.lua: contorno (tile_outline do jogo, local a
 --         cada cliente) em cada tile de espaço, na cor do dono (bug #147).
 --       - duelo/mod/camera.lua: lado de cada jogador (1, 2 ou espectador) e
