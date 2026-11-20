@@ -36,12 +36,16 @@
 --   Partida.pedir_estado(userid)   manda a fotografia do lado dele só a ele.
 --   Partida.encerrar()             esquece a partida e avisa os clientes.
 --   Partida.em_curso() -> bool     Partida.jogo() -> o Game (ou nil)
+--   Partida.terminada() -> bool    há partida e ela já tem resultado
+--       (vencedor, empate ou erro do motor); fica na mesa até a sala
+--       (duelo/mod/sala_servidor) zerar.
+--   Partida.quando_iniciar(fn)     fn() depois de cada partida começada
 --   Partida.lado_de(userid) -> 1 | 2 | 3 (visão que ele recebe)
 --   Partida.validar_forma(action) -> ok, erro
 --   Partida.validar_alvos(action) -> ok, erro   (target tabela, ou número
 --       para equipar; targets lista de tabelas)
 --
--- Console do host (DUELO.Partida no modmain.lua), enquanto a US #42 não chega:
+-- Console do servidor (DUELO.Partida no modmain.lua), para testes:
 --   DUELO.Partida.iniciar_teste([seed])  Wilson (lado 1) x Webber (lado 2) com
 --       os jogadores dos lados 1 e 2 da mesa (duelo/mod/camera.lua); se só
 --       houver um jogador, ele fica nos dois lados.
@@ -87,6 +91,7 @@ local estado = {
   distribuindo = 0,   -- envios de lote em andamento (ver distribuir)
   drenando = false,   -- a fila de ações está sendo aplicada
   fila = {},          -- ações que chegaram durante um envio de lote
+  ao_iniciar = {},    -- funções chamadas depois de cada partida começada
 }
 
 local function log(msg)
@@ -302,6 +307,15 @@ function Partida.em_curso() return estado.g ~= nil end
 function Partida.jogo() return estado.g end
 function Partida.jogadores() return estado.jogadores end
 
+function Partida.terminada()
+  local g = estado.g
+  return g ~= nil and (g.winner ~= nil or g.error ~= nil)
+end
+
+function Partida.quando_iniciar(fn)
+  estado.ao_iniciar[#estado.ao_iniciar + 1] = fn
+end
+
 function Partida.iniciar(opts)
   opts = opts or {}
   if estado.rede == nil then return false, "o módulo não foi instalado" end
@@ -337,6 +351,10 @@ function Partida.iniciar(opts)
   end
   log("partida " .. estado.id .. " iniciada (semente " .. tostring(g.log.seed) .. "): lado 1 = "
     .. j[1] .. ", lado 2 = " .. j[2])
+  for _, fn in ipairs(estado.ao_iniciar) do
+    local certo, erro = pcall(fn)
+    if not certo then log("erro num ouvinte do início: " .. tostring(erro)) end
+  end
   return true
 end
 
@@ -453,7 +471,7 @@ drenar = function()
 end
 
 ----------------------------------------------------------------------------
--- Console do host (até a US #42)
+-- Console do servidor (testes)
 ----------------------------------------------------------------------------
 
 -- Jogadores dos lados 1 e 2 da mesa (netvar duelo_lado de camera.lua); sem
@@ -559,6 +577,7 @@ function Partida.instalar(ctx)
   estado.seq = 0
   estado.enviados = 0
   estado.distribuindo, estado.drenando, estado.fila = 0, false, {}
+  estado.ao_iniciar = {}
   if ctx.rede and ctx.rede.ligar_servidor then ctx.rede.ligar_servidor(Partida) end
   return Partida
 end

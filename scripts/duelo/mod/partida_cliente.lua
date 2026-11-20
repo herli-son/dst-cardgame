@@ -15,6 +15,9 @@
 --     segundo): enquanto a fotografia não chega, o pedido é repetido a cada
 --     ESPERA_PEDIDO segundos (Cliente.tique).
 --   * "recusada": o servidor não aceitou uma ação deste jogador, com o motivo.
+--   * "sala" (US #42): quem está pronto para começar, visto por este jogador
+--     ({ eu, prontos, jogadores, aviso }, de duelo/mod/sala_servidor). Chega
+--     junto com a fotografia pedida e a cada mudança.
 --
 -- Interface:
 --   Cliente.instalar{ rede = Rede, GLOBAL = GLOBAL, AddPlayerPostInit = fn,
@@ -32,6 +35,11 @@
 --       fotografia (começo, fim de partida ou ressincronia); a tela deve ser
 --       refeita a partir dela.
 --   Cliente.quando_recusada(fn) -> cancelar   fn(motivo, n)
+--   Cliente.partida() -> n | nil              número da partida da visão
+--   Cliente.sala() -> { eu, prontos, jogadores, aviso } | nil
+--   Cliente.quando_sala(fn) -> cancelar       fn(sala): a sala mudou
+--   Cliente.pronto(bool) -> ok, erro          avisa o servidor que este
+--       jogador está (ou deixou de estar) pronto
 --   Cliente.pedir_estado()                    pede a fotografia ao servidor
 --   Cliente.tique()                           repete o pedido de fotografia
 --       se ela ainda não chegou e já passou ESPERA_PEDIDO; chamado de tempos
@@ -71,7 +79,8 @@ local estado = {
   contador = 0,       -- ações enviadas
   ultimos = {},       -- últimos eventos recebidos
   recusas = {},       -- últimas recusas
-  ouvintes = { evento = {}, estado = {}, recusada = {} },
+  sala = nil,         -- a última mensagem "sala"
+  ouvintes = { evento = {}, estado = {}, recusada = {}, sala = {} },
 }
 
 local function log(msg)
@@ -112,6 +121,10 @@ function Cliente.quando_evento(fn) return ouvir("evento", fn) end
 function Cliente.quando_estado(fn) return ouvir("estado", fn) end
 function Cliente.quando_recusada(fn) return ouvir("recusada", fn) end
 
+function Cliente.quando_sala(fn) return ouvir("sala", fn) end
+
+function Cliente.sala() return estado.sala end
+function Cliente.partida() return estado.partida end
 function Cliente.visao() return estado.visao end
 function Cliente.lado() return estado.lado end
 function Cliente.seq() return estado.seq end
@@ -200,8 +213,30 @@ local function receber_recusada(m)
   avisar("recusada", motivo, n)
 end
 
+local function contagem(n)
+  if type(n) == "number" and n == n and n >= 0 and n < 2 ^ 31 then return math.floor(n) end
+  return 0
+end
+
+local function receber_sala(m)
+  estado.sala = {
+    eu = m.eu == true,
+    prontos = contagem(m.prontos),
+    jogadores = contagem(m.jogadores),
+    aviso = type(m.aviso) == "string" and m.aviso or false,
+  }
+  avisar("sala", estado.sala)
+end
+
+function Cliente.pronto(pronto)
+  if estado.rede == nil then return false, "o módulo não foi instalado" end
+  if type(pronto) ~= "boolean" then return false, "pedido inválido" end
+  return estado.rede.enviar_pronto(pronto)
+end
+
 function Cliente.receber(tipo, m)
   if type(m) ~= "table" then return end
+  if tipo == "sala" then return receber_sala(m) end
   if tipo == "estado" then return receber_estado(m) end
   if tipo == "eventos" then return receber_eventos(m) end
   if tipo == "recusada" then return receber_recusada(m) end
@@ -265,11 +300,17 @@ end
 -- A visão local em linhas (Cliente.imprimir as imprime).
 function Cliente.resumo()
   local v = estado.visao
-  if v == nil then
-    return { "[duelo] cliente: sem partida" .. (estado.esperando and " (estado pedido ao servidor)" or "") }
-  end
   local linhas = {}
   local function add(s) linhas[#linhas + 1] = "[duelo] " .. s end
+  local sala = estado.sala
+  if sala ~= nil then
+    add("sala: eu " .. (sala.eu and "pronto" or "não pronto") .. ", " .. sala.prontos .. " prontos, "
+      .. sala.jogadores .. " jogadores" .. (sala.aviso and (", aviso: " .. sala.aviso) or ""))
+  end
+  if v == nil then
+    add("cliente: sem partida" .. (estado.esperando and " (estado pedido ao servidor)" or ""))
+    return linhas
+  end
   local nomes = { "lado 1", "lado 2", "espectador" }
   add("partida " .. tostring(estado.partida) .. ", eu sou " .. (nomes[estado.lado] or "?") .. ", lote " .. estado.seq
     .. ": fase " .. tostring(v.fase) .. ", rodada " .. tostring(v.rodada) .. ", vez " .. tostring(v.vez)
@@ -323,7 +364,8 @@ function Cliente.instalar(ctx)
   estado.esperando, estado.pedido_em = false, nil
   estado.contador = 0
   estado.ultimos, estado.recusas = {}, {}
-  estado.ouvintes = { evento = {}, estado = {}, recusada = {} }
+  estado.sala = nil
+  estado.ouvintes = { evento = {}, estado = {}, recusada = {}, sala = {} }
   if ctx.rede and ctx.rede.ligar_cliente then ctx.rede.ligar_cliente(Cliente) end
   if ctx.AddPlayerPostInit then
     ctx.AddPlayerPostInit(function(inst)

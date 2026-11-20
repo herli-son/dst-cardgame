@@ -208,6 +208,8 @@ return {
       AddSimPostInit = ctx.AddSimPostInit,
       -- US #41: as RPCs de mod (tests/test_mod_partida.lua as testa).
       AddModRPCHandler = function() end,
+      -- US #42: o painel da sala (tests/test_mod_sala.lua o testa).
+      AddClassPostConstruct = function() end,
       AddClientModRPCHandler = function() end,
     }
     rodar("modmain.lua", env)

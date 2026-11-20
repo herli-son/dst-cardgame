@@ -299,7 +299,7 @@ return {
 
   { "todas as RPCs são registradas nos dois lados, na mesma ordem", function(T)
     local net, s, cs = mesa()
-    T.eq(s.ordem, "s:acao;s:pedir_estado;c:eventos;c:estado;c:recusada;")
+    T.eq(s.ordem, "s:acao;s:pedir_estado;s:pronto;c:eventos;c:estado;c:recusada;c:sala;")
     for _, c in ipairs(cs) do T.eq(c.ordem, s.ordem, "mesma ordem no cliente") end
   end },
 
@@ -1264,6 +1264,7 @@ return {
   end },
 
   { "modmain.lua liga a rede, a partida só no servidor e o cliente só onde há tela", function(T)
+    local construtores = {}
     local function rodar_modmain(servidor, dedicado)
       local rpcs = {}
       local env = {
@@ -1277,6 +1278,7 @@ return {
         AddComponentPostInit = function() end,
         AddPrefabPostInit = function() end,
         AddSimPostInit = function() end,
+        AddClassPostConstruct = function(classe) construtores[#construtores + 1] = classe end,
         AddModRPCHandler = function(ns, nome) rpcs[#rpcs + 1] = "s:" .. ns .. "." .. nome end,
         AddClientModRPCHandler = function(ns, nome) rpcs[#rpcs + 1] = "c:" .. ns .. "." .. nome end,
         SendModRPCToServer = function() end, SendModRPCToClient = function() end,
@@ -1287,15 +1289,21 @@ return {
       fn()
       return env.DUELO, table.concat(rpcs, " ")
     end
-    local ORDEM = "s:duelo.acao s:duelo.pedir_estado c:duelo.eventos c:duelo.estado c:duelo.recusada"
+    local ORDEM = "s:duelo.acao s:duelo.pedir_estado s:duelo.pronto c:duelo.eventos c:duelo.estado c:duelo.recusada c:duelo.sala"
     local dedicado, r1 = rodar_modmain(true, true)
     T.eq(r1, ORDEM, "RPCs no servidor dedicado")
     T.eq(type(dedicado.Partida.iniciar_teste), "function", "DUELO.Partida no servidor")
     T.eq(type(dedicado.Partida.estado), "function")
     T.eq(dedicado.Cliente, nil, "sem cliente no servidor dedicado")
+    -- US #42: a sala só no servidor; o painel só onde há tela.
+    T.eq(type(dedicado.Sala.receber_pronto), "function", "DUELO.Sala no servidor")
+    T.eq(dedicado.Tela, nil, "sem painel no servidor dedicado")
+    T.eq(#construtores, 0, "o servidor dedicado não mexe na tela")
     local host, r2 = rodar_modmain(true, false)
     T.eq(r2, ORDEM, "RPCs no host")
     T.ok(host.Partida ~= nil and host.Cliente ~= nil, "no host os dois convivem")
+    T.ok(host.Sala ~= nil and host.Tela ~= nil, "no host a sala e o painel convivem")
+    T.eq(construtores[1], "widgets/controls", "o painel entra nos controles da tela")
     -- No cliente, o módulo do servidor (e com ele o motor) nem é pedido.
     local pedidos, original = {}, require
     _G.require = function(nome) pedidos[nome] = true; return original(nome) end
@@ -1304,11 +1312,14 @@ return {
     T.ok(ok, tostring(cliente))
     T.eq(r3, ORDEM, "RPCs no cliente, na mesma ordem")
     T.eq(cliente.Partida, nil, "sem partida no cliente")
+    T.eq(cliente.Sala, nil, "sem sala do servidor no cliente")
+    T.eq(type(cliente.Tela.modelo), "function", "DUELO.Tela")
     T.eq(type(cliente.Cliente.enviar), "function", "DUELO.Cliente")
     T.eq(type(cliente.Cliente.imprimir), "function")
     T.ok(pedidos["duelo/mod/partida_cliente"], "o cliente pede o módulo do cliente")
     for nome in pairs(pedidos) do
-      T.ok(nome ~= "duelo/mod/partida_servidor" and not nome:find("^duelo/core/game"),
+      T.ok(nome ~= "duelo/mod/partida_servidor" and nome ~= "duelo/mod/sala_servidor"
+        and not nome:find("^duelo/core/game") and not nome:find("^duelo/decks"),
         "o modmain do cliente pediu " .. nome)
     end
   end },

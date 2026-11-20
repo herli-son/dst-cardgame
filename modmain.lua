@@ -137,6 +137,17 @@ if TheNet:GetIsServer() then
   })
 end
 
+-- A sala de espera (US #42), só no servidor: dois jogadores prontos começam
+-- a partida com os decks fixos; depois do fim, o primeiro pronto zera a mesa.
+local Sala = nil
+if Partida then
+  Sala = require("duelo/mod/sala_servidor").instalar({
+    GLOBAL = GLOBAL,
+    rede = Rede,
+    partida = Partida,
+  })
+end
+
 -- A visão da partida em quem tem tela (clientes e host; o servidor dedicado
 -- não tem jogador local). No host os dois lados convivem.
 local Cliente = nil
@@ -149,13 +160,30 @@ if not TheNet:IsDedicated() then
   })
 end
 
+-- O painel da sala e do fim da partida (US #42), em quem tem tela: o botão
+-- "Pronto" e o resultado. duelo/mod/tela_sala decide o conteúdo e
+-- widgets/duelo_sala desenha; o painel nasce junto com os controles da tela
+-- do jogador (widgets/controls.lua, raiz `top_root`: alto da tela, ao centro).
+local Tela = nil
+if Cliente then
+  Tela = require("duelo/mod/tela_sala").instalar({
+    cliente = Cliente,
+    log = function(msg) GLOBAL.print(msg) end,
+  })
+  AddClassPostConstruct("widgets/controls", function(self)
+    local DueloSala = require("widgets/duelo_sala")
+    self.duelo_sala = self.top_root:AddChild(DueloSala(function() Tela.clicar() end))
+    Tela.ligar_widget(self.duelo_sala)
+  end)
+end
+
 -- Exposto no ambiente do mod (para os arquivos das próximas US) e no
 -- ambiente global (para o console: DUELO.Relogio.avancar(1),
 -- DUELO.Relogio.travar(), DUELO.Relogio.liberar(),
 -- DUELO.Calibracao.calibrar(), DUELO.Camera.liberar(),
 -- DUELO.Camera.aplicar(); US #41, no console do servidor:
 -- DUELO.Partida.iniciar_teste(), DUELO.Partida.estado(),
--- DUELO.Partida.encerrar(); no console do cliente:
+-- DUELO.Partida.encerrar(), DUELO.Sala.prontos(); no console do cliente:
 -- DUELO.Cliente.enviar({ type = "pass" }), DUELO.Cliente.imprimir()).
 DUELO = {
   Mesa = Mesa,
@@ -168,6 +196,8 @@ DUELO = {
   Rede = Rede,
   Partida = Partida, -- nil nos clientes
   Cliente = Cliente, -- nil no servidor dedicado
+  Sala = Sala,       -- nil nos clientes
+  Tela = Tela,       -- nil no servidor dedicado
 }
 GLOBAL.DUELO = DUELO
 
