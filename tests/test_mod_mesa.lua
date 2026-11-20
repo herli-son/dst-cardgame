@@ -159,11 +159,12 @@ local function entidade(reg, nome)
   return e
 end
 
--- gridplacer falso, com o que prefabs/gridplacer.lua (fn) põe nele: tags
+-- tile_outline falso, com o que prefabs/gridplacer.lua (tile_outline_fn) põe
+-- nele (sem componente placer, que quebrava outros mods): tags
 -- CLASSIFIED, NOCLICK e placer, Transform e AnimState, sem rede nem física,
 -- persists = false. O AnimState guarda as cores.
 local function gridplacer_falso(reg)
-  local e = entidade(reg, "gridplacer")
+  local e = entidade(reg, "tile_outline")
   e:AddTag("CLASSIFIED")
   e:AddTag("NOCLICK")
   e:AddTag("placer")
@@ -281,7 +282,7 @@ local function ambiente_jogo(opcoes)
   G.SpawnPrefab = function(nome)
     reg.spawns[#reg.spawns + 1] = nome
     if nome == prefab.nome then return prefab.fn() end
-    if nome == "gridplacer" and not opcoes.sem_gridplacer then return gridplacer_falso(reg) end
+    if nome == "tile_outline" and not opcoes.sem_gridplacer then return gridplacer_falso(reg) end
   end
 
   local ctx = {
@@ -975,7 +976,9 @@ return {
       carregar_mundo(amb)
       local lista = amb.Contornos.lista()
       T.eq(#lista, 28, caso.nome .. ": 28 contornos no host")
-      T.eq(#amb.reg.gridplacers, 28, "28 SpawnPrefab(\"gridplacer\")")
+      T.eq(#amb.reg.gridplacers, 28, "28 SpawnPrefab(\"tile_outline\")")
+      T.eq(amb.Contornos.PREFAB, "tile_outline", "não o gridplacer: o componente placer dele quebra outros mods")
+      for _, e in ipairs(amb.reg.gridplacers) do T.eq(e.components, nil, "contorno sem componentes") end
       local vistos, por_tipo = {}, { carta = 0, criatura = 0, estrutura = 0 }
       for _, c in ipairs(lista) do
         local g = c.inst
@@ -1053,7 +1056,7 @@ return {
     local sem = instalar_tudo(ambiente_jogo({ servidor = true, sem_gridplacer = true }))
     carregar_mundo(sem)
     T.eq(#sem.Contornos.lista(), 0, "nenhum contorno")
-    T.ok(no_log(sem.reg, "gridplacer não achado"), "avisa no log")
+    T.ok(no_log(sem.reg, "tile_outline não achado"), "avisa no log")
     T.eq(#sem.Marcadores.lista(), 17, "os rótulos continuam")
   end },
 

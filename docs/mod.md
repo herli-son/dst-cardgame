@@ -12,7 +12,7 @@ Este repositório **é** o mod: a raiz dele vira a pasta do mod dentro do jogo. 
 | `scripts/duelo/mod/relogio.lua` | US #31: relógio do mundo travado e andado pela partida, divisão 5/5/6, estação fixa. |
 | `scripts/duelo/mod/calibracao.lua` | US #30: acha a mesa no mapa (portal e os 4 tiles de estrutura), guarda a calibração em `Mesa.calibracao` e a manda aos clientes. |
 | `scripts/duelo/mod/marcadores.lua` | US #30: números e dono dos 16 espaços (no tile da carta) e o rótulo "Combate" do centro. |
-| `scripts/duelo/mod/contornos.lua` | Bug #147: contorno de cada tile de espaço com o `gridplacer` do jogo, na cor do dono (local a cada cliente). |
+| `scripts/duelo/mod/contornos.lua` | Bug #147: contorno de cada tile de espaço com o `tile_outline` do jogo (o quadrado do `gridplacer`, sem o componente `placer`), na cor do dono (local a cada cliente). |
 | `scripts/prefabs/duelo_marcador.lua` | US #30: prefab de rede do marcador (só um texto, sem clique nem física). |
 | `scripts/duelo/mod/camera.lua` | US #30: lado de cada jogador e câmera fixa no centro da mesa, sem Q/E. |
 | `scripts/duelo/mod/layouts/mesa.lua` | Static layout (formato do Tiled) gerado a partir de `mesa.lua`. |
@@ -192,7 +192,7 @@ col           1         2
 - **Tiles:** cascalho = `ROCKY` (o turf rochoso do jogo, o mesmo da carta de Turf "Cascalho"); carta e criatura sem turf = `CHECKER` (o `WOODFLOOR` ficaria igual à carta "Piso de madeira"); estruturas = `MOSAIC_GREY` (neutro: o azul e o carpete avermelhado lembrariam a cor de um dos donos). A justificativa completa está no cabeçalho de `scripts/duelo/mod/mesa.lua`.
 - **Pátio do portal:** o portal e o `spawnpoint_master` ficam no centro de um pátio de cascalho de 3 x 3 encostado na borda oeste do layout, na altura da zona de combate (no jogo, com o eixo x espelhado, a leste). O jogador nasce ali e anda até a mesa.
 - **Portal ao lado da mesa:** o pátio do portal fica dentro da tela, ao lado da zona de combate (à direita de um jogador, à esquerda do outro). É esperado.
-- **Contornos:** cada tile de espaço (28: 12 cartas, 12 criaturas, 4 estruturas) tem o contorno do `gridplacer` do jogo, azul para o J1 e vermelho para o J2. O `gridplacer` não tem rede, então cada cliente com tela cria os seus a partir da calibração (o servidor dedicado não cria nenhum). `DUELO.Contornos.destacar(p, "criatura" | "estrutura", n, true)` clareia um espaço (para a US #38 marcar alvos válidos; ainda não é chamado).
+- **Contornos:** cada tile de espaço (28: 12 cartas, 12 criaturas, 4 estruturas) tem o contorno do `tile_outline` do jogo (o quadrado do `gridplacer`, sem o componente `placer`, que quebrava mods de posicionamento), azul para o J1 e vermelho para o J2. Ele não tem rede, então cada cliente com tela cria os seus a partir da calibração (o servidor dedicado não cria nenhum). `DUELO.Contornos.destacar(p, "criatura" | "estrutura", n, true)` clareia um espaço (para a US #38 marcar alvos válidos; ainda não é chamado).
 
 **O layout é gerado na criação do mundo:** para ver a mesa nova é preciso **criar um mundo novo** (um mundo salvo com a mesa antiga continua com os tiles antigos; a calibração vai avisar `estruturas da mesa não achadas` e cair para a reserva pelo portal, com os espaços fora do lugar).
 

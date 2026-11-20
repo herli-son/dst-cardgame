@@ -14,7 +14,7 @@
 --         estruturas) e manda a calibração aos clientes (Mesa.calibracao).
 --       - duelo/mod/marcadores.lua + prefabs/duelo_marcador.lua: número e
 --         dono de cada um dos 16 espaços e o rótulo "Combate" no centro.
---       - duelo/mod/contornos.lua: contorno (gridplacer do jogo, local a
+--       - duelo/mod/contornos.lua: contorno (tile_outline do jogo, local a
 --         cada cliente) em cada tile de espaço, na cor do dono (bug #147).
 --       - duelo/mod/camera.lua: lado de cada jogador (1, 2 ou espectador) e
 --         câmera fixa no centro, com o lado do jogador embaixo e sem Q/E.
@@ -77,7 +77,7 @@ local Marcadores = require("duelo/mod/marcadores").instalar({
   Calibracao = Calibracao,
 })
 
--- Contornos dos espaços (gridplacer local, criado em cada cliente com tela a
+-- Contornos dos espaços (tile_outline local, criado em cada cliente com tela a
 -- cada calibração).
 local Contornos = require("duelo/mod/contornos").instalar({
   GLOBAL = GLOBAL,

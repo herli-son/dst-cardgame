@@ -3,32 +3,34 @@
 -- Cada tile de espaço (carta e criatura dos 12 espaços de criatura e as 4
 -- estruturas, 28 tiles) ganha um contorno no chão do tamanho de um tile, na
 -- cor do dono (azul J1, vermelho J2, as mesmas cores dos rótulos de
--- duelo/mod/marcadores.lua). O contorno é o `gridplacer` do próprio jogo
--- (prefabs/gridplacer.lua), o quadrado que aparece ao colocar turf.
+-- duelo/mod/marcadores.lua). O contorno é o `tile_outline` do próprio jogo
+-- (prefabs/gridplacer.lua), o mesmo quadrado do `gridplacer` que aparece ao
+-- colocar turf (mesmo bank, build e animação), mas sem o componente `placer`.
 --
--- Por que local, em cada cliente: o prefab `gridplacer` não tem rede (não
--- chama `entity:AddNetwork()`; o próprio arquivo marca "Non-networked
--- entity"), então um gridplacer criado no servidor só apareceria na tela do
--- host. Ele é carregado com o mundo em todos os lados (prefabs/world.lua
--- depende de "hud", e prefabs/hud.lua depende de "gridplacer"), e o jogo o
--- cria do lado do cliente (components/playercontroller.lua,
--- gridplacer_group_outline em prefabs/gridplacer.lua). Por isso cada
--- cliente com tela (o host inclusive; nada no servidor dedicado) cria os
--- seus a partir da calibração, como a câmera faz com o alvo
--- (duelo/mod/camera.lua): `Calibracao.quando_calibrar` roda no host depois
--- do cálculo e nos clientes quando as netvars chegam.
+-- Por que não o `gridplacer`: ele adiciona o componente `placer`, e outros
+-- mods penduram código nesse componente (AddComponentPostInit("placer")),
+-- contando com um jogador construindo. Criado fora desse contexto, um mod de
+-- posicionamento da Workshop quebrou o jogo (visto no teste do bug #147). O
+-- `tile_outline` não tem componente nenhum.
 --
--- O que o gridplacer já traz e serve aqui (prefabs/gridplacer.lua, fn):
+-- Por que local, em cada cliente: o prefab não tem rede (não chama
+-- `entity:AddNetwork()`; o próprio arquivo marca "Non-networked entity"),
+-- então um criado no servidor só apareceria na tela do host. Ele é carregado
+-- com o mundo em todos os lados (prefabs/world.lua depende de "hud", e
+-- prefabs/hud.lua depende de "gridplacer", que registra o tile_outline no
+-- mesmo arquivo). Por isso cada cliente com tela (o host inclusive; nada no
+-- servidor dedicado) cria os seus a partir da calibração, como a câmera faz
+-- com o alvo (duelo/mod/camera.lua): `Calibracao.quando_calibrar` roda no
+-- host depois do cálculo e nos clientes quando as netvars chegam.
+--
+-- O que o tile_outline já traz (prefabs/gridplacer.lua, tile_outline_fn):
 -- tags CLASSIFIED e NOCLICK (o mouse não o seleciona), nenhuma física,
 -- `persists = false`, `SetCanSleep(false)`, `SetLightOverride(1)` (aparece
 -- de noite), camada LAYER_BACKGROUND deitada no chão
--- (ANIM_ORIENTATION.OnGround). O componente `placer` dele só age quando o
--- jogo o atualiza (Placer:OnUpdate, ligado pelo playercontroller para o
--- placer de construção); parado numa posição, ele fica como o jogo usa em
--- gridplacer_group_outline: `SpawnPrefab("gridplacer")` +
+-- (ANIM_ORIENTATION.OnGround), animação parada. Uso: `SpawnPrefab` +
 -- `Transform:SetPosition` no centro do tile.
 --
--- Cor: `AnimState:SetMultColour(r, g, b, 1)` (o próprio gridplacer usa
+-- Cor: `AnimState:SetMultColour(r, g, b, 1)` (o gridplacer do jogo usa
 -- SetMultColour para ficar vermelho em OnCannotBuild). Destaque:
 -- `AnimState:SetAddColour(...)` clareia o contorno (prefabs/seeds.lua usa
 -- SetAddColour num tile_outline); `Contornos.destacar` fica pronto para a
@@ -39,7 +41,7 @@
 
 local Contornos = {}
 
-Contornos.PREFAB = "gridplacer"
+Contornos.PREFAB = "tile_outline"
 -- Cor somada ao contorno destacado (r, g, b, a).
 Contornos.DESTAQUE = { 0.35, 0.35, 0.35, 0 }
 Contornos.SEM_DESTAQUE = { 0, 0, 0, 0 }
@@ -77,7 +79,7 @@ function Contornos.remover()
 end
 
 -- Cliente com tela (inclusive o host): remove os contornos antigos e cria um
--- gridplacer em cada um dos 28 tiles de espaço. Devolve a lista.
+-- tile_outline em cada um dos 28 tiles de espaço. Devolve a lista.
 function Contornos.criar(calib)
   if dedicado() then return nil end
   Contornos.remover()
@@ -85,7 +87,7 @@ function Contornos.criar(calib)
   for _, t in ipairs(estado.Mesa.tiles_dos_espacos(calib) or {}) do
     local inst = G.SpawnPrefab(Contornos.PREFAB)
     if inst == nil then
-      if not estado.avisou then avisar("prefab gridplacer não achado: espaços sem contorno") end
+      if not estado.avisou then avisar("prefab tile_outline não achado: espaços sem contorno") end
       estado.avisou = true
       break
     end
