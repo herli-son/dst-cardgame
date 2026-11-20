@@ -235,7 +235,7 @@ local ao_receber_acao = protegido("acao", function(player, texto, n)
   if #texto > Rede.LIMITES.ACAO_BYTES then return recusar(userid, n, "ação grande demais") end
   local ok, action = pcall(Serial.deserialize, texto, LEITURA_DA_ACAO)
   if not ok then return recusar(userid, n, "ação inválida") end
-  local r = estado.servidor.receber_acao(userid, action)
+  local r = estado.servidor.receber_acao(userid, action, n)
   if not r.ok then recusar(userid, n, r.erro) end
 end)
 

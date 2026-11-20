@@ -23,12 +23,16 @@
 --       = true` não há troca inicial. O mesmo userid nos dois lados é aceito
 --       (teste sozinho): as ações dele valem para o lado que tem de agir e
 --       ele recebe a visão do lado 1.
---   Partida.receber_acao(userid, action) -> { ok = bool, erro = texto }
+--   Partida.receber_acao(userid, action [, n]) -> { ok = bool, erro = texto }
 --       acha o lado do userid (quem não joga é recusado), confere a forma da
 --       ação e dos alvos dela, pergunta ao motor se ela vale (Game:can_act, que não muda nada)
 --       e só então a aplica (Game:act; a troca inicial, { type = "mulligan",
 --       indices = {...} }, vai por Game:mulligan). Depois de uma ação aceita,
---       os eventos novos e as mudanças do estado saem para todos.
+--       os eventos novos e as mudanças do estado saem para todos. Uma
+--       ação que chegue enquanto um lote está saindo (no host, de dentro de
+--       um ouvinte do cliente local) fica numa fila e é aplicada depois do
+--       envio: volta { ok = true, adiada = true }, e a recusa, se houver,
+--       sai daqui com o número `n` da ação.
 --   Partida.pedir_estado(userid)   manda a fotografia do lado dele só a ele.
 --   Partida.encerrar()             esquece a partida e avisa os clientes.
 --   Partida.em_curso() -> bool     Partida.jogo() -> o Game (ou nil)
@@ -65,6 +69,7 @@ Partida.LIMITES = {
   NOS = 64,          -- valores na ação inteira (contando tabelas e folhas)
   PROFUNDIDADE = 4,  -- tabelas dentro de tabelas
   TEXTO = 64,        -- caracteres de cada string (valor ou chave)
+  FILA = 16,         -- ações guardadas enquanto um lote está saindo
 }
 
 local LADOS = { 1, 2, 3 }
@@ -79,6 +84,9 @@ local estado = {
   seq = 0,            -- último lote enviado
   enviados = 0,       -- quantos eventos de g.events já saíram
   fotos = nil,        -- última fotografia enviada a cada lado
+  distribuindo = 0,   -- envios de lote em andamento (ver distribuir)
+  drenando = false,   -- a fila de ações está sendo aplicada
+  fila = {},          -- ações que chegaram durante um envio de lote
 }
 
 local function log(msg)
@@ -230,15 +238,26 @@ local function mensagem_estado(lado)
   return { partida = estado.id, seq = estado.seq, lado = lado, estado = estado.fotos[lado] }
 end
 
+-- Ações que chegaram enquanto um lote estava saindo (ver distribuir).
+local drenar
+
 -- Manda a todos o que aconteceu desde o último lote: os eventos novos,
 -- filtrados para cada lado, e as mudanças da fotografia de cada lado.
+--
+-- No host, a entrega ao jogador local é uma chamada de função: um ouvinte de
+-- eventos do cliente do host pode mandar uma ação de dentro da entrega. Se
+-- ela fosse aplicada ali, o lote dela sairia para os outros lados antes de o
+-- lote atual acabar de sair (lotes fora de ordem). Por isso: o intervalo de
+-- eventos, o número do lote e as mensagens dos três lados são fechados antes
+-- do primeiro envio, e uma ação que chegue durante os envios entra numa fila
+-- (Partida.receber_acao) e só é aplicada depois do último.
 local function distribuir()
   local g = estado.g
-  local de = estado.enviados + 1
-  local ate = #g.events
-  estado.enviados = ate
-  estado.seq = estado.seq + 1
+  local de, ate = estado.enviados + 1, #g.events
+  local seq, partida = estado.seq + 1, estado.id
+  estado.enviados, estado.seq = ate, seq
   local por_lado = destinos()
+  local mensagens = {}
   for _, lado in ipairs(LADOS) do
     local eventos = {}
     for i = de, ate do
@@ -246,11 +265,20 @@ local function distribuir()
       if ev ~= nil then eventos[#eventos + 1] = ev end
     end
     local foto = Visao.estado_para(g, lado)
-    local msg = { partida = estado.id, seq = estado.seq, eventos = eventos,
+    mensagens[lado] = { partida = partida, seq = seq, eventos = eventos,
       mudancas = Visao.diferenca(estado.fotos[lado], foto) }
     estado.fotos[lado] = foto
-    if #por_lado[lado] > 0 then estado.rede.enviar(por_lado[lado], "eventos", msg) end
   end
+  local rede = estado.rede
+  estado.distribuindo = estado.distribuindo + 1
+  local ok, err = pcall(function()
+    for _, lado in ipairs(LADOS) do
+      if #por_lado[lado] > 0 then rede.enviar(por_lado[lado], "eventos", mensagens[lado]) end
+    end
+  end)
+  estado.distribuindo = estado.distribuindo - 1
+  if not ok then log("erro ao enviar o lote " .. seq .. ": " .. tostring(err)) end
+  drenar()
 end
 
 local function enviar_estado_a_todos()
@@ -328,7 +356,7 @@ local function recusa(erro)
   return { ok = false, erro = erro }
 end
 
-function Partida.receber_acao(userid, action)
+local function aplicar_acao(userid, action)
   local g = estado.g
   if g == nil then return recusa("não há partida em curso") end
   local lado = lado_de_jogo(userid)
@@ -365,6 +393,44 @@ function Partida.receber_acao(userid, action)
   if ok or #g.events > estado.enviados then distribuir() end
   if not ok then return recusa(tostring(err or "ação recusada")) end
   return { ok = true }
+end
+
+-- `n` (opcional) é o número da ação no cliente: só é usado se a ação ficar
+-- na fila e for recusada depois, para a recusa sair daqui.
+function Partida.receber_acao(userid, action, n)
+  if estado.distribuindo > 0 then
+    if #estado.fila >= Partida.LIMITES.FILA then return recusa("ações demais de uma vez") end
+    estado.fila[#estado.fila + 1] = { userid = userid, action = action, n = n, partida = estado.id }
+    return { ok = true, adiada = true }
+  end
+  return aplicar_acao(userid, action)
+end
+
+-- Aplica, na ordem de chegada, as ações que ficaram na fila. Só o distribuir
+-- mais de fora esvazia a fila (os lotes das ações da fila passam por
+-- distribuir de novo).
+drenar = function()
+  if estado.drenando or estado.distribuindo > 0 then return end
+  estado.drenando = true
+  local ok, err = pcall(function()
+    while #estado.fila > 0 do
+      local item = table.remove(estado.fila, 1)
+      local r
+      if item.partida ~= estado.id or estado.g == nil then
+        r = recusa("não há partida em curso")
+      else
+        r = aplicar_acao(item.userid, item.action)
+      end
+      if not r.ok and estado.rede and type(item.userid) == "string" then
+        estado.rede.enviar({ item.userid }, "recusada", { n = item.n or false, motivo = r.erro })
+      end
+    end
+  end)
+  estado.drenando = false
+  if not ok then
+    estado.fila = {}
+    log("erro ao aplicar as ações da fila: " .. tostring(err))
+  end
 end
 
 ----------------------------------------------------------------------------
@@ -473,6 +539,7 @@ function Partida.instalar(ctx)
   estado.fotos = nil
   estado.seq = 0
   estado.enviados = 0
+  estado.distribuindo, estado.drenando, estado.fila = 0, false, {}
   if ctx.rede and ctx.rede.ligar_servidor then ctx.rede.ligar_servidor(Partida) end
   return Partida
 end
