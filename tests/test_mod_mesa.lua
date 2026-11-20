@@ -1242,6 +1242,236 @@ return {
     T.eq(C.destacar(1, "evento", nil, true), 0, "o espaço de eventos não é de um jogador")
   end },
 
+  -- -------------------------------------------------------------------------
+  -- Mesa pedida no teste em jogo (bug #147): o que cada jogador vê
+  -- -------------------------------------------------------------------------
+
+  { "a mesa vista pela câmera de cada jogador é o mapa pedido, nos dois espelhamentos", function(T)
+    -- Mapa do comentário da issue #147, visto pelo jogador 1 (embaixo).
+    local PEDIDO = {
+      "RRRRRRRRRRRRRRR",
+      "RXRRRERERRRPRRR",
+      "RRRRRRRRRRRRRRR",
+      "RKRKRKRKRKRKRRR",
+      "RVRVRVRVRVRVRRR",
+      "RRRRRRRRRRRRRRR",
+      "RRRRRRDRRRRRReR",
+      "RRRRRRARRRRRReR",
+      "RRRRRRRRRRRRRRR",
+      "RVRVRVRVRVRVRRR",
+      "RKRKRKRKRKRKRRR",
+      "RRRRRRRRRRRRRRR",
+      "RPRRRERERRRXRRR",
+      "RRRRRRRRRRRRRRR",
+    }
+    local LETRA = { carta = "K", criatura = "V", estrutura = "E", evento = "e" }
+    -- Desenha a mesa como a câmera do jogador `p` a mostra: colunas pela
+    -- direita da tela, linhas por GetDownVec, e cada espaço com a letra do
+    -- que as funções absolutas dizem que ele é.
+    local function vista(Mesa, calib, p)
+      local h = Mesa.heading(p, calib)
+      local rx, rz = Mesa.direita(h)
+      local bx, bz = math.cos(math.rad(h)), math.sin(math.rad(h))
+      local m = Mesa.MESA
+      local dmin, bmin = math.huge, math.huge
+      for _, canto in ipairs({ { m.col_min, m.lin_min }, { m.col_max, m.lin_max } }) do
+        local x, z = Mesa.posicao_abs(canto[1], canto[2], calib)
+        dmin = math.min(dmin, x * rx + z * rz)
+        bmin = math.min(bmin, x * bx + z * bz)
+      end
+      local linhas = {}
+      for l = 1, m.lin_max - m.lin_min + 1 do
+        linhas[l] = {}
+        for c = 1, m.col_max - m.col_min + 1 do linhas[l][c] = "R" end
+      end
+      for _, t in ipairs(Mesa.tiles_dos_espacos(calib)) do
+        local c = math.floor((t.x * rx + t.z * rz - dmin) / Mesa.TILE_SCALE + 0.5) + 1
+        local l = math.floor((t.x * bx + t.z * bz - bmin) / Mesa.TILE_SCALE + 0.5) + 1
+        local letra = LETRA[t.tipo]
+        if t.tipo == "deck" then letra = t.n == "principal" and "P" or "X" end
+        -- "A" é o quadrado de combate de quem olha, "D" o do outro.
+        if t.tipo == "combate" then letra = t.jogador == p and "A" or "D" end
+        T.eq(linhas[l][c], "R", "um espaço por tile")
+        linhas[l][c] = letra
+      end
+      for l, linha in ipairs(linhas) do linhas[l] = table.concat(linha) end
+      return linhas
+    end
+    -- O mesmo mapa com a esquerda e a direita trocadas, mas com a numeração
+    -- (e portanto os decks) contada de novo da esquerda de quem olha.
+    local function trocar_lados(mapa)
+      local r = {}
+      for l, linha in ipairs(mapa) do
+        r[l] = linha:reverse():gsub("[PX]", { P = "X", X = "P" })
+      end
+      return r
+    end
+    local Mesa = nova_mesa()
+    for _, caso in ipairs(CASOS) do
+      local calib = calibrar_caso(Mesa, caso)
+      for p = 1, 2 do
+        -- Espelhado (o medido): o jogador 1 vê o mapa pedido, com os eventos
+        -- à direita; o jogador 2, do outro lado, vê os eventos à esquerda.
+        -- Sem espelhamento, o contrário.
+        local eventos_a_direita = (p == 1) == caso.espelhado
+        local esperado = eventos_a_direita and PEDIDO or trocar_lados(PEDIDO)
+        local v = vista(Mesa, calib, p)
+        for l, linha in ipairs(esperado) do
+          T.eq(v[l], linha, caso.nome .. ": jogador " .. p .. ", linha " .. (l - 1))
+        end
+      end
+    end
+  end },
+
+  { "decks e estruturas atrás dos espaços certos de cada jogador, nos dois espelhamentos", function(T)
+    local Mesa = nova_mesa()
+    for _, caso in ipairs(CASOS) do
+      local calib = calibrar_caso(Mesa, caso)
+      for p = 1, 2 do
+        local nome = caso.nome .. ": jogador " .. p
+        local function carta(n) return Mesa.espaco_criatura_abs(p, n, calib).carta end
+        local fundo
+        local function conferir(x, z, lin, n, o_que)
+          T.eq(x, carta(n).x, nome .. ": " .. o_que .. " na coluna do espaço " .. n)
+          fundo = fundo or z
+          T.eq(z, fundo, nome .. ": " .. o_que .. " na fileira de trás")
+          T.eq(lin, p == 1 and 15 or 4, nome .. ": " .. o_que .. " na linha de trás do layout")
+          -- Atrás: mais longe do centro que a carta, do mesmo lado.
+          local _, cz = Mesa.centro_abs(calib)
+          T.ok((z - cz) * (carta(n).z - cz) > 0 and math.abs(z - cz) > math.abs(carta(n).z - cz), nome .. ": " .. o_que .. " atrás da carta")
+        end
+        local x, z, _, lin = Mesa.espaco_deck_abs(p, "principal", calib)
+        conferir(x, z, lin, 1, "deck principal")
+        x, z, _, lin = Mesa.espaco_estrutura_abs(p, 1, calib)
+        conferir(x, z, lin, 3, "estrutura 1")
+        x, z, _, lin = Mesa.espaco_estrutura_abs(p, 2, calib)
+        conferir(x, z, lin, 4, "estrutura 2")
+        x, z, _, lin = Mesa.espaco_deck_abs(p, "extra", calib)
+        conferir(x, z, lin, 6, "deck extra")
+      end
+      -- O principal de um e o extra do outro dividem a coluna.
+      T.eq((Mesa.espaco_deck_abs(1, "principal", calib)), (Mesa.espaco_deck_abs(2, "extra", calib)), caso.nome .. ": principal do 1 e extra do 2")
+      T.eq((Mesa.espaco_deck_abs(1, "extra", calib)), (Mesa.espaco_deck_abs(2, "principal", calib)), caso.nome .. ": extra do 1 e principal do 2")
+    end
+  end },
+
+  { "combate e eventos no mundo: cada quadrado do lado do seu jogador, eventos alinhados", function(T)
+    local Mesa = nova_mesa()
+    for _, caso in ipairs(CASOS) do
+      local calib = calibrar_caso(Mesa, caso)
+      local x1, z1 = Mesa.espaco_combate_abs(1, calib)
+      local x2, z2 = Mesa.espaco_combate_abs(2, calib)
+      T.eq(x1, x2, caso.nome .. ": um em cima do outro")
+      T.eq(math.abs(z1 - z2), Mesa.TILE_SCALE, caso.nome .. ": encostados")
+      for p = 1, 2 do
+        local e = Mesa.espaco_criatura_abs(p, 1, calib).criatura
+        local meu = p == 1 and z1 or z2
+        local outro = p == 1 and z2 or z1
+        T.ok(math.abs(e.z - meu) < math.abs(e.z - outro), caso.nome .. ": o quadrado do jogador " .. p .. " fica do lado dele")
+        -- No meio das 6 colunas de criatura.
+        local a, b = Mesa.espaco_criatura_abs(p, 3, calib).carta, Mesa.espaco_criatura_abs(p, 4, calib).carta
+        T.eq(x1, (a.x + b.x) / 2, caso.nome .. ": entre os espaços 3 e 4 do jogador " .. p)
+      end
+      local ev = Mesa.espaco_evento_abs(calib)
+      T.eq(ev.pilha.x, ev.em_vigor.x, caso.nome .. ": eventos numa coluna só")
+      T.eq(ev.pilha.z, z2, caso.nome .. ": pilha na linha do combate do jogador 2")
+      T.eq(ev.em_vigor.z, z1, caso.nome .. ": evento em vigor na linha do combate do jogador 1")
+      T.eq(ev.centro.x, ev.pilha.x, caso.nome .. ": centro do espaço de eventos (x)")
+      T.eq(ev.centro.z, (z1 + z2) / 2, caso.nome .. ": centro do espaço de eventos (z)")
+      -- Do lado oposto ao portal.
+      local px = portal_no_mundo(caso)
+      T.ok((ev.pilha.x - x1) * (px - x1) < 0, caso.nome .. ": eventos de um lado do combate, portal do outro")
+      -- 1 coluna de paralelepípedos entre a última coluna de cartas e os eventos.
+      local perto = math.huge
+      for p = 1, 2 do
+        for n = 1, 6 do
+          perto = math.min(perto, math.abs(Mesa.espaco_criatura_abs(p, n, calib).carta.x - ev.pilha.x))
+        end
+      end
+      T.eq(perto, 2 * Mesa.TILE_SCALE, caso.nome .. ": 2 tiles da última coluna de cartas")
+    end
+    T.eq(Mesa.espaco_evento_abs(), nil, "sem calibração não há posição")
+    T.eq(Mesa.espaco_combate_abs(1), nil, "nem do combate")
+    T.eq(Mesa.espaco_deck_abs(1, "principal"), nil, "nem dos decks")
+  end },
+
+  { "achar_eventos: o lado da coluna de eventos, ou o motivo de não servir", function(T)
+    local Mesa = nova_mesa()
+    -- Estruturas em x 10 e 12, y 4 e 15 (o próprio layout, sem espelho).
+    local r = assert(Mesa.achar_estruturas({ { x = 10, y = 4 }, { x = 12, y = 4 }, { x = 10, y = 15 }, { x = 12, y = 15 } }))
+    T.eq(Mesa.EVENTOS_DX, 7, "eventos a 7 colunas do centro das estruturas")
+    T.eq(Mesa.achar_eventos({ { x = 18, y = 9 }, { x = 18, y = 10 } }, r), 1, "x maior: sem espelho")
+    T.eq(Mesa.achar_eventos({ { x = 4, y = 10 }, { x = 4, y = 9 } }, r), -1, "x menor: espelhado")
+    T.eq(Mesa.achar_eventos({ { x = 18, y = 9 }, { x = 18, y = 10 }, { x = 18, y = 9 } }, r), 1, "tile repetido conta uma vez")
+    local function recusa(tiles, nome)
+      local lado, motivo = Mesa.achar_eventos(tiles, r)
+      T.eq(lado, nil, nome)
+      T.eq(type(motivo), "string", nome .. ": motivo")
+    end
+    recusa({}, "nenhum tile")
+    recusa(nil, "lista ausente")
+    recusa({ { x = 18, y = 9 } }, "1 tile")
+    recusa({ { x = 18, y = 9 }, { x = 18, y = 10 }, { x = 18, y = 11 } }, "3 tiles")
+    recusa({ { x = 18, y = 9 }, { x = 17, y = 10 } }, "colunas diferentes")
+    recusa({ { x = 18, y = 8 }, { x = 18, y = 9 } }, "fora das linhas do combate")
+    recusa({ { x = 18, y = 9 }, { x = 18, y = 9.5 } }, "linha que não é do combate")
+    recusa({ { x = 17, y = 9 }, { x = 17, y = 10 } }, "na distância errada das estruturas")
+    recusa({ { x = 11, y = 9 }, { x = 11, y = 10 } }, "no meio das estruturas")
+  end },
+
+  { "sem a coluna de eventos o espelhamento sai do portal, com aviso; se discordam, avisa", function(T)
+    local Mesa = nova_mesa()
+    for _, caso in ipairs(CASOS) do
+      local lista, px, pz = estruturas_em_volta(Mesa, caso)
+      local r = assert(Mesa.achar_estruturas(lista))
+      local com = calibrar_caso(Mesa, caso)
+      local sem = Mesa.calibrar({ estruturas = r, centro_mundo = centro_mundo, eventos = {}, portal = { x = px, z = pz } })
+      T.eq(sem.espelhado, caso.espelhado, caso.nome .. ": espelhado pelo portal")
+      T.eq(sem.espelhamento, "portal", caso.nome .. ": de onde saiu")
+      T.ok(sem.aviso:find("coluna de eventos não achada"), caso.nome .. ": avisa")
+      T.ok(not sem.aviso:find("longe do esperado"), caso.nome .. ": o portal está onde o layout diz")
+      T.eq(sem.origem_x, com.origem_x, caso.nome .. ": mesma origem x")
+      T.eq(sem.origem_z, com.origem_z, caso.nome .. ": mesma origem z")
+      -- Portal do mesmo lado dos eventos: a mesa (os eventos) manda, e o log avisa.
+      local ox = Mesa.centro_abs(com)
+      local torto = Mesa.calibrar({ estruturas = r, centro_mundo = centro_mundo, eventos = eventos_em_volta(Mesa, caso),
+        portal = { x = 2 * ox - px, z = pz } })
+      T.eq(torto.espelhado, caso.espelhado, caso.nome .. ": os eventos mandam")
+      T.eq(torto.espelhamento, "eventos", caso.nome .. ": de onde saiu")
+      T.ok(torto.aviso:find("não bate com o da coluna de eventos"), caso.nome .. ": avisa da discordância")
+    end
+
+    -- No servidor: mundo sem os tiles de eventos (por exemplo, um mundo
+    -- gerado com a mesa anterior não teria o padrão inteiro).
+    local amb = instalar_tudo(ambiente_jogo({ servidor = true, sem_eventos = true }))
+    carregar_mundo(amb)
+    local calib = amb.Mesa.calibracao
+    T.eq(calib.fonte, "estruturas", "a origem continua saindo das estruturas")
+    T.eq(calib.espelhado, true, "espelhado pelo portal")
+    T.ok(no_log(amb.reg, "coluna de eventos não achada"), "avisa no log")
+    T.ok(no_log(amb.reg, "(portal)"), "o log diz que o espelhamento saiu do portal")
+    T.ok(no_log(amb.reg, "2 dos 36 tiles de espaço não estão sobre os tiles esperados"), "a conferência acha os 2 tiles de eventos faltando")
+    T.eq(#amb.Contornos.lista(), 36, "os contornos são criados mesmo assim")
+  end },
+
+  { "a calibração pelos eventos não depende do portal estar no lugar", function(T)
+    -- Portal em qualquer ponto perto da mesa: a origem e o espelhamento são
+    -- os mesmos; só o aviso do portal muda.
+    for _, caso in ipairs(CASOS) do
+      local Mesa = nova_mesa()
+      local certo = calibrar_caso(Mesa, caso)
+      local r = assert(Mesa.achar_estruturas((estruturas_em_volta(Mesa, caso))))
+      local eventos = eventos_em_volta(Mesa, caso)
+      for _, p in ipairs({ { x = 0, z = 0 }, { x = 500, z = -30 }, { x = certo.origem_x, z = certo.origem_z } }) do
+        local c = Mesa.calibrar({ estruturas = r, centro_mundo = centro_mundo, eventos = eventos, portal = p })
+        T.eq(c.origem_x, certo.origem_x, caso.nome .. ": origem x")
+        T.eq(c.origem_z, certo.origem_z, caso.nome .. ": origem z")
+        T.eq(c.espelhado, caso.espelhado, caso.nome .. ": espelhado")
+        T.eq(type(c.aviso), "string", caso.nome .. ": o portal fora do lugar só gera aviso")
+      end
+    end
+  end },
+
   { "câmera: as 14 linhas da mesa cabem, com a fileira de trás acima do inventário", function(T)
     local C = carregar("scripts/duelo/mod/camera.lua")
     local Mesa = nova_mesa()
