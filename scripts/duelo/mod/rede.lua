@@ -30,7 +30,9 @@
 -- RPCs (namespace "duelo"):
 --   cliente -> servidor
 --     "acao"          (texto, n)  a ação serializada por duelo/core/serial e
---                                 o número dela no cliente (volta na recusa).
+--                                 o número dela no cliente (volta na recusa;
+--                                 só vale inteiro finito em [0, 2^31), senão
+--                                 volta false).
 --     "pedir_estado"  ()          pede a fotografia da partida.
 --   servidor -> cliente, todas com (id, i, total, pedaco): a mensagem `id`
 --   serializada e cortada em `total` pedaços, mandados em ordem
@@ -42,7 +44,9 @@
 -- por Serial.deserialize (caractere a caractere, sem loadstring; no máximo 8
 -- níveis de tabela e 256 valores; número não finito é recusado), depois de
 -- conferido o tamanho, e a tabela que sai ainda passa pela conferência de
--- forma de duelo/mod/partida_servidor.
+-- forma de duelo/mod/partida_servidor. Todos os handlers, do servidor e do
+-- cliente, rodam dentro de pcall: um erro vira um aviso no log e nunca sobe
+-- para a fila de RPCs do jogo.
 --
 -- Limites (Rede.LIMITES):
 --   ACAO_BYTES            tamanho máximo do texto de uma ação;
@@ -133,10 +137,21 @@ function Rede.usuarios()
   return out
 end
 
-local function entregar_local(tipo, texto)
+-- Um handler de RPC nunca propaga erro: o jogo o chama de dentro da fila de
+-- RPCs (HandleRPCQueue, networkclientrpc.lua), e um erro ali derrubaria o
+-- servidor (ou o cliente). O erro vai para o log e a RPC é abandonada.
+local function protegido(nome, fn)
+  return function(...)
+    local ok, err = pcall(fn, ...)
+    if not ok then pcall(log, "erro ao tratar \"" .. nome .. "\" (ignorado): " .. tostring(err)) end
+  end
+end
+
+-- Entrega ao cliente desta máquina (host), sem passar pela RPC.
+local entregar_local = protegido("entrega local", function(tipo, texto)
   local ok, tabela = pcall(Serial.deserialize, texto)
   if ok and estado.cliente then estado.cliente.receber(tipo, tabela) end
-end
+end)
 
 -- Manda uma mensagem (tabela) a uma lista de userids. A tabela é serializada
 -- uma vez; o que sai nunca é a tabela de quem chamou.
@@ -190,13 +205,22 @@ local function userid_de(player)
   return nil
 end
 
+-- O número da ação vem do cliente e volta na recusa: só vale um inteiro
+-- finito em [0, 2^31); qualquer outra coisa (texto, fração, NaN, infinito,
+-- que o serializador nem aceita escrever) vira false.
+local function numero_da_acao(n)
+  if type(n) == "number" and n == n and n ~= math.huge and n >= 0 and n < 2 ^ 31 and n % 1 == 0 then return n end
+  return false
+end
+
 local function recusar(userid, n, motivo)
-  Rede.enviar({ userid }, "recusada", { n = type(n) == "number" and n == n and n or false, motivo = motivo })
+  Rede.enviar({ userid }, "recusada", { n = numero_da_acao(n), motivo = motivo })
 end
 
 -- Handler da RPC "acao" no servidor.
-local function ao_receber_acao(player, texto, n)
+local ao_receber_acao = protegido("acao", function(player, texto, n)
   if estado.servidor == nil then return end
+  n = numero_da_acao(n)
   local userid = userid_de(player)
   if userid == nil then return end
   local cabe, avisar = cabe_na_taxa(userid, "acao", Rede.LIMITES.ACOES_POR_SEGUNDO)
@@ -213,16 +237,16 @@ local function ao_receber_acao(player, texto, n)
   if not ok then return recusar(userid, n, "ação inválida") end
   local r = estado.servidor.receber_acao(userid, action)
   if not r.ok then recusar(userid, n, r.erro) end
-end
+end)
 
 -- Handler da RPC "pedir_estado" no servidor.
-local function ao_pedir_estado(player)
+local ao_pedir_estado = protegido("pedir_estado", function(player)
   if estado.servidor == nil then return end
   local userid = userid_de(player)
   if userid == nil then return end
   if not cabe_na_taxa(userid, "estado", Rede.LIMITES.ESTADOS_POR_SEGUNDO) then return end
   estado.servidor.pedir_estado(userid)
-end
+end)
 
 function Rede.ligar_servidor(partida)
   estado.servidor = partida
@@ -317,9 +341,9 @@ function Rede.instalar(ctx)
   ctx.AddModRPCHandler(Rede.NAMESPACE, "acao", ao_receber_acao)
   ctx.AddModRPCHandler(Rede.NAMESPACE, "pedir_estado", ao_pedir_estado)
   for _, tipo in ipairs(Rede.MENSAGENS) do
-    ctx.AddClientModRPCHandler(Rede.NAMESPACE, tipo, function(id, i, total, pedaco)
+    ctx.AddClientModRPCHandler(Rede.NAMESPACE, tipo, protegido(tipo, function(id, i, total, pedaco)
       ao_receber_pedaco(tipo, id, i, total, pedaco)
-    end)
+    end))
   end
   return Rede
 end
