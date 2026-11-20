@@ -360,4 +360,132 @@ return {
     local mx = Mesa.posicao(e.col, e.lin, ox, oz, true)
     T.eq(mx, 132 - (5 - 10) * 4, "carta 1/1 x espelhado")
   end },
+
+  -- -------------------------------------------------------------------------
+  -- Layout aprovado na #30 (bug #147)
+  -- -------------------------------------------------------------------------
+
+  { "cascalho em volta de cada espaço e nenhum espaço encostado em outro", function(T)
+    local bg = require("duelo/mod/layouts/mesa").layers[1].data
+    local function tile(col, lin) return bg[lin * Mesa.LARGURA + col + 1] end
+    -- Dono de cada tile de espaço: "jogador/tipo/n" (carta e criatura do
+    -- mesmo espaço contam como o mesmo espaço).
+    local function espaco(col, lin)
+      local uso, jogador, n = Mesa.uso_em(col, lin)
+      if uso == "carta" or uso == "criatura" then return jogador .. "/criatura/" .. n end
+      if uso == "estrutura" then return jogador .. "/estrutura/" .. n end
+      return nil
+    end
+    local tiles_de_espaco = 0
+    for lin = 0, Mesa.ALTURA - 1 do
+      for col = 0, Mesa.LARGURA - 1 do
+        local dono = espaco(col, lin)
+        if dono then
+          tiles_de_espaco = tiles_de_espaco + 1
+          -- Os 8 vizinhos: ou são do mesmo espaço, ou são cascalho.
+          for dl = -1, 1 do
+            for dc = -1, 1 do
+              if dl ~= 0 or dc ~= 0 then
+                local outro = espaco(col + dc, lin + dl)
+                local nome = dono .. " em " .. col .. "," .. lin .. " vizinho " .. (col + dc) .. "," .. (lin + dl)
+                if outro then
+                  T.eq(outro, dono, nome .. " encosta em outro espaço")
+                else
+                  T.eq(tile(col + dc, lin + dl), Mesa.TILE.CASCALHO, nome .. " é cascalho")
+                end
+              end
+            end
+          end
+        end
+      end
+    end
+    T.eq(tiles_de_espaco, 28, "28 tiles de espaço")
+  end },
+
+  { "cascalho em volta da mesa; fora dela só o pátio do portal", function(T)
+    local m = Mesa.MESA
+    for col = m.col_min, m.col_max do
+      T.eq(Mesa.indice_em(col, m.lin_min), Mesa.TILE.CASCALHO, "borda norte " .. col)
+      T.eq(Mesa.indice_em(col, m.lin_max), Mesa.TILE.CASCALHO, "borda sul " .. col)
+    end
+    for lin = m.lin_min, m.lin_max do
+      T.eq(Mesa.indice_em(m.col_min, lin), Mesa.TILE.CASCALHO, "borda oeste " .. lin)
+      T.eq(Mesa.indice_em(m.col_max, lin), Mesa.TILE.CASCALHO, "borda leste " .. lin)
+    end
+    -- A mesa fica centrada na grade.
+    T.eq(m.col_min, Mesa.LARGURA - 1 - m.col_max, "mesma margem a oeste e a leste")
+    T.eq(m.lin_min, Mesa.ALTURA - 1 - m.lin_max, "mesma margem ao norte e ao sul")
+    local cx = (m.col_min + m.col_max) / 2
+    local cz = (m.lin_min + m.lin_max) / 2
+    T.eq(cx, Mesa.CENTRO_COMBATE.col, "centro da mesa = centro da zona de combate (col)")
+    T.eq(cz, Mesa.CENTRO_COMBATE.lin, "centro da mesa = centro da zona de combate (lin)")
+    T.eq(cx, (Mesa.LARGURA - 1) / 2, "centro da grade")
+    -- Fora da mesa: só o pátio de cascalho, encostado na borda oeste.
+    local p = Mesa.PATIO
+    for lin = 0, Mesa.ALTURA - 1 do
+      for col = 0, Mesa.LARGURA - 1 do
+        local na_mesa = col >= m.col_min and col <= m.col_max and lin >= m.lin_min and lin <= m.lin_max
+        local no_patio = col >= p.col_min and col <= p.col_max and lin >= p.lin_min and lin <= p.lin_max
+        if not na_mesa then
+          T.eq(Mesa.indice_em(col, lin), no_patio and Mesa.TILE.CASCALHO or Mesa.TILE.FORA, "fora da mesa " .. col .. "," .. lin)
+        end
+      end
+    end
+    T.eq(p.col_max + 1, m.col_min, "pátio encostado na borda da mesa")
+    T.ok(p.lin_min <= Mesa.CENTRO_COMBATE.lin and Mesa.CENTRO_COMBATE.lin <= p.lin_max, "na altura da zona de combate")
+  end },
+
+  { "espaço de criatura: 2 tiles, carta atrás e criatura virada para a zona de combate", function(T)
+    local combate = Mesa.CENTRO_COMBATE.lin
+    for jogador = 1, 2 do
+      for n, e in ipairs(Mesa.JOGADORES[jogador].criaturas) do
+        local nome = jogador .. "/" .. n
+        T.eq(e.carta.col, e.criatura.col, nome .. ": carta e criatura na mesma coluna")
+        T.eq(e.combate.col, e.criatura.col, nome .. ": tile de combate na mesma coluna")
+        T.eq(math.abs(e.carta.lin - e.criatura.lin), 1, nome .. ": carta e criatura encostadas")
+        T.eq(e.combate.lin, combate, nome .. ": tile de combate na zona de combate")
+        T.eq(math.abs(e.criatura.lin - combate), 1, nome .. ": criatura encostada na zona de combate")
+        T.eq(math.abs(e.carta.lin - combate), 2, nome .. ": carta atrás da criatura")
+      end
+    end
+  end },
+
+  { "zona de combate entre os dois lados", function(T)
+    local combate = Mesa.CENTRO_COMBATE.lin
+    for col = Mesa.MESA.col_min, Mesa.MESA.col_max do
+      T.eq(Mesa.uso_em(col, combate), "combate", "linha inteira de combate " .. col)
+      T.eq(Mesa.indice_em(col, combate), Mesa.TILE.CASCALHO, "combate é cascalho " .. col)
+    end
+    for lin = 0, Mesa.ALTURA - 1 do
+      for col = 0, Mesa.LARGURA - 1 do
+        local uso, jogador = Mesa.uso_em(col, lin)
+        if jogador == 1 then T.ok(lin > combate, "jogador 1 ao sul da zona de combate") end
+        if jogador == 2 then T.ok(lin < combate, "jogador 2 ao norte da zona de combate") end
+        if uso == "combate" then T.eq(lin, combate, "zona de combate com 1 tile de altura") end
+      end
+    end
+    -- Estruturas numa fileira própria, atrás das cartas (1 tile de cascalho entre).
+    for jogador = 1, 2 do
+      local carta = Mesa.espaco_criatura(jogador, 1).carta.lin
+      for _, e in ipairs(Mesa.JOGADORES[jogador].estruturas) do
+        T.eq(math.abs(e.lin - combate), math.abs(carta - combate) + 2, "estrutura 2 linhas atrás das cartas")
+      end
+    end
+  end },
+
+  { "o mapa ASCII do cabeçalho de mesa.lua é o que o módulo gera", function(T)
+    local f = assert(io.open(RAIZ .. "scripts/duelo/mod/mesa.lua", "r"))
+    local texto = f:read("*a")
+    f:close()
+    local linhas = {}
+    for linha in texto:gmatch("[^\n]+") do
+      local lin, grade = linha:match("^%-%-[%slin]+(%d+)%s+([%.CKVEP%-]+)")
+      if lin and #grade == Mesa.LARGURA then linhas[tonumber(lin) + 1] = grade end
+    end
+    local gerado = Mesa.mapa_ascii()
+    T.eq(#gerado, Mesa.ALTURA, "21 linhas geradas")
+    for i, l in ipairs(gerado) do
+      T.eq(linhas[i], l, "linha " .. (i - 1) .. " do cabeçalho")
+    end
+  end },
 }

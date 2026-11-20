@@ -159,6 +159,24 @@ local function entidade(reg, nome)
   return e
 end
 
+-- gridplacer falso, com o que prefabs/gridplacer.lua (fn) põe nele: tags
+-- CLASSIFIED, NOCLICK e placer, Transform e AnimState, sem rede nem física,
+-- persists = false. O AnimState guarda as cores.
+local function gridplacer_falso(reg)
+  local e = entidade(reg, "gridplacer")
+  e:AddTag("CLASSIFIED")
+  e:AddTag("NOCLICK")
+  e:AddTag("placer")
+  e.persists = false
+  e.entity.AddTransform()
+  e.AnimState = { mult = { 1, 1, 1, 1 }, add = { 0, 0, 0, 0 } }
+  function e.AnimState:SetMultColour(r, g, b, a) self.mult = { r, g, b, a } end
+  function e.AnimState:SetAddColour(r, g, b, a) self.add = { r, g, b, a } end
+  reg.gridplacers = reg.gridplacers or {}
+  reg.gridplacers[#reg.gridplacers + 1] = e
+  return e
+end
+
 -- Netvar falsa: `set` muda o valor e, se mudou, dispara o dirty na entidade
 -- dona (netvars.lua: o dirty sai nos dois lados, só quando o valor muda).
 local function fabrica_net(reg, tipo)
@@ -263,6 +281,7 @@ local function ambiente_jogo(opcoes)
   G.SpawnPrefab = function(nome)
     reg.spawns[#reg.spawns + 1] = nome
     if nome == prefab.nome then return prefab.fn() end
+    if nome == "gridplacer" and not opcoes.sem_gridplacer then return gridplacer_falso(reg) end
   end
 
   local ctx = {
@@ -278,6 +297,7 @@ end
 
 -- Instala calibracao, marcadores e camera (cópias novas) como o modmain faz.
 local function instalar_tudo(amb)
+  local G = amb.ctx.GLOBAL
   local Calibracao = carregar("scripts/duelo/mod/calibracao.lua")
   local ctx = amb.ctx
   Calibracao.instalar({ GLOBAL = ctx.GLOBAL, Mesa = ctx.Mesa, AddSimPostInit = ctx.AddSimPostInit,
@@ -288,7 +308,9 @@ local function instalar_tudo(amb)
   Camera.instalar({ GLOBAL = ctx.GLOBAL, Mesa = ctx.Mesa, Calibracao = Calibracao,
     AddPlayerPostInit = ctx.AddPlayerPostInit, AddComponentPostInit = ctx.AddComponentPostInit,
     AddSimPostInit = ctx.AddSimPostInit })
-  amb.Calibracao, amb.Marcadores, amb.Camera = Calibracao, Marcadores, Camera
+  local Contornos = carregar("scripts/duelo/mod/contornos.lua")
+  Contornos.instalar({ GLOBAL = G, Mesa = ctx.Mesa, Calibracao = Calibracao, Marcadores = Marcadores })
+  amb.Calibracao, amb.Marcadores, amb.Camera, amb.Contornos = Calibracao, Marcadores, Camera, Contornos
   return amb
 end
 
@@ -664,7 +686,11 @@ return {
     carregar_mundo(amb)
     local lista = amb.Marcadores.lista()
     T.eq(#lista, 17, "17 marcadores")
-    T.eq(#amb.reg.spawns, 17, "17 SpawnPrefab")
+    local marcadores = 0
+    for _, nome in ipairs(amb.reg.spawns) do
+      if nome == "duelo_marcador" then marcadores = marcadores + 1 end
+    end
+    T.eq(marcadores, 17, "17 SpawnPrefab do marcador")
     local calib, Mesa = amb.Mesa.calibracao, amb.Mesa
     local vistos, por_tipo = {}, { 0, 0, 0 }
     for _, m in ipairs(lista) do
@@ -697,7 +723,7 @@ return {
     T.ok(vistos["3/0/0"], "centro")
     -- Recalibrar (console) troca os marcadores, sem duplicar.
     amb.Calibracao.calibrar()
-    T.eq(amb.reg.removidos, 17, "os 17 antigos removidos")
+    T.eq(amb.reg.removidos, 17 + 28, "os 17 marcadores antigos (e os 28 contornos do host) removidos")
     T.eq(#amb.Marcadores.lista(), 17, "17 de novo")
   end },
   { "textos e cores dos marcadores", function(T)
@@ -914,5 +940,176 @@ return {
     T.ok(jd.duelo_lado, "netvar do lado declarada no dedicado")
     T.eq(jd.eventos.playeractivated, nil, "dedicado não escuta playeractivated")
     T.eq(ded.Camera.aplicar(), false, "dedicado não aplica câmera")
+  end },
+
+  -- -------------------------------------------------------------------------
+  -- Layout aprovado na #30 (bug #147): rótulos, contornos e enquadramento
+  -- -------------------------------------------------------------------------
+
+  { "rótulos: número no tile da carta, estruturas E1/E2 e Combate no centro", function(T)
+    for _, caso in ipairs(CASOS) do
+      local amb = instalar_tudo(ambiente_jogo({ servidor = true, caso = caso }))
+      carregar_mundo(amb)
+      local por_texto = {}
+      for _, m in ipairs(amb.Marcadores.lista()) do
+        local x, _, z = m.Transform:GetWorldPosition()
+        local uso = uso_no_mapa(amb.grade, tile_no_ponto(x, z))
+        por_texto[m.Label.texto] = uso
+        local tipo = m.duelo_tipo:value()
+        if tipo == 1 then T.eq(uso, "carta", caso.nome .. ": " .. m.Label.texto .. " no tile da carta") end
+        if tipo == 2 then T.eq(uso, "estrutura", caso.nome .. ": " .. m.Label.texto .. " no tile da estrutura") end
+        if tipo == 3 then T.eq(uso, "combate", caso.nome .. ": Combate na zona de combate") end
+      end
+      for _, t in ipairs({ "J1 E1", "J1 E2", "J2 E1", "J2 E2" }) do
+        T.eq(por_texto[t], "estrutura", caso.nome .. ": " .. t)
+      end
+      T.eq(por_texto["Combate"], "combate", caso.nome .. ": Combate")
+      local x, _, z = amb.Marcadores.lista()[17].Transform:GetWorldPosition()
+      T.eq((amb.Mesa.tile_do_layout(x, z)), amb.Mesa.CENTRO_COMBATE.col, "Combate na coluna do centro")
+    end
+  end },
+
+  { "contornos: um gridplacer por tile de espaço, na cor do dono", function(T)
+    for _, caso in ipairs(CASOS) do
+      local amb = instalar_tudo(ambiente_jogo({ servidor = true, caso = caso }))
+      carregar_mundo(amb)
+      local lista = amb.Contornos.lista()
+      T.eq(#lista, 28, caso.nome .. ": 28 contornos no host")
+      T.eq(#amb.reg.gridplacers, 28, "28 SpawnPrefab(\"gridplacer\")")
+      local vistos, por_tipo = {}, { carta = 0, criatura = 0, estrutura = 0 }
+      for _, c in ipairs(lista) do
+        local g = c.inst
+        local x, _, z = g.Transform:GetWorldPosition()
+        local tx, ty = tile_no_ponto(x, z)
+        local cx, cz = centro_mundo(tx, ty)
+        T.eq(x, cx, "no centro do tile (x)")
+        T.eq(z, cz, "no centro do tile (z)")
+        T.eq(uso_no_mapa(amb.grade, tx, ty), c.tipo, caso.nome .. ": contorno de " .. c.tipo .. " sobre o tile certo")
+        local chave = tx .. "," .. ty
+        T.ok(not vistos[chave], "um contorno por tile")
+        vistos[chave] = true
+        por_tipo[c.tipo] = por_tipo[c.tipo] + 1
+        -- O tile pertence ao espaço que o contorno diz.
+        local e
+        if c.tipo == "estrutura" then
+          local ex, ez = amb.Mesa.espaco_estrutura_abs(c.jogador, c.n)
+          e = { x = ex, z = ez }
+        else
+          e = amb.Mesa.espaco_criatura_abs(c.jogador, c.n)[c.tipo]
+        end
+        T.eq(x, e.x, "espaço " .. c.jogador .. "/" .. c.tipo .. "/" .. c.n .. " (x)")
+        T.eq(z, e.z, "espaço " .. c.jogador .. "/" .. c.tipo .. "/" .. c.n .. " (z)")
+        -- Cor do dono, a mesma dos rótulos.
+        local r, gg, b = amb.Marcadores.cor(amb.Marcadores.TIPO.criatura, c.jogador)
+        T.eq(g.AnimState.mult[1], r, "cor r")
+        T.eq(g.AnimState.mult[2], gg, "cor g")
+        T.eq(g.AnimState.mult[3], b, "cor b")
+        T.eq(g.AnimState.mult[4], 1, "opaco")
+        if c.jogador == 1 then T.ok(b > r, "jogador 1 azul") else T.ok(r > b, "jogador 2 vermelho") end
+        T.eq(g.AnimState.add[1], 0, "sem destaque")
+        -- Sem colisão, sem clique e sem rede (o gridplacer do jogo).
+        T.ok(g:HasTag("NOCLICK"), "NOCLICK")
+        T.eq(g.Physics, nil, "sem física")
+        T.eq(g.rede, nil, "sem rede")
+        T.eq(g.persists, false, "não persiste")
+      end
+      T.eq(por_tipo.carta, 12, "12 cartas")
+      T.eq(por_tipo.criatura, 12, "12 criaturas")
+      T.eq(por_tipo.estrutura, 4, "4 estruturas")
+    end
+  end },
+
+  { "contornos: recriados sem duplicar, só com tela, e cada cliente cria os seus", function(T)
+    local amb = instalar_tudo(ambiente_jogo({ servidor = true }))
+    carregar_mundo(amb)
+    local antigos = amb.Contornos.lista()
+    amb.Calibracao.calibrar()
+    T.eq(#amb.Contornos.lista(), 28, "28 de novo")
+    for _, c in ipairs(antigos) do T.eq(c.inst:IsValid(), false, "o antigo foi removido") end
+
+    local ded = instalar_tudo(ambiente_jogo({ servidor = true, dedicado = true }))
+    carregar_mundo(ded)
+    T.ok(ded.Mesa.calibracao, "o dedicado calibra")
+    T.eq(#ded.Contornos.lista(), 0, "mas não cria contornos")
+    T.eq(ded.reg.gridplacers, nil, "nenhum gridplacer no dedicado")
+
+    -- Cliente: cria os contornos quando a calibração chega pela rede.
+    local cli = instalar_tudo(ambiente_jogo({ servidor = false }))
+    local rede = carregar_mundo(cli)
+    T.eq(#cli.Contornos.lista(), 0, "sem calibração, sem contornos")
+    for _, nome in ipairs(NETVARS_MESA) do
+      netvar(cli.reg, nome).valor = netvar(amb.reg, nome):value()
+    end
+    rede:PushEvent("duelo.mesadirty")
+    T.eq(#cli.Contornos.lista(), 28, "28 contornos no cliente")
+    for i, c in ipairs(cli.Contornos.lista()) do
+      local x, _, z = c.inst.Transform:GetWorldPosition()
+      local x2, _, z2 = amb.Contornos.lista()[i].inst.Transform:GetWorldPosition()
+      T.eq(x, x2, "mesma posição do host (x)")
+      T.eq(z, z2, "mesma posição do host (z)")
+    end
+
+    -- Sem o prefab (não carregado): avisa uma vez e não quebra.
+    local sem = instalar_tudo(ambiente_jogo({ servidor = true, sem_gridplacer = true }))
+    carregar_mundo(sem)
+    T.eq(#sem.Contornos.lista(), 0, "nenhum contorno")
+    T.ok(no_log(sem.reg, "gridplacer não achado"), "avisa no log")
+    T.eq(#sem.Marcadores.lista(), 17, "os rótulos continuam")
+  end },
+
+  { "contornos: destacar um espaço muda só os tiles dele", function(T)
+    local amb = instalar_tudo(ambiente_jogo({ servidor = true }))
+    carregar_mundo(amb)
+    local C = amb.Contornos
+    T.eq(C.destacar(1, "criatura", 3, true), 2, "espaço de criatura: carta e criatura")
+    for _, c in ipairs(C.lista()) do
+      local alvo = c.jogador == 1 and c.n == 3 and (c.tipo == "carta" or c.tipo == "criatura")
+      T.eq(c.inst.AnimState.add[1], alvo and C.DESTAQUE[1] or 0, "destaque só no espaço 1/3")
+    end
+    T.eq(C.destacar(2, "estrutura", 1, true), 1, "estrutura: 1 tile")
+    T.eq(C.destacar(1, "criatura", 3, false), 2, "apaga o destaque")
+    for _, c in ipairs(C.lista()) do
+      local alvo = c.jogador == 2 and c.n == 1 and c.tipo == "estrutura"
+      T.eq(c.inst.AnimState.add[1], alvo and C.DESTAQUE[1] or 0, "só a estrutura 2/1 destacada")
+    end
+    T.eq(C.destacar(1, "criatura", 7, true), 0, "espaço que não existe")
+  end },
+
+  { "câmera: as 11 linhas da mesa cabem, com as estruturas acima do inventário", function(T)
+    local C = carregar("scripts/duelo/mod/camera.lua")
+    local Mesa = nova_mesa()
+    T.eq(C.pitch(C.DISTANCIA), 51, "pitch de followcamera.lua em 65 (mínimo 30, máximo 80)")
+    T.eq(C.pitch(C.DISTANCIA_MIN), 30, "pitch no zoom mínimo")
+    T.eq(C.pitch(C.DISTANCIA_MAX), 60, "pitch no zoom máximo")
+    -- Distâncias a partir do centro da zona de combate, para o lado de quem
+    -- olha (negativo = embaixo da tela), tiradas do próprio layout.
+    local m, centro = Mesa.MESA, Mesa.CENTRO_COMBATE
+    local meio_tile = Mesa.TILE_SCALE / 2
+    local borda = (m.lin_max - centro.lin) * Mesa.TILE_SCALE + meio_tile -- 22
+    local estrutura = (Mesa.espaco_estrutura(1, 1).lin - centro.lin) * Mesa.TILE_SCALE -- 16
+    local largura = (m.col_max - centro.col) * Mesa.TILE_SCALE + meio_tile -- 26
+    local perto = C.altura_na_tela(-borda)
+    local longe = C.altura_na_tela(borda)
+    local propria = C.altura_na_tela(-estrutura)
+    T.ok(perto > 0, "borda de perto na tela: " .. perto)
+    T.ok(longe < 0.95, "borda de longe na tela, com folga: " .. longe)
+    -- Referência do jogo (US #30, mesa 16 x 16): estruturas a 22 unidades do
+    -- centro com DISTANCIA 70 e DESLOCAMENTO 8 ficaram acima da barra de
+    -- inventário.
+    local confirmado = C.altura_na_tela(-22, 0, 70, 8)
+    T.ok(math.abs(confirmado - 0.193) < 0.001, "referência confirmada no jogo: " .. confirmado)
+    T.ok(propria >= confirmado, "estruturas do próprio lado acima do confirmado: " .. propria)
+    T.ok(C.altura_na_tela(-estrutura - meio_tile) > 0.15, "e o tile inteiro delas")
+    -- Nenhuma fileira sai da tela, e a ordem é a das linhas.
+    local antes = -1
+    for lin = m.lin_max, m.lin_min, -1 do
+      local y, lado = C.altura_na_tela((centro.lin - lin) * Mesa.TILE_SCALE, largura)
+      T.ok(y > antes, "linha " .. lin .. " acima da anterior")
+      T.ok(y > 0 and y < 1, "linha " .. lin .. " na tela")
+      T.ok(lado < 1, "linha " .. lin .. ": os cantos da mesa cabem na largura (16:9)")
+      antes = y
+    end
+    -- Sem o deslocamento, as estruturas desceriam para baixo da referência.
+    T.ok(C.altura_na_tela(-estrutura, 0, C.DISTANCIA, 0) < confirmado, "o deslocamento é necessário")
   end },
 }
