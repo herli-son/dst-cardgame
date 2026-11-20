@@ -160,6 +160,7 @@ RPCs de mod (`modutil.lua` expõe; a implementação está em `networkclientrpc.
 - **Servidor → cliente**: `AddClientModRPCHandler(namespace, nome, fn)` registra no cliente; o servidor chama `SendModRPCToClient(GetClientModRPC(namespace, nome), users, ...)`, onde `users` é `nil` (todos), um `userid` ou uma lista de `userid` (comentário acima de `SendRPCToClient`). É por aqui que o servidor avisa só um jogador (por exemplo, a mão dele).
 - **Entre shards**: `AddShardModRPCHandler`/`SendModRPCToShard`; não se aplica (só floresta).
 - Os ids são gerados pela ordem de registro, então servidor e clientes precisam registrar as mesmas RPCs na mesma ordem (mesma versão do mod).
+- **Usado na US #41** (`scripts/duelo/mod/rede.lua`): `SendModRPCToServer` e `SendModRPCToClient` conferem com `assert` que o handler existe em quem **envia**, então todas as RPCs são registradas nos dois lados. No servidor o handler só é chamado quando o remetente é a entidade do jogador (`HandleModRPC`), e é dela que sai o `userid`. Os scripts não declaram limite de tamanho para uma string de RPC (a serialização é do motor, em C++): o mod corta as mensagens em pedaços de 1000 bytes por precaução, a confirmar no jogo. [provável] No host, as RPCs do próprio jogador voltam para a mesma máquina; o mod não depende disso (entrega direto).
 
 Variáveis de rede (`netvars.lua`, cabeçalho do arquivo):
 
