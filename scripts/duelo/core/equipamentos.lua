@@ -123,9 +123,13 @@ return function(Game)
 
   Game.play_rules.equipamento = {
     -- action.target = espaço de uma criatura sua que possa usar equipamentos
+    -- (um número, não a tabela de alvo das outras cartas); action.targets não vale.
     validate = function(g, p, card, def, action)
       if not Game.EQUIP_SLOTS[def.slot] then return false, "equipamento sem espaço definido" end
-      local c = g:creature_at(p, action.target or -1)
+      if action.targets ~= nil then return false, "essa carta não tem lista de alvos" end
+      local s = action.target
+      if type(s) ~= "number" or s % 1 ~= 0 then return false, "escolha uma criatura sua" end
+      local c = g:creature_at(p, s)
       if c == nil then return false, "escolha uma criatura sua" end
       if not g:can_equip(c) then return false, "só Sobreviventes usam equipamentos" end
       return true
