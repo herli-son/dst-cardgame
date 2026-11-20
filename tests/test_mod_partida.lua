@@ -785,8 +785,22 @@ return {
     T.eq(recusas(net, "KU_dois")[1].motivo, "troca já feita")
     cs[1].Cliente.enviar({ type = "mulligan", indices = "x" })
     T.eq(recusas(net, "KU_um")[1].motivo, "troca inválida")
+    -- Lista com buraco, índice fracionário ou campo a mais: recusada, e a
+    -- troca única do jogador não é gasta.
+    for _, torta in ipairs({
+      { type = "mulligan", indices = { [2] = 1, [3] = 2 } },
+      { type = "mulligan", indices = { 1.5 } },
+      { type = "mulligan", indices = { 1 }, target = 5 },
+    }) do
+      local antes = #recusas(net, "KU_um")
+      cs[1].Cliente.enviar(torta)
+      local r = recusas(net, "KU_um")
+      T.eq(#r, antes + 1); T.eq(r[#r].motivo, "troca inválida")
+      T.eq(g.players[1].mulligan_done ~= true, true, "a troca não foi gasta")
+    end
+    local feitas = #recusas(net, "KU_um")
     cs[1].Cliente.enviar({ type = "pass" })
-    T.ok(recusas(net, "KU_um")[2] ~= nil, "jogada antes da troca é recusada")
+    T.eq(#recusas(net, "KU_um"), feitas + 1, "jogada antes da troca é recusada")
     T.ok(cs[1].Cliente.enviar({ type = "mulligan" }))
     T.eq(g.phase, "playing")
     conferir_visoes(T, s, cs, "depois da troca")
@@ -915,7 +929,8 @@ return {
   end },
 
   { "o leitor do serial recusa número não finito e respeita os limites de profundidade e de valores", function(T)
-    for _, texto in ipairs({ "1e999", "-1e999", "{[1]=1e999}", "{[\"n\"]=-1e9999}" }) do
+    for _, texto in ipairs({ "1e999", "-1e999", "{[1]=1e999}", "{[\"n\"]=-1e9999}",
+      "{[" .. string.rep("9", 400) .. "]=1}" }) do
       T.eq(pcall(Serial.deserialize, texto), false, "recusado: " .. texto)
     end
     T.eq(Serial.deserialize("1e3"), 1000, "número finito com expoente continua valendo")

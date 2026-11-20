@@ -139,6 +139,8 @@ local function reader(s, max_depth, max_values)
       if not num then fail("chave inválida") end
       pos = pos + #num
       k = tonumber(num)
+      -- Mesma regra dos valores: chave numérica tem que ser finita.
+      if k == nil or k ~= k or k == math.huge or k == -math.huge then fail("número não finito") end
     end
     if peek() ~= "]" then fail("esperava ]") end
     pos = pos + 1

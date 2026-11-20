@@ -365,9 +365,22 @@ local function aplicar_acao(userid, action)
   if not ok then return recusa(err) end
 
   if action.type == "mulligan" then
-    if action.indices ~= nil and type(action.indices) ~= "table" then return recusa("troca inválida") end
-    for _, i in ipairs(action.indices or {}) do
-      if type(i) ~= "number" then return recusa("troca inválida") end
+    -- Só { type, indices }, e indices é uma lista exata de inteiros: uma
+    -- lista com buraco ou com chave a mais viraria "troca de zero cartas" e
+    -- gastaria a troca única do jogador.
+    for k in pairs(action) do
+      if k ~= "type" and k ~= "indices" then return recusa("troca inválida") end
+    end
+    if action.indices ~= nil then
+      if type(action.indices) ~= "table" then return recusa("troca inválida") end
+      local n = 0
+      for k, i in pairs(action.indices) do
+        n = n + 1
+        if type(k) ~= "number" or type(i) ~= "number" or i % 1 ~= 0 then return recusa("troca inválida") end
+      end
+      for i = 1, n do
+        if action.indices[i] == nil then return recusa("troca inválida") end
+      end
     end
     ok, err = g:mulligan(lado, action.indices)
   else
@@ -412,9 +425,11 @@ end
 drenar = function()
   if estado.drenando or estado.distribuindo > 0 then return end
   estado.drenando = true
-  local ok, err = pcall(function()
-    while #estado.fila > 0 do
-      local item = table.remove(estado.fila, 1)
+  -- Um pcall por item: um erro ao aplicar um não derruba os seguintes, e o
+  -- remetente do que falhou recebe a recusa.
+  while #estado.fila > 0 do
+    local item = table.remove(estado.fila, 1)
+    local ok, err = pcall(function()
       local r
       if item.partida ~= estado.id or estado.g == nil then
         r = recusa("não há partida em curso")
@@ -424,13 +439,17 @@ drenar = function()
       if not r.ok and estado.rede and type(item.userid) == "string" then
         estado.rede.enviar({ item.userid }, "recusada", { n = item.n or false, motivo = r.erro })
       end
+    end)
+    if not ok then
+      log("erro ao aplicar uma ação da fila: " .. tostring(err))
+      pcall(function()
+        if estado.rede and type(item.userid) == "string" then
+          estado.rede.enviar({ item.userid }, "recusada", { n = item.n or false, motivo = "erro interno do jogo" })
+        end
+      end)
     end
-  end)
-  estado.drenando = false
-  if not ok then
-    estado.fila = {}
-    log("erro ao aplicar as ações da fila: " .. tostring(err))
   end
+  estado.drenando = false
 end
 
 ----------------------------------------------------------------------------
