@@ -196,10 +196,15 @@ end
 function Cliente.enviar(action)
   if estado.rede == nil then return nil, "o módulo não foi instalado" end
   if type(action) ~= "table" or type(action.type) ~= "string" then return nil, "ação inválida" end
+  -- O número é tomado antes do envio: no host o envio é síncrono, e um
+  -- ouvinte pode mandar outra ação de dentro dele (ela leva o número seguinte).
   local n = estado.contador + 1
-  local ok, err = estado.rede.enviar_acao(action, n)
-  if not ok then return nil, err end
   estado.contador = n
+  local ok, err = estado.rede.enviar_acao(action, n)
+  if not ok then
+    if estado.contador == n then estado.contador = n - 1 end
+    return nil, err
+  end
   return n
 end
 
