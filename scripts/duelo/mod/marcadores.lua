@@ -1,7 +1,10 @@
--- Números e zonas da mesa (US #30).
+-- Números e zonas da mesa (US #30; posições do layout aprovado, bug #147).
 --
 -- Em cada um dos 16 espaços fica um marcador com o número e o dono
--- ("J1 3", "J2 E1"), na cor do jogador, e no centro um rótulo "Combate".
+-- ("J1 3", "J2 E1"), na cor do jogador, e no centro da zona de combate um
+-- rótulo "Combate". No espaço de criatura (2 tiles) o número fica no tile da
+-- carta (o de trás), que é onde ficam as informações da carta; o tile da
+-- frente é da criatura viva.
 -- O marcador é o prefab do mod `duelo_marcador`
 -- (scripts/prefabs/duelo_marcador.lua, registrado por PrefabFiles no
 -- modmain): uma entidade de rede sem física, sem arte e sem clique, só com
@@ -146,8 +149,9 @@ local function criar_um(x, z, tipo, jogador, numero)
   return inst
 end
 
--- Servidor: remove os marcadores antigos e cria os 17 (12 criaturas,
--- 4 estruturas e o centro) nas posições da calibração. Devolve a lista.
+-- Servidor: remove os marcadores antigos e cria os 17 (12 criaturas, no
+-- tile da carta; 4 estruturas; e o centro da zona de combate) nas posições
+-- da calibração. Devolve a lista.
 function Marcadores.criar(calib)
   if not servidor() then return nil end
   local Mesa = estado.Mesa
@@ -155,8 +159,8 @@ function Marcadores.criar(calib)
   local T = Marcadores.TIPO
   for p = 1, 2 do
     for n = 1, 6 do
-      local x, z = Mesa.espaco_criatura_abs(p, n, calib)
-      criar_um(x, z, T.criatura, p, n)
+      local carta = Mesa.espaco_criatura_abs(p, n, calib).carta
+      criar_um(carta.x, carta.z, T.criatura, p, n)
     end
     for n = 1, 2 do
       local x, z = Mesa.espaco_estrutura_abs(p, n, calib)

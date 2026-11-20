@@ -11,7 +11,7 @@
 --     geometria da mesa (duelo/mod/mesa.lua) é exposta.
 --   * US #30: mesa de tiles, números e câmera. Os tiles já vêm da geração.
 --       - duelo/mod/calibracao.lua: o servidor acha a mesa no mapa (portal e
---         carpete) e manda a calibração aos clientes (Mesa.calibracao).
+--         estruturas) e manda a calibração aos clientes (Mesa.calibracao).
 --       - duelo/mod/marcadores.lua + prefabs/duelo_marcador.lua: número e
 --         dono de cada um dos 16 espaços e o rótulo "Combate" no centro.
 --       - duelo/mod/camera.lua: lado de cada jogador (1, 2 ou espectador) e

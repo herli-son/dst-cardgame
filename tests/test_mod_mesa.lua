@@ -1,13 +1,17 @@
--- Testes da US #30: mesa de tiles, números e câmera.
+-- Testes da mesa no jogo: tiles, números e câmera (US #30) com o layout
+-- aprovado (bug #147).
 --
 -- O jogo não roda aqui. A calibração é Lua puro (scripts/duelo/mod/mesa.lua)
--- e é testada com os números medidos no jogo (issue #30): portal no tile
--- (35, 29) e um ponto do carpete central no tile (29, 28), com o eixo x
--- espelhado pelo gerador (x_tile = 38 - col). O eixo z não foi espelhado
--- (flip_y = 1), mas o deslocamento exato das linhas não foi medido: o portal
--- fica na junção das linhas 9|10, e o tile 29 pode ser a linha 9 ou a 10.
--- Por isso cada caso roda com os dois deslocamentos (lin + 19 e lin + 20),
--- e os dois contêm o tile (29, 28) no carpete.
+-- e é testada com um modelo do mundo. No jogo (issue #30) o gerador espelhou
+-- o eixo x do layout (flip_x = -1 em map/object_layout.lua) e não o z; com a
+-- grade 20 x 20 da US #30 deu x_tile = 38 - col. A grade agora é 21 x 21 e a
+-- posição exata no mapa muda a cada mundo, então o modelo é:
+--   espelhado (o medido):   x_tile = 40 - col, y_tile = lin + 19;
+--   sem espelhamento:       x_tile = 20 + col, y_tile = lin + 19.
+-- O portal fica no centro do tile (2, 10) do layout. Como o gerador pode
+-- deslocar os objetos em meio tile em relação à grade do chão
+-- (map/object_layout.lua centra objetos e tiles de jeitos diferentes), cada
+-- caso roda também com o portal deslocado meio tile (2 unidades) em x e z.
 --
 -- Mapa falso: o tile (tx, ty) cobre [4 tx, 4 tx + 4) x [4 ty, 4 ty + 4) no
 -- mundo; centro em (4 tx + 2, 4 ty + 2). É só um modelo para os testes; no
@@ -22,11 +26,20 @@ local function nova_mesa()
   return fn()
 end
 
-local DESLOCAMENTOS = { 19, 20 }
+-- Casos do modelo: espelhado ou não, portal no centro do tile ou deslocado.
+local CASOS = {
+  { nome = "espelhado", espelhado = true, meio = 0 },
+  { nome = "espelhado, portal meio tile fora", espelhado = true, meio = 2 },
+  { nome = "sem espelho", espelhado = false, meio = 0 },
+  { nome = "sem espelho, portal meio tile fora", espelhado = false, meio = 2 },
+}
+local MEDIDO = CASOS[1]
 
--- Mundo medido: tile do mapa de cada (col, lin) do layout.
-local function tile_do_mapa(col, lin, desl)
-  return 38 - col, lin + desl
+-- Tile do mapa de cada (col, lin) do layout.
+local function tile_do_mapa(col, lin, caso)
+  caso = caso or MEDIDO
+  if caso.espelhado then return 40 - col, lin + 19 end
+  return 20 + col, lin + 19
 end
 
 local function centro_mundo(tx, ty)
@@ -37,12 +50,12 @@ local function tile_no_ponto(x, z)
   return math.floor(x / 4), math.floor(z / 4)
 end
 
--- Grade do mapa falso: [tx][ty] = uso do layout ("criatura", "carpete"...).
-local function mapa_falso(Mesa, desl)
+-- Grade do mapa falso: [tx][ty] = uso do layout ("carta", "cascalho"...).
+local function mapa_falso(Mesa, caso)
   local grade = {}
   for col = 0, Mesa.LARGURA - 1 do
     for lin = 0, Mesa.ALTURA - 1 do
-      local tx, ty = tile_do_mapa(col, lin, desl)
+      local tx, ty = tile_do_mapa(col, lin, caso)
       grade[tx] = grade[tx] or {}
       grade[tx][ty] = Mesa.uso_em(col, lin)
     end
@@ -50,23 +63,27 @@ local function mapa_falso(Mesa, desl)
   return grade
 end
 
--- Posição do portal no mundo: centro da coluna 3, junção das linhas 9|10.
-local function portal_no_mundo(desl)
-  local tx, ty = tile_do_mapa(3, 9, desl)
-  local x = centro_mundo(tx, ty)
-  local z = ty * 4 + 4 -- borda sul da linha 9 = norte da linha 10
-  return x, z
+local function uso_no_mapa(grade, tx, ty)
+  return grade[tx] and grade[tx][ty] or "fora"
 end
 
--- Coleta os tiles de carpete em volta do portal, como calibracao.lua faz.
-local function carpete_em_volta(Mesa, desl)
-  local grade = mapa_falso(Mesa, desl)
-  local px, pz = portal_no_mundo(desl)
+-- Posição do portal no mundo: centro do tile (2, 10), mais o deslocamento.
+local function portal_no_mundo(caso)
+  caso = caso or MEDIDO
+  local tx, ty = tile_do_mapa(2, 10, caso)
+  local x, z = centro_mundo(tx, ty)
+  return x + caso.meio, z + caso.meio
+end
+
+-- Coleta os tiles de estrutura em volta do portal, como calibracao.lua faz.
+local function estruturas_em_volta(Mesa, caso)
+  local grade = mapa_falso(Mesa, caso)
+  local px, pz = portal_no_mundo(caso)
   local ptx, pty = tile_no_ponto(px, pz)
   local lista = {}
   for tx = ptx - 20, ptx + 20 do
     for ty = pty - 20, pty + 20 do
-      if grade[tx] and grade[tx][ty] == "centro" then
+      if uso_no_mapa(grade, tx, ty) == "estrutura" then
         lista[#lista + 1] = { x = tx, y = ty }
       end
     end
@@ -74,10 +91,10 @@ local function carpete_em_volta(Mesa, desl)
   return lista, px, pz, ptx, pty
 end
 
-local function calibrar_medido(Mesa, desl)
-  local lista, px, pz = carpete_em_volta(Mesa, desl)
-  local ret = assert(Mesa.achar_carpete(lista))
-  return Mesa.calibrar({ carpete = ret, centro_mundo = centro_mundo, portal = { x = px, z = pz } }), ret
+local function calibrar_caso(Mesa, caso)
+  local lista, px, pz = estruturas_em_volta(Mesa, caso)
+  local ret = assert(Mesa.achar_estruturas(lista))
+  return Mesa.calibrar({ estruturas = ret, centro_mundo = centro_mundo, portal = { x = px, z = pz } }), ret
 end
 
 -- ---------------------------------------------------------------------------
@@ -91,11 +108,15 @@ local function carregar(caminho)
   return fn()
 end
 
-local WORLD_TILES = { IMPASSABLE = 1, CARPET = 11, CHECKER = 12, MOSAIC_GREY = 47, MOSAIC_BLUE = 49 }
-local TILE_POR_USO = {
-  fora = WORLD_TILES.IMPASSABLE, chao = WORLD_TILES.CHECKER, centro = WORLD_TILES.CARPET,
-  criatura = WORLD_TILES.MOSAIC_GREY, estrutura = WORLD_TILES.MOSAIC_BLUE,
-}
+-- Ids falsos do jogo (no jogo vêm de tiledefs.lua); o que importa é serem
+-- diferentes entre si.
+local WORLD_TILES = { IMPASSABLE = 1, ROCKY = 3, CARPET = 11, CHECKER = 12, MOSAIC_GREY = 47, MOSAIC_BLUE = 49 }
+
+-- Id do jogo do tile de cada uso do layout, pelo próprio Mesa.
+local function tile_por_uso(Mesa, uso)
+  local nome = Mesa.WORLD_TILE[Mesa.USO[uso]]
+  return nome and WORLD_TILES[nome] or WORLD_TILES.IMPASSABLE
+end
 
 local function label_falso()
   local l = { texto = nil, ativo = nil, cor = nil, tamanho = nil, fonte = nil }
@@ -180,14 +201,14 @@ local function camera_falsa()
 end
 
 -- Ambiente de um lado: servidor (host ou dedicado) ou cliente.
---   opcoes.servidor, opcoes.dedicado, opcoes.desl (deslocamento das linhas),
---   opcoes.sem_carpete, opcoes.sem_portal, opcoes.tamanho (Map:GetSize).
+--   opcoes.servidor, opcoes.dedicado, opcoes.caso (modelo do mundo, CASOS),
+--   opcoes.sem_estruturas, opcoes.sem_portal, opcoes.tamanho (Map:GetSize).
 local function ambiente_jogo(opcoes)
   local reg = { netvars = {}, log = {}, spawns = {}, sim_postinits = {}, prefab_postinits = {},
     player_postinits = {}, component_postinits = {} }
   local Mesa = nova_mesa()
-  local desl = opcoes.desl or 20
-  local grade = mapa_falso(Mesa, desl)
+  local caso = opcoes.caso or MEDIDO
+  local grade = mapa_falso(Mesa, caso)
   local G = {
     WORLD_TILES = WORLD_TILES,
     TALKINGFONT = "talkingfont",
@@ -208,8 +229,8 @@ local function ambiente_jogo(opcoes)
           + ((tx < 0 or ty < 0 or tx >= opcoes.tamanho or ty >= opcoes.tamanho) and 1 or 0)
       end
       local uso = grade[tx] and grade[tx][ty] or "fora"
-      if opcoes.sem_carpete and uso == "centro" then uso = "chao" end
-      return TILE_POR_USO[uso]
+      if opcoes.sem_estruturas and uso == "estrutura" then uso = "cascalho" end
+      return tile_por_uso(Mesa, uso)
     end,
   }
   if opcoes.tamanho then
@@ -218,7 +239,7 @@ local function ambiente_jogo(opcoes)
   G.TheWorld.Map.GetTileAtPoint = function(m, x, _, z) return m:GetTile(tile_no_ponto(x, z)) end
   local portal = entidade(reg, "multiplayer_portal")
   portal.entity.AddTransform()
-  local ppx, ppz = portal_no_mundo(desl)
+  local ppx, ppz = portal_no_mundo(caso)
   portal.Transform:SetPosition(ppx, 0, ppz)
   G.TheSim = { FindFirstEntityWithTag = function(_, tag)
     if tag == "multiplayer_portal" and not opcoes.sem_portal then return portal end
@@ -310,44 +331,51 @@ local function replicar(origem, destino)
   destino:PushEvent("duelo_marcador.dirty")
 end
 
+local NETVARS_MESA = { "duelo.mesa_origem_x", "duelo.mesa_origem_z", "duelo.mesa_espelhado", "duelo.mesa_fonte" }
+
 return {
-  { "o modelo reproduz o que foi medido: portal (35, 29), carpete com (29, 28)", function(T)
+  { "o modelo do mundo: estruturas nos tiles certos e o portal fora da mesa", function(T)
     local Mesa = nova_mesa()
-    for _, desl in ipairs(DESLOCAMENTOS) do
-      local _, px, pz, ptx, pty = carpete_em_volta(Mesa, desl)
-      T.eq(ptx, 35, "portal x")
-      -- O portal fica na junção das linhas 9|10: com o deslocamento 19 o tile
-      -- é 29 (o medido); com 20 seria 30. A calibração não depende disso.
-      T.eq(pty, desl + 10, "portal y na junção das linhas 9|10")
-      local grade = mapa_falso(Mesa, desl)
-      T.eq(grade[29][28], "centro", "tile (29, 28) é carpete")
-      local _, r = calibrar_medido(Mesa, desl)
-      T.ok(r.x_min <= 29 and 29 <= r.x_max and r.y_min <= 28 and 28 <= r.y_max, "retângulo contém (29, 28)")
-      T.ok(r.x_max < 35, "carpete com x menor que o portal")
+    for _, caso in ipairs(CASOS) do
+      local lista, px, _, ptx, pty = estruturas_em_volta(Mesa, caso)
+      T.eq(#lista, 4, caso.nome .. ": 4 tiles de estrutura em volta do portal")
+      local etx, ety = tile_do_mapa(2, 10, caso)
+      -- Deslocado meio tile, o portal cai na junção com o tile vizinho.
+      T.ok(math.abs(ptx - etx) <= (caso.meio > 0 and 1 or 0), caso.nome .. ": portal x no tile da coluna 2")
+      T.ok(math.abs(pty - ety) <= (caso.meio > 0 and 1 or 0), caso.nome .. ": portal y no tile da linha 10")
+      local _, r = calibrar_caso(Mesa, caso)
+      if caso.espelhado then
+        T.ok(r.x_max < ptx, caso.nome .. ": estruturas com x menor que o portal")
+      else
+        T.ok(r.x_min > ptx, caso.nome .. ": estruturas com x maior que o portal")
+      end
+      T.ok(px ~= nil, "portal")
     end
   end },
 
-  { "calibração com os números medidos dá espelhado = true e o portal na coluna 3", function(T)
+  { "calibração com e sem espelho: origem no centro da zona de combate", function(T)
     local Mesa = nova_mesa()
-    for _, desl in ipairs(DESLOCAMENTOS) do
-      local calib = calibrar_medido(Mesa, desl)
-      T.eq(calib.espelhado, true, "espelhado")
-      T.eq(calib.fonte, "carpete", "fonte")
-      T.eq(calib.aviso, nil, "sem aviso: o portal está onde o layout diz")
-      local px, pz = portal_no_mundo(desl)
+    for _, caso in ipairs(CASOS) do
+      local calib = calibrar_caso(Mesa, caso)
+      T.eq(calib.espelhado, caso.espelhado, caso.nome .. ": espelhado")
+      T.eq(calib.fonte, "estruturas", caso.nome .. ": fonte")
+      T.eq(calib.aviso, nil, caso.nome .. ": sem aviso: o portal está onde o layout diz")
+      local px, pz = portal_no_mundo(caso)
       local col, lin = Mesa.tile_do_layout(px, pz, calib)
-      T.eq(col, 3, "portal na coluna 3")
-      T.ok(lin == 9 or lin == 10, "portal na junção 9|10")
-      -- A origem é a junção das colunas e linhas 9|10 do layout.
+      local folga = caso.meio > 0 and 1 or 0
+      T.ok(math.abs(col - 2) <= folga, caso.nome .. ": portal na coluna 2")
+      T.ok(math.abs(lin - 10) <= folga, caso.nome .. ": portal na linha 10")
+      -- A origem é o centro do tile (10, 10) do layout.
       local ox, oz = Mesa.centro_abs(calib)
-      T.eq(ox, 4 * 29, "origem x entre os tiles 29 e 28 (colunas 9 e 10)")
-      T.eq(oz, pz, "origem z na linha do portal")
+      local cx, cz = centro_mundo(tile_do_mapa(10, 10, caso))
+      T.eq(ox, cx, caso.nome .. ": origem x")
+      T.eq(oz, cz, caso.nome .. ": origem z")
       -- O centro de cada tile do layout volta para o mesmo tile do mapa.
       for col2 = 0, Mesa.LARGURA - 1 do
         for lin2 = 0, Mesa.ALTURA - 1 do
           local x, z = Mesa.posicao_abs(col2, lin2, calib)
           local tx, ty = tile_no_ponto(x, z)
-          local ex, ey = tile_do_mapa(col2, lin2, desl)
+          local ex, ey = tile_do_mapa(col2, lin2, caso)
           T.eq(tx, ex, "tile x de " .. col2 .. "," .. lin2)
           T.eq(ty, ey, "tile y de " .. col2 .. "," .. lin2)
           local c3, l3 = Mesa.tile_do_layout(x, z, calib)
@@ -358,73 +386,62 @@ return {
     end
   end },
 
-  { "sem espelhamento o portal fica a oeste e espelhado = false", function(T)
+  { "achar_estruturas recusa tiles faltando, sobrando, girados ou fora do padrão", function(T)
     local Mesa = nova_mesa()
-    local lista = {}
-    for col = 6, 13 do
-      for lin = 8, 11 do lista[#lista + 1] = { x = 100 + col, y = 50 + lin } end
+    local function cantos(dx, dy)
+      return { { x = 0, y = 0 }, { x = dx, y = 0 }, { x = 0, y = dy }, { x = dx, y = dy } }
     end
-    local r = assert(Mesa.achar_carpete(lista))
-    local px = (100 + 3) * 4 + 2
-    local pz = (50 + 10) * 4
-    local calib = Mesa.calibrar({ carpete = r, centro_mundo = centro_mundo, portal = { x = px, z = pz } })
-    T.eq(calib.espelhado, false, "não espelhado")
-    T.eq(calib.aviso, nil, "sem aviso")
-    T.eq((Mesa.tile_do_layout(px, pz, calib)), 3, "portal na coluna 3")
-  end },
-
-  { "achar_carpete recusa carpete incompleto, girado ou vazio", function(T)
-    local Mesa = nova_mesa()
-    local r, motivo = Mesa.achar_carpete({})
+    local r, motivo = Mesa.achar_estruturas({})
     T.eq(r, nil, "vazio")
     T.eq(type(motivo), "string", "motivo")
-    local girado = {}
-    for x = 0, 3 do for y = 0, 7 do girado[#girado + 1] = { x = x, y = y } end end
-    r, motivo = Mesa.achar_carpete(girado)
+    r = Mesa.achar_estruturas(cantos(6, 8))
+    T.ok(r, "o padrão 6 x 8")
+    T.eq(r.x_max - r.x_min, 6, "6 colunas entre as estruturas")
+    T.eq(r.y_max - r.y_min, 8, "8 linhas entre as estruturas")
+    local repetidos = cantos(6, 8)
+    repetidos[#repetidos + 1] = { x = 6, y = 8 }
+    T.ok(Mesa.achar_estruturas(repetidos), "tile repetido conta uma vez")
+    r, motivo = Mesa.achar_estruturas(cantos(8, 6))
     T.eq(r, nil, "girado")
-    T.ok(motivo:find("girado"), "motivo diz girado")
-    local buraco = {}
-    for x = 0, 7 do for y = 0, 3 do
-      if not (x == 2 and y == 1) then buraco[#buraco + 1] = { x = x, y = y } end
-    end end
-    r = Mesa.achar_carpete(buraco)
-    T.eq(r, nil, "com buraco")
-    local grande = {}
-    for x = 0, 8 do for y = 0, 3 do grande[#grande + 1] = { x = x, y = y } end end
-    r = Mesa.achar_carpete(grande)
-    T.eq(r, nil, "9 x 4")
+    T.ok(motivo:find("giradas"), "motivo diz girado")
+    local tres = cantos(6, 8)
+    table.remove(tres)
+    T.eq(Mesa.achar_estruturas(tres), nil, "3 tiles")
+    local cinco = cantos(6, 8)
+    cinco[#cinco + 1] = { x = 3, y = 3 }
+    T.eq(Mesa.achar_estruturas(cinco), nil, "5 tiles")
+    T.eq(Mesa.achar_estruturas(cantos(7, 8)), nil, "7 x 8")
+    T.eq(Mesa.achar_estruturas({ { x = 0, y = 0 }, { x = 6, y = 0 }, { x = 1, y = 8 }, { x = 6, y = 8 } }), nil,
+      "não é retângulo")
   end },
 
   { "calibrar avisa quando o portal não está onde o layout diz", function(T)
     local Mesa = nova_mesa()
-    local lista = carpete_em_volta(Mesa, 20)
-    local r = assert(Mesa.achar_carpete(lista))
-    local calib = Mesa.calibrar({ carpete = r, centro_mundo = centro_mundo, portal = { x = 0, z = 0 } })
+    local r = assert(Mesa.achar_estruturas((estruturas_em_volta(Mesa, MEDIDO))))
+    local calib = Mesa.calibrar({ estruturas = r, centro_mundo = centro_mundo, portal = { x = 0, z = 0 } })
     T.eq(type(calib.aviso), "string", "aviso")
-    calib = Mesa.calibrar({ carpete = r, centro_mundo = centro_mundo })
+    calib = Mesa.calibrar({ estruturas = r, centro_mundo = centro_mundo })
     T.eq(type(calib.aviso), "string", "aviso sem portal")
     T.eq(calib.espelhado, false, "sem portal não dá para saber")
   end },
 
-  { "reserva pelo portal dá a mesma origem que o carpete no caso medido", function(T)
+  { "reserva pelo portal dá a mesma origem que as estruturas no caso medido", function(T)
     local Mesa = nova_mesa()
-    for _, desl in ipairs(DESLOCAMENTOS) do
-      local calib = calibrar_medido(Mesa, desl)
-      local px, pz = portal_no_mundo(desl)
-      local reserva = Mesa.calibrar_pelo_portal(px, pz)
-      T.eq(reserva.fonte, "portal", "fonte")
-      T.eq(reserva.espelhado, true, "espelhado por padrão (medido)")
-      T.eq(type(reserva.aviso), "string", "avisa")
-      T.eq(reserva.origem_x, calib.origem_x, "origem x")
-      T.eq(reserva.origem_z, calib.origem_z, "origem z")
-    end
+    local calib = calibrar_caso(Mesa, MEDIDO)
+    local px, pz = portal_no_mundo(MEDIDO)
+    local reserva = Mesa.calibrar_pelo_portal(px, pz)
+    T.eq(reserva.fonte, "portal", "fonte")
+    T.eq(reserva.espelhado, true, "espelhado por padrão (medido)")
+    T.eq(type(reserva.aviso), "string", "avisa")
+    T.eq(reserva.origem_x, calib.origem_x, "origem x")
+    T.eq(reserva.origem_z, calib.origem_z, "origem z")
   end },
 
   { "16 espaços absolutos sem sobreposição e sobre os tiles certos da mesa", function(T)
     local Mesa = nova_mesa()
-    for _, desl in ipairs(DESLOCAMENTOS) do
-      local calib = calibrar_medido(Mesa, desl)
-      local grade = mapa_falso(Mesa, desl)
+    for _, caso in ipairs(CASOS) do
+      local calib = calibrar_caso(Mesa, caso)
+      local grade = mapa_falso(Mesa, caso)
       local vistos, total = {}, 0
       local function conferir(x, z, uso, nome)
         T.ok(x ~= nil, nome .. " existe")
@@ -432,7 +449,7 @@ return {
         local cx, cz = centro_mundo(tx, ty)
         T.eq(x, cx, nome .. " no centro do tile (x)")
         T.eq(z, cz, nome .. " no centro do tile (z)")
-        T.eq(grade[tx][ty], uso, nome .. " sobre tile de " .. uso)
+        T.eq(uso_no_mapa(grade, tx, ty), uso, nome .. " sobre tile de " .. uso)
         local chave = tx .. "," .. ty
         T.ok(not vistos[chave], nome .. " sobrepõe " .. tostring(vistos[chave]))
         vistos[chave] = nome
@@ -440,8 +457,11 @@ return {
       end
       for p = 1, 2 do
         for n = 1, 6 do
-          local x, z = Mesa.espaco_criatura_abs(p, n, calib)
-          conferir(x, z, "criatura", "criatura " .. p .. "/" .. n)
+          local e = Mesa.espaco_criatura_abs(p, n, calib)
+          conferir(e.carta.x, e.carta.z, "carta", "carta " .. p .. "/" .. n)
+          conferir(e.criatura.x, e.criatura.z, "criatura", "criatura " .. p .. "/" .. n)
+          local tx, ty = tile_no_ponto(e.combate.x, e.combate.z)
+          T.eq(uso_no_mapa(grade, tx, ty), "combate", "combate à frente de " .. p .. "/" .. n)
         end
         for n = 1, 2 do
           local x, z = Mesa.espaco_estrutura_abs(p, n, calib)
@@ -450,24 +470,26 @@ return {
         T.eq(Mesa.espaco_criatura_abs(p, 7, calib), nil, "não há espaço 7")
         T.eq(Mesa.espaco_estrutura_abs(p, 3, calib), nil, "não há estrutura 3")
       end
-      T.eq(total, 16, "16 espaços")
+      T.eq(total, 28, "12 cartas, 12 criaturas e 4 estruturas")
       local ox, oz = Mesa.centro_abs(calib)
-      local tx, ty = tile_no_ponto(ox - 1, oz - 1)
-      T.eq(grade[tx][ty], "centro", "centro da mesa sobre o carpete")
+      T.eq(uso_no_mapa(grade, tile_no_ponto(ox, oz)), "combate", "centro da mesa na zona de combate")
       -- Cada jogador só tem espaços do seu lado da mesa.
       for n = 1, 6 do
-        local _, _, _, lin1 = Mesa.espaco_criatura_abs(1, n, calib)
-        local _, _, _, lin2 = Mesa.espaco_criatura_abs(2, n, calib)
-        T.eq(lin1, 13, "jogador 1 na linha 13")
-        T.eq(lin2, 6, "jogador 2 na linha 6")
+        local e1, e2 = Mesa.espaco_criatura_abs(1, n, calib), Mesa.espaco_criatura_abs(2, n, calib)
+        T.eq(e1.carta.lin, 12, "cartas do jogador 1 na linha 12")
+        T.eq(e1.criatura.lin, 11, "criaturas do jogador 1 na linha 11")
+        T.eq(e2.carta.lin, 8, "cartas do jogador 2 na linha 8")
+        T.eq(e2.criatura.lin, 9, "criaturas do jogador 2 na linha 9")
       end
+      local tiles = Mesa.tiles_dos_espacos(calib)
+      T.eq(#tiles, 28, "tiles_dos_espacos: 28 tiles")
     end
   end },
 
   { "heading: o lado de cada jogador fica embaixo da tela dele", function(T)
     local Mesa = nova_mesa()
-    for _, desl in ipairs(DESLOCAMENTOS) do
-      local calib = calibrar_medido(Mesa, desl)
+    for _, caso in ipairs(CASOS) do
+      local calib = calibrar_caso(Mesa, caso)
       T.eq(Mesa.heading(1, calib), 90, "jogador 1 (sul, z maior)")
       T.eq(Mesa.heading(2, calib), 270, "jogador 2 = jogador 1 + 180")
       T.eq(Mesa.heading(3, calib), 90, "espectador olha como o 1")
@@ -478,10 +500,10 @@ return {
         local h = math.rad(Mesa.heading(p, calib))
         local dx, dz = math.cos(h), math.sin(h)
         for n = 1, 6 do
-          local x, z = Mesa.espaco_criatura_abs(p, n, calib)
-          T.ok((x - ox) * dx + (z - oz) * dz > 0, "espaço " .. p .. "/" .. n .. " na metade de baixo")
-          local x2, z2 = Mesa.espaco_criatura_abs(3 - p, n, calib)
-          T.ok((x2 - ox) * dx + (z2 - oz) * dz < 0, "espaço do outro na metade de cima")
+          local e = Mesa.espaco_criatura_abs(p, n, calib)
+          T.ok((e.criatura.x - ox) * dx + (e.criatura.z - oz) * dz > 0, "espaço " .. p .. "/" .. n .. " na metade de baixo")
+          local o = Mesa.espaco_criatura_abs(3 - p, n, calib)
+          T.ok((o.criatura.x - ox) * dx + (o.criatura.z - oz) * dz < 0, "espaço do outro na metade de cima")
         end
       end
     end
@@ -489,13 +511,15 @@ return {
 
   { "cada jogador conta os espaços da esquerda para a direita da câmera dele", function(T)
     local Mesa = nova_mesa()
-    local function confere(calib, rotulo)
+    for _, caso in ipairs(CASOS) do
+      local calib = calibrar_caso(Mesa, caso)
+      local rotulo = caso.nome
       for p = 1, 2 do
         local rx, rz = Mesa.direita(Mesa.heading(p, calib))
         local antes = -math.huge
         for n = 1, 6 do
-          local x, z = Mesa.espaco_criatura_abs(p, n, calib)
-          local d = x * rx + z * rz
+          local e = Mesa.espaco_criatura_abs(p, n, calib)
+          local d = e.carta.x * rx + e.carta.z * rz
           T.ok(d > antes, rotulo .. ": criatura " .. p .. "/" .. n .. " à direita da anterior")
           antes = d
         end
@@ -503,29 +527,23 @@ return {
         local x2, z2 = Mesa.espaco_estrutura_abs(p, 2, calib)
         T.ok(x1 * rx + z1 * rz < x2 * rx + z2 * rz, rotulo .. ": estrutura 1 à esquerda da 2")
       end
-      -- O espaço n de um fica de frente para o 7 - n do outro.
+      -- O espaço n de um fica de frente para o 7 - n do outro, e os dois
+      -- atacam pelo mesmo tile da zona de combate.
       for n = 1, 6 do
-        local x1 = Mesa.espaco_criatura_abs(1, n, calib)
-        local x2 = Mesa.espaco_criatura_abs(2, 7 - n, calib)
-        T.eq(x1, x2, rotulo .. ": " .. n .. " de frente para " .. (7 - n))
+        local a, b = Mesa.espaco_criatura_abs(1, n, calib), Mesa.espaco_criatura_abs(2, 7 - n, calib)
+        T.eq(a.carta.x, b.carta.x, rotulo .. ": " .. n .. " de frente para " .. (7 - n))
+        T.eq(a.combate.x, b.combate.x, rotulo .. ": mesmo tile de combate (x)")
+        T.eq(a.combate.z, b.combate.z, rotulo .. ": mesmo tile de combate (z)")
       end
-    end
-    for _, desl in ipairs(DESLOCAMENTOS) do
-      local calib = calibrar_medido(Mesa, desl)
-      confere(calib, "medido")
-      -- No caso medido (espelhado) a ordem da câmera é a das listas do layout.
+      -- No caso espelhado a ordem da câmera é a das listas do layout; sem
+      -- espelhamento a câmera inverte as colunas.
       for p = 1, 2 do
         for n = 1, 6 do
-          local _, _, col = Mesa.espaco_criatura_abs(p, n, calib)
-          T.eq(col, Mesa.espaco_criatura(p, n).col, "espelhado: coluna do layout " .. p .. "/" .. n)
+          local e = Mesa.espaco_criatura_abs(p, n, calib)
+          local esperado = caso.espelhado and Mesa.espaco_criatura(p, n).col or Mesa.espaco_criatura(p, 7 - n).col
+          T.eq(e.carta.col, esperado, rotulo .. ": coluna do layout " .. p .. "/" .. n)
         end
       end
-      -- Sem espelhamento a câmera inverte as colunas, mas a numeração de
-      -- quem olha continua da esquerda para a direita.
-      local reto = { origem_x = calib.origem_x, origem_z = calib.origem_z, espelhado = false }
-      confere(reto, "sem espelhamento")
-      local _, _, col = Mesa.espaco_criatura_abs(1, 1, reto)
-      T.eq(col, 12, "sem espelhamento o espaço 1 do jogador 1 é a coluna 12")
     end
   end },
 
@@ -533,13 +551,14 @@ return {
     local Mesa = nova_mesa()
     T.eq(Mesa.calibracao, nil, "nasce sem calibração")
     T.eq(Mesa.espaco_criatura_abs(1, 1), nil, "sem calibração não há posição")
-    local calib = calibrar_medido(Mesa, 20)
+    T.eq(Mesa.tiles_dos_espacos(), nil, "nem tiles")
+    local calib = calibrar_caso(Mesa, MEDIDO)
     Mesa.definir_calibracao(calib)
     T.eq(Mesa.calibracao, calib, "guardada")
-    local x, z = Mesa.espaco_criatura_abs(1, 1)
-    local x2, z2 = Mesa.espaco_criatura_abs(1, 1, calib)
-    T.eq(x, x2, "x igual à explícita")
-    T.eq(z, z2, "z igual à explícita")
+    local e = Mesa.espaco_criatura_abs(1, 1)
+    local e2 = Mesa.espaco_criatura_abs(1, 1, calib)
+    T.eq(e.carta.x, e2.carta.x, "x igual à explícita")
+    T.eq(e.carta.z, e2.carta.z, "z igual à explícita")
   end },
 
   { "calibracao.lua, marcadores.lua, camera.lua e o prefab compilam", function(T)
@@ -556,25 +575,26 @@ return {
   end },
 
   { "servidor acha a mesa no mapa, grava as netvars e avisa os inscritos", function(T)
-    for _, desl in ipairs(DESLOCAMENTOS) do
-      local amb = instalar_tudo(ambiente_jogo({ servidor = true, desl = desl }))
+    for _, caso in ipairs(CASOS) do
+      local amb = instalar_tudo(ambiente_jogo({ servidor = true, caso = caso }))
       local recebidas = {}
       amb.Calibracao.quando_calibrar(function(c) recebidas[#recebidas + 1] = c end)
       carregar_mundo(amb)
       local calib = amb.Mesa.calibracao
       T.ok(calib, "Mesa.calibracao definida")
-      T.eq(calib.fonte, "carpete", "pelo carpete")
-      T.eq(calib.espelhado, true, "espelhado")
-      local px, pz = portal_no_mundo(desl)
-      T.eq((amb.Mesa.tile_do_layout(px, pz)), 3, "portal na coluna 3")
+      T.eq(calib.fonte, "estruturas", caso.nome .. ": pelas estruturas")
+      T.eq(calib.espelhado, caso.espelhado, caso.nome .. ": espelhado")
+      local px, pz = portal_no_mundo(caso)
+      T.ok(math.abs(amb.Mesa.tile_do_layout(px, pz) - 2) <= (caso.meio > 0 and 1 or 0), "portal na coluna 2")
       T.eq(#recebidas, 1, "inscrito avisado uma vez")
       T.eq(recebidas[1], calib, "com a calibração")
       T.eq(netvar(amb.reg, "duelo.mesa_origem_x"):value(), calib.origem_x, "netvar origem x")
       T.eq(netvar(amb.reg, "duelo.mesa_origem_z"):value(), calib.origem_z, "netvar origem z")
-      T.eq(netvar(amb.reg, "duelo.mesa_espelhado"):value(), true, "netvar espelhado")
-      T.eq(netvar(amb.reg, "duelo.mesa_fonte"):value(), 1, "netvar fonte = carpete")
-      T.ok(no_log(amb.reg, "mesa calibrada pelo carpete"), "log da calibração")
-      T.ok(not no_log(amb.reg, "não estão sobre"), "os 16 espaços conferem com o mapa")
+      T.eq(netvar(amb.reg, "duelo.mesa_espelhado"):value(), caso.espelhado, "netvar espelhado")
+      T.eq(netvar(amb.reg, "duelo.mesa_fonte"):value(), 1, "netvar fonte = estruturas")
+      T.ok(no_log(amb.reg, "mesa calibrada pelas estruturas"), "log da calibração")
+      T.ok(not no_log(amb.reg, "não estão sobre"), caso.nome .. ": os 16 espaços conferem com o mapa")
+      T.ok(not no_log(amb.reg, "longe do esperado"), caso.nome .. ": portal onde o layout diz")
       -- Quem se inscreve depois recebe na hora.
       local tarde
       amb.Calibracao.quando_calibrar(function(c) tarde = c end)
@@ -582,22 +602,23 @@ return {
     end
   end },
 
-  { "a busca do carpete não sai do mapa", function(T)
-    -- Mapa de 40 x 40 tiles: a mesa (tiles 18..38) encosta na borda leste e
-    -- a busca em volta do portal (35 +- 20) passaria dela.
-    local amb = instalar_tudo(ambiente_jogo({ servidor = true, tamanho = 40 }))
+  { "a busca das estruturas não sai do mapa", function(T)
+    -- Mapa de 41 x 41 tiles: a mesa (tiles 20..40) encosta na borda leste e
+    -- a busca em volta do portal (38 +- 20) passaria dela.
+    local amb = instalar_tudo(ambiente_jogo({ servidor = true, tamanho = 41 }))
     carregar_mundo(amb)
     T.eq(amb.reg.fora_do_mapa, 0, "nenhum GetTile fora do mapa")
-    T.eq(amb.Mesa.calibracao.fonte, "carpete", "e o carpete foi achado")
+    T.eq(amb.Mesa.calibracao.fonte, "estruturas", "e as estruturas foram achadas")
   end },
 
-  { "sem carpete a origem sai do portal, com aviso; sem portal não calibra", function(T)
-    local amb = instalar_tudo(ambiente_jogo({ servidor = true, sem_carpete = true }))
+  { "sem estruturas a origem sai do portal, com aviso; sem portal não calibra", function(T)
+    local amb = instalar_tudo(ambiente_jogo({ servidor = true, sem_estruturas = true }))
     carregar_mundo(amb)
     local calib = amb.Mesa.calibracao
     T.eq(calib.fonte, "portal", "reserva pelo portal")
     T.eq(calib.espelhado, true, "espelhado medido")
-    T.ok(no_log(amb.reg, "carpete da mesa não achado"), "avisa no log")
+    T.ok(no_log(amb.reg, "estruturas da mesa não achadas"), "avisa no log")
+    T.ok(no_log(amb.reg, "4 dos 16 espaços não estão sobre os tiles esperados"), "a conferência acha as 4 estruturas faltando")
     T.eq(netvar(amb.reg, "duelo.mesa_fonte"):value(), 2, "netvar fonte = portal")
     T.eq(#amb.Marcadores.lista(), 17, "marcadores criados mesmo assim")
 
@@ -621,7 +642,7 @@ return {
     rede.tarefas[1]()
     T.eq(cli.Mesa.calibracao, nil, "fonte 0: ainda não chegou")
     -- Replica os valores do servidor e dispara o dirty.
-    for _, nome in ipairs({ "duelo.mesa_origem_x", "duelo.mesa_origem_z", "duelo.mesa_espelhado", "duelo.mesa_fonte" }) do
+    for _, nome in ipairs(NETVARS_MESA) do
       netvar(cli.reg, nome).valor = netvar(srv.reg, nome):value()
     end
     rede:PushEvent("duelo.mesadirty")
@@ -630,7 +651,7 @@ return {
     T.eq(c.origem_x, srv.Mesa.calibracao.origem_x, "origem x")
     T.eq(c.origem_z, srv.Mesa.calibracao.origem_z, "origem z")
     T.eq(c.espelhado, true, "espelhado")
-    T.eq(c.fonte, "carpete", "fonte")
+    T.eq(c.fonte, "estruturas", "fonte")
     T.eq(avisos, 1, "inscritos avisados")
     rede:PushEvent("duelo.mesadirty")
     T.eq(avisos, 1, "o mesmo valor não avisa de novo")
@@ -655,7 +676,9 @@ return {
       vistos[chave] = true
       local x, _, z = m.Transform:GetWorldPosition()
       local ex, ez
-      if tipo == 1 then ex, ez = Mesa.espaco_criatura_abs(jog, num, calib)
+      if tipo == 1 then
+        local carta = Mesa.espaco_criatura_abs(jog, num, calib).carta
+        ex, ez = carta.x, carta.z
       elseif tipo == 2 then ex, ez = Mesa.espaco_estrutura_abs(jog, num, calib)
       else ex, ez = Mesa.centro_abs(calib) end
       T.eq(x, ex, chave .. " x")
@@ -677,7 +700,6 @@ return {
     T.eq(amb.reg.removidos, 17, "os 17 antigos removidos")
     T.eq(#amb.Marcadores.lista(), 17, "17 de novo")
   end },
-
   { "textos e cores dos marcadores", function(T)
     local M = carregar("scripts/duelo/mod/marcadores.lua")
     T.eq(M.texto(1, 1, 3), "J1 3", "criatura")
