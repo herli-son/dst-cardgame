@@ -656,6 +656,65 @@ return {
     T.eq(eventos, 2, "só 2 tiles de eventos")
   end },
 
+  { "coluna dos eventos: destruídas, descarte, eventos, descarte e destruídas, 2 tiles cada", function(T)
+    local m, ev = Mesa.MESA, Mesa.espaco_evento()
+    local col = ev.pilha.col
+    -- De cima para baixo (do jogador 2 para o 1), as linhas de cada bloco.
+    local esperado = {
+      { Mesa.espaco_destruidas(2), "destruidas", 2, { 3, 4 } },
+      { Mesa.espaco_descarte(2), "descarte", 2, { 6, 7 } },
+      { Mesa.espaco_descarte(1), "descarte", 1, { 12, 13 } },
+      { Mesa.espaco_destruidas(1), "destruidas", 1, { 15, 16 } },
+    }
+    for _, caso in ipairs(esperado) do
+      local e, uso, jogador, linhas = caso[1], caso[2], caso[3], caso[4]
+      local nome = uso .. " do jogador " .. jogador
+      T.eq(e.col, col, nome .. " na coluna dos eventos")
+      -- `tras` é o tile mais longe do centro.
+      local tras, frente = linhas[jogador == 2 and 1 or 2], linhas[jogador == 2 and 2 or 1]
+      T.eq(e.tras.lin, tras, nome .. ": tile de trás")
+      T.eq(e.frente.lin, frente, nome .. ": tile da frente")
+      for _, parte in ipairs({ "tras", "frente" }) do
+        local u, j, n, p = Mesa.uso_em(e[parte].col, e[parte].lin)
+        T.eq(u, uso, nome .. ": uso (" .. parte .. ")")
+        T.eq(j, jogador, nome .. ": dono (" .. parte .. ")")
+        T.eq(n, nil, nome .. ": sem número (" .. parte .. ")")
+        T.eq(p, parte, nome .. ": parte")
+        T.eq(Mesa.indice_em(e[parte].col, e[parte].lin), Mesa.TILE[Mesa.USO[uso]], nome .. ": piso (" .. parte .. ")")
+      end
+    end
+    -- O descarte fica nas linhas da carta e da criatura do jogador; as
+    -- destruídas nas da fileira de trás, ao lado do deck daquela ponta.
+    for jogador = 1, 2 do
+      local nome = "jogador " .. jogador
+      local e = Mesa.espaco_criatura(jogador, 1)
+      T.eq(Mesa.espaco_descarte(jogador).tras.lin, e.carta.lin, nome .. ": descarte na linha das cartas")
+      T.eq(Mesa.espaco_descarte(jogador).frente.lin, e.criatura.lin, nome .. ": e na das criaturas")
+      local perto
+      for _, qual in ipairs(Mesa.DECKS) do
+        local d = Mesa.espaco_deck(jogador, qual)
+        if col - d.col == 2 then perto = d end
+      end
+      T.ok(perto, nome .. ": um deck a 2 colunas das destruídas")
+      T.eq(Mesa.espaco_destruidas(jogador).tras.lin, perto.tras.lin, nome .. ": destruídas ao lado do deck (trás)")
+      T.eq(Mesa.espaco_destruidas(jogador).frente.lin, perto.frente.lin, nome .. ": destruídas ao lado do deck (frente)")
+      T.eq(Mesa.uso_em(col - 1, perto.tras.lin), "chao", nome .. ": paralelepípedos entre o deck e as destruídas")
+    end
+    -- A coluna inteira, de cima para baixo.
+    local coluna = {}
+    for lin = m.lin_min, m.lin_max do coluna[#coluna + 1] = Mesa.mapa_ascii()[lin + 1]:sub(col + 1, col + 1) end
+    T.eq(table.concat(coluna), "RZZRLLReeRLLRZZR", "a coluna dos eventos")
+    -- Pisos próprios, que não são os da calibração nem as cores dos jogadores.
+    T.eq(Mesa.WORLD_TILE[Mesa.USO.descarte], "TILES", "descarte = TILES")
+    T.eq(Mesa.WORLD_TILE[Mesa.USO.destruidas], "BRICK", "destruídas = BRICK")
+    for _, uso in ipairs({ "descarte", "destruidas" }) do
+      local piso = Mesa.WORLD_TILE[Mesa.USO[uso]]
+      for _, proibido in ipairs({ "MOSAIC_GREY", "CARPET2", "MOSAIC_RED", "MOSAIC_BLUE", "ROAD", "ROCKY" }) do
+        T.ok(piso ~= proibido, uso .. " não usa " .. proibido)
+      end
+    end
+  end },
+
   { "o mapa da grade é o mapa pedido pelo dono, com a moldura e o pátio em volta", function(T)
     -- Mapa do comentário da issue #147, visto pelo jogador 1 (embaixo).
     local pedido = {

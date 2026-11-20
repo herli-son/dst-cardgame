@@ -252,6 +252,8 @@ end
 -- Ambiente de um lado: servidor (host ou dedicado) ou cliente.
 --   opcoes.servidor, opcoes.dedicado, opcoes.caso (modelo do mundo, CASOS),
 --   opcoes.sem_estruturas, opcoes.sem_eventos (o chão da mesa no lugar),
+--   opcoes.estruturas_de_1_tile (só o tile da carta de cada estrutura, como
+--   num mundo gerado com a mesa anterior),
 --   opcoes.sem_portal, opcoes.tamanho (Map:GetSize).
 local function ambiente_jogo(opcoes)
   local reg = { netvars = {}, log = {}, spawns = {}, sim_postinits = {}, prefab_postinits = {},
@@ -259,6 +261,15 @@ local function ambiente_jogo(opcoes)
   local Mesa = nova_mesa()
   local caso = opcoes.caso or MEDIDO
   local grade = mapa_falso(Mesa, caso)
+  if opcoes.estruturas_de_1_tile then
+    for p = 1, 2 do
+      for n = 1, 2 do
+        local frente = Mesa.espaco_estrutura(p, n).frente
+        local tx, ty = tile_do_mapa(frente.col, frente.lin, caso)
+        grade[tx][ty] = "chao"
+      end
+    end
+  end
   local G = {
     WORLD_TILES = WORLD_TILES,
     TALKINGFONT = "talkingfont",
@@ -780,6 +791,63 @@ return {
     T.eq(amb.Mesa.calibracao, nil, "sem calibração")
     T.ok(no_log(amb.reg, "multiplayer_portal não achado"), "avisa no log")
     T.eq(#amb.Marcadores.lista(), 0, "nenhum marcador")
+  end },
+
+  { "mundo gerado com a mesa anterior: sem os 8 tiles do padrão a origem sai do portal, com aviso", function(T)
+    -- Cada estrutura com 1 tile só (4 tiles de MOSAIC_GREY): não é o padrão
+    -- de 4 blocos de 1 x 2, então a mesa pede um mundo novo.
+    for _, caso in ipairs(CASOS) do
+      local amb = instalar_tudo(ambiente_jogo({ servidor = true, caso = caso, estruturas_de_1_tile = true }))
+      carregar_mundo(amb)
+      local calib = amb.Mesa.calibracao
+      T.eq(calib.fonte, "portal", caso.nome .. ": reserva pelo portal")
+      T.ok(no_log(amb.reg, "estruturas da mesa não achadas (4 tiles de estrutura, esperados 8)"), caso.nome .. ": o log diz o motivo")
+      T.ok(no_log(amb.reg, "dos 62 tiles de espaço não estão sobre os tiles esperados"), caso.nome .. ": e a conferência avisa")
+      T.eq(#amb.Marcadores.lista(), 26, caso.nome .. ": os rótulos são criados mesmo assim")
+      T.eq(#amb.Contornos.lista(), 62, caso.nome .. ": e os contornos")
+    end
+    -- No caso medido (espelhado, portal no centro do tile) a reserva dá a
+    -- mesma origem que o padrão daria: só os 4 tiles que faltam não conferem.
+    local amb = instalar_tudo(ambiente_jogo({ servidor = true, estruturas_de_1_tile = true }))
+    carregar_mundo(amb)
+    local certo = calibrar_caso(nova_mesa(), MEDIDO)
+    T.eq(amb.Mesa.calibracao.origem_x, certo.origem_x, "origem x pelo portal")
+    T.eq(amb.Mesa.calibracao.origem_z, certo.origem_z, "origem z pelo portal")
+    T.ok(no_log(amb.reg, "4 dos 62 tiles de espaço não estão sobre os tiles esperados"), "faltam os 4 tiles da frente das estruturas")
+  end },
+
+  { "o padrão da calibração: 8 tiles de estrutura em 4 blocos e 2 de eventos, e nada mais com esses pisos", function(T)
+    local Mesa = nova_mesa()
+    for _, caso in ipairs(CASOS) do
+      local estruturas = estruturas_em_volta(Mesa, caso)
+      T.eq(#estruturas, 8, caso.nome .. ": 8 tiles de estrutura")
+      local r = assert(Mesa.achar_estruturas(estruturas))
+      T.eq(r.x_max - r.x_min, 2, caso.nome .. ": 2 colunas entre as estruturas")
+      T.eq(r.y_max - r.y_min, 13, caso.nome .. ": 13 linhas entre os tiles de fora")
+      -- O centro do retângulo é o centro do combate e da mesa nas linhas.
+      local calib = calibrar_caso(Mesa, caso)
+      local x1, z1 = centro_mundo(r.x_min, r.y_min)
+      local x2, z2 = centro_mundo(r.x_max, r.y_max)
+      local cx, cz = Mesa.centro_abs(calib)
+      T.eq((x1 + x2) / 2, cx, caso.nome .. ": centro das estruturas = centro do combate (x)")
+      T.eq((z1 + z2) / 2, cz, caso.nome .. ": centro das estruturas = centro do combate (z)")
+      local _, mz = Mesa.centro_da_mesa_abs(calib)
+      T.eq(cz, mz, caso.nome .. ": e o meio das 16 linhas da mesa")
+      T.eq(#eventos_em_volta(Mesa, caso), 2, caso.nome .. ": 2 tiles de eventos")
+      -- Descarte e destruídas, na mesma coluna dos eventos, não entram em
+      -- nenhum dos dois padrões.
+      T.eq(#estruturas_em_volta(Mesa, caso, "descarte"), 4, caso.nome .. ": 4 tiles de descarte")
+      T.eq(#estruturas_em_volta(Mesa, caso, "destruidas"), 4, caso.nome .. ": 4 tiles de destruídas")
+    end
+    for _, uso in ipairs({ "descarte", "destruidas", "deck", "combate", "carta", "criatura", "chao", "moldura" }) do
+      T.ok(tile_por_uso(Mesa, uso) ~= tile_por_uso(Mesa, "estrutura"), uso .. " não usa o piso das estruturas")
+      T.ok(tile_por_uso(Mesa, uso) ~= tile_por_uso(Mesa, "evento"), uso .. " não usa o piso dos eventos")
+    end
+    T.eq(Mesa.WORLD_TILE[Mesa.USO.estrutura], "MOSAIC_GREY", "estruturas em MOSAIC_GREY")
+    T.eq(Mesa.WORLD_TILE[Mesa.USO.evento], "CARPET2", "eventos em CARPET2")
+    T.eq(Mesa.WORLD_TILE[Mesa.USO.combate], "CARPET", "combate em CARPET, como antes")
+    T.eq(Mesa.WORLD_TILE[Mesa.USO.descarte], "TILES", "descarte em TILES")
+    T.eq(Mesa.WORLD_TILE[Mesa.USO.destruidas], "BRICK", "destruídas em BRICK")
   end },
 
   { "cliente monta a calibração pelas netvars do forest_network", function(T)
