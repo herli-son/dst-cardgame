@@ -25,7 +25,7 @@
 --       ele recebe a visão do lado 1.
 --   Partida.receber_acao(userid, action) -> { ok = bool, erro = texto }
 --       acha o lado do userid (quem não joga é recusado), confere a forma da
---       ação, pergunta ao motor se ela vale (Game:can_act, que não muda nada)
+--       ação e dos alvos dela, pergunta ao motor se ela vale (Game:can_act, que não muda nada)
 --       e só então a aplica (Game:act; a troca inicial, { type = "mulligan",
 --       indices = {...} }, vai por Game:mulligan). Depois de uma ação aceita,
 --       os eventos novos e as mudanças do estado saem para todos.
@@ -34,6 +34,8 @@
 --   Partida.em_curso() -> bool     Partida.jogo() -> o Game (ou nil)
 --   Partida.lado_de(userid) -> 1 | 2 | 3 (visão que ele recebe)
 --   Partida.validar_forma(action) -> ok, erro
+--   Partida.validar_alvos(action) -> ok, erro   (target tabela, ou número
+--       para equipar; targets lista de tabelas)
 --
 -- Console do host (DUELO.Partida no modmain.lua), enquanto a US #42 não chega:
 --   DUELO.Partida.iniciar_teste([seed])  Wilson (lado 1) x Webber (lado 2) com
@@ -120,6 +122,29 @@ function Partida.validar_forma(action)
   if type(action) ~= "table" then return false, "ação inválida" end
   if type(action.type) ~= "string" then return false, "ação sem tipo" end
   return forma(action, 1, { n = 0 })
+end
+
+-- Defesa simples antes do motor: os alvos de uma ação têm a forma que o
+-- motor usa (duelo/core/jogar.lua, "Alvos"). `target` é uma tabela ({ p =
+-- jogador, slot = espaço, zone = ... }) ou, para equipar, o número do espaço
+-- da criatura; `targets` é uma lista de tabelas. O motor confere de novo (e
+-- o que mais houver) em Game:can_act.
+function Partida.validar_alvos(action)
+  local t = action.target
+  if t ~= nil and type(t) ~= "table" and type(t) ~= "number" then return false, "alvo inválido" end
+  local lista = action.targets
+  if lista ~= nil then
+    if type(lista) ~= "table" then return false, "lista de alvos inválida" end
+    local n = 0
+    for k, x in pairs(lista) do
+      n = n + 1
+      if type(k) ~= "number" or type(x) ~= "table" then return false, "lista de alvos inválida" end
+    end
+    for i = 1, n do
+      if lista[i] == nil then return false, "lista de alvos inválida" end
+    end
+  end
+  return true
 end
 
 ----------------------------------------------------------------------------
@@ -299,8 +324,11 @@ function Partida.receber_acao(userid, action)
     end
     ok, err = g:mulligan(lado, action.indices)
   else
+    ok, err = Partida.validar_alvos(action)
+    if not ok then return recusa(err) end
     -- Primeiro a pergunta, que não muda nada e não encerra a partida se a
-    -- ação vier torta; só uma ação válida chega a Game:act.
+    -- ação vier torta; só uma ação válida chega a Game:act (o motor garante
+    -- que o que can_act aceita não dá erro em act por causa da forma da ação).
     ok, err = g:can_act(lado, action)
     if ok then ok, err = g:act(lado, action) end
   end
