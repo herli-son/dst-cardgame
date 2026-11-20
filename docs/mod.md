@@ -279,7 +279,7 @@ col           1         2
   - `DUELO.Partida.estado()`: resumo da partida no servidor, com as duas mãos.
   - `DUELO.Partida.encerrar()`: termina a partida.
 - No cliente (console local):
-  - `DUELO.Cliente.enviar({ type = "pass" })`: manda uma ação. Outras: `{ type = "play", hand_index = 1, slot = 1 }` (a carta 1 da mão no espaço 1), `{ type = "attack", attackers = { uid } }`, `{ type = "choose", index = 1 }`.
+  - `DUELO.Cliente.enviar({ type = "pass" })`: manda uma ação. Outras: `{ type = "play", hand_index = 1, slot = 1 }` (a carta 1 da mão no espaço 1), `{ type = "attack", attackers = { 1, 2 } } (os espaços das criaturas que atacam)`, `{ type = "choose", index = 1 }`.
   - `DUELO.Cliente.imprimir()`: a visão local (vida, mana, a própria mão, o campo), os últimos eventos recebidos e as últimas recusas.
 
 **O que conferir no jogo:**
