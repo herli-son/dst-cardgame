@@ -56,7 +56,7 @@ local function ambiente(servidor)
       ismastershard = servidor,
       PushEvent = function(self, nome, dados) reg.eventos[#reg.eventos + 1] = { nome = nome, dados = dados } end,
     },
-    TheNet = { GetIsServer = function() return servidor end },
+    TheNet = { GetIsServer = function() return servidor end, IsDedicated = function() return false end },
     TUNING = { SEG_TIME = SEG_TIME, STARTING_TEMP = 35 },
     net_tinybyte = net_tinybyte_falso(reg.netvars),
     print = function() end,
@@ -206,14 +206,17 @@ return {
       AddComponentPostInit = ctx.AddComponentPostInit,
       AddPrefabPostInit = ctx.AddPrefabPostInit,
       AddSimPostInit = ctx.AddSimPostInit,
+      -- US #41: as RPCs de mod (tests/test_mod_partida.lua as testa).
+      AddModRPCHandler = function() end,
+      AddClientModRPCHandler = function() end,
     }
     rodar("modmain.lua", env)
     T.eq(configs[1], "relogio", "lê a opção relogio")
     T.eq(type(reg.component_postinits.clock), "function", "AddComponentPostInit(clock)")
     T.eq(type(reg.prefab_postinits.forest_network), "function", "AddPrefabPostInit(forest_network)")
     T.eq(#reg.prefab_postinits_todos.forest_network, 2, "forest_network do relógio e da calibração (US #30)")
-    T.eq(#reg.player_postinits, 2, "AddPlayerPostInit da proteção e da câmera (US #30)")
-    T.eq(#reg.sim_postinits, 2, "AddSimPostInit da calibração e da câmera (US #30)")
+    T.eq(#reg.player_postinits, 3, "AddPlayerPostInit da proteção, da câmera (US #30) e do cliente da partida (US #41)")
+    T.eq(#reg.sim_postinits, 3, "AddSimPostInit da calibração e da câmera (US #30) e da rede (US #41)")
     T.eq(type(reg.component_postinits.playercontroller), "function", "AddComponentPostInit(playercontroller)")
     T.eq(type(env.DUELO.Relogio.avancar), "function", "DUELO.Relogio no ambiente do mod")
     T.eq(GLOBAL.DUELO, env.DUELO, "DUELO também no ambiente global (console)")

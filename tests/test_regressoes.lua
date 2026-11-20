@@ -319,6 +319,7 @@ return {
   { "alvo de estrutura trocada perde o efeito; criatura no mesmo espaço não interfere", function(T)
     local g = new_game()
     Cards.define{ id = "r_marreta", kind = "feitico", speed = "rapido", cost = 0,
+      targets = function() return true end, -- a carta mira: sem isto, informar alvo é recusado
       on_cast = function(gg, p, a) log[#log + 1] = "marreta" end }
     g:put_structure(2, { id = "r_casa", uid = g:next_uid() }, 1)
     g:place_creature(2, { id = "r_bicho", uid = g:next_uid() }, 1)
@@ -536,6 +537,7 @@ return {
     local g = new_game()
     local got
     Cards.define{ id = "r_gosma", kind = "feitico", speed = "rapido", cost = 0, no_fogueira = true,
+      targets = function() return true end, -- a carta mira: sem isto, informar alvo é recusado
       on_cast = function(gg, p, a, card, objects) got = objects[1].player end }
     g.players[1].hand[#g.players[1].hand + 1] = { id = "r_gosma", uid = g:next_uid() }
     T.eq(play(g, 1, "r_gosma", { target = { p = 3, zone = "jogador" } }), false)
@@ -556,6 +558,7 @@ return {
     local g = new_game()
     local hit
     Cards.define{ id = "r_flecha", kind = "feitico", speed = "rapido", cost = 0,
+      targets = function() return true end, -- a carta mira: sem isto, informar alvo é recusado
       on_cast = function(gg, p, a, card, objects) hit = objects[1] end }
     local x = g:place_creature(2, { id = "r_bicho", uid = g:next_uid() }, 1)
     local y = g:place_creature(2, { id = "r_bicho", uid = g:next_uid() }, 3)

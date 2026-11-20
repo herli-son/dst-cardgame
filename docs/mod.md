@@ -15,8 +15,12 @@ Este repositório **é** o mod: a raiz dele vira a pasta do mod dentro do jogo. 
 | `scripts/duelo/mod/contornos.lua` | Bug #147: contorno de cada tile de espaço com o `tile_outline` do jogo (o quadrado do `gridplacer`, sem o componente `placer`), na cor do dono, amarelo no espaço de eventos (local a cada cliente). |
 | `scripts/prefabs/duelo_marcador.lua` | US #30: prefab de rede do marcador (só um texto, sem clique nem física). |
 | `scripts/duelo/mod/camera.lua` | US #30: lado de cada jogador e câmera fixa no centro da mesa, sem Q/E, com a vista de longe do bug #147 (distância 80, inclinação de 40° a 60°, zoom de 30 a 180). |
+| `scripts/duelo/mod/rede.lua` | US #41: RPCs de mod entre os clientes e o servidor (ação e pedido de estado; eventos, estado e recusa), com limite de tamanho, taxa por jogador e mensagens em pedaços. |
+| `scripts/duelo/mod/partida_servidor.lua` | US #41: a partida em curso, só no servidor. É o único módulo do mod que carrega o motor; confere e aplica as ações e distribui o resultado. |
+| `scripts/duelo/mod/visao.lua` | US #41: o que cada lado pode ver: filtro dos eventos por tipo e fotografia do estado sem a mão nem o baralho do outro. |
+| `scripts/duelo/mod/partida_cliente.lua` | US #41: a visão local da partida em cada cliente (sem o motor) e o envio das ações. |
 | `scripts/duelo/mod/layouts/mesa.lua` | Static layout (formato do Tiled) gerado a partir de `mesa.lua`. |
-| `scripts/duelo/core`, `cartas`, `decks`, `sim`, `bot`, `terminal` | Motor de regras, Lua puro (ver `docs/terminal.md`). |
+| `scripts/duelo/core`, `cartas`, `decks`, `sim`, `bot`, `terminal` | Motor de regras, Lua puro (ver `docs/terminal.md`). No jogo, só o servidor o carrega (US #41); dos clientes, só `core/serial.lua` (texto das mensagens). |
 
 ## Instalar para testar
 
@@ -231,3 +235,67 @@ col           1         2
 - Lado dos eventos: com o espelhamento do gerador (o caso real), o J1 vê os eventos à direita e o portal à esquerda.
 - Carta de Turf "Cascalho": é o mesmo paralelepípedo do chão da mesa, então jogada num espaço ela fica igual ao chão em volta; vai precisar de uma marcação visual (decisão registrada na #30).
 - Bordas dos turfs (a conferir quando houver cartas de Turf, registrado na #30): com paralelepípedos em volta, o turf de cada carta (Piso de madeira, Pântano, Cascalho) deve aparecer inteiro nos 2 tiles do espaço.
+
+## O que conferir na US #41 (o servidor decide as jogadas)
+
+**Arquitetura:**
+
+- O motor de regras (`scripts/duelo/core`) só é carregado no servidor, por `scripts/duelo/mod/partida_servidor.lua`, que guarda a partida em curso (uma por mundo). Os clientes não têm o motor nem as cartas.
+- O jogador só manda **ações** (`{ type = "pass" }`, `{ type = "play", hand_index = 2, slot = 1 }`...): `partida_cliente.lua` as entrega a `rede.lua`, que as serializa em texto (`duelo/core/serial`, sem `loadstring`) e manda pela RPC `acao`.
+- O servidor acha o lado pelo `userid` de quem mandou a RPC (nunca por um dado da ação), confere o tamanho e a forma (inclusive a dos alvos), pergunta ao motor se a ação vale (`Game:can_act`) e só então a aplica (`Game:act`). O motor garante que o que `can_act` aceita não dá erro em `act` por causa da forma da ação (`tests/test_fuzz_acoes.lua`): um jogador não consegue encerrar a partida mandando uma ação torta.
+- Cada ação aceita vira um **lote** para cada lado: os eventos novos, filtrados por `visao.lua` (a carta comprada pelo outro chega sem dizer qual é; o que a Máquina de Ciência mostra só vai para o dono), e as mudanças da fotografia do estado daquele lado. Os lotes têm um número de sequência.
+- O cliente guarda a fotografia (`estado`) e aplica os lotes em ordem; se faltar um, pede a fotografia de novo. Quem entra no meio pede a fotografia ao ativar. As próximas US (mão, criaturas, histórico) escutam `DUELO.Cliente.quando_evento(fn)` e leem `DUELO.Cliente.visao()`.
+- Uma ação recusada volta só para quem a enviou, com o motivo (`recusada`); os outros não ficam sabendo.
+- Os handlers de RPC, no servidor e no cliente, rodam em `pcall`: um erro vira um aviso `[duelo] rede: erro ao tratar ...` no log e não sobe para o jogo.
+
+**O que cada lado fica sabendo** (regras em `visao.lua`):
+
+- **Mão e baralho:** só do próprio lado; do outro, só a quantidade de cartas.
+- **Escolha pendente:** quem não escolhe sabe só que há uma escolha daquele jogador e o motivo. A quantidade de opções e as opções só vão para quem escolhe (na Máquina de Ciência, a quantidade diria quantos equipamentos há nas 5 cartas do topo).
+- **Limitação conhecida:** quando a Máquina de Ciência não acha equipamento, nenhuma escolha abre, e o adversário vê a ativação sem escolha em seguida: fica sabendo que não há equipamento nas 5 do topo. Resolver exigiria mudar a carta (abrir a escolha mesmo vazia).
+- **Destruídas:** a zona é pública por regra, como o descarte (tem espaço próprio na mesa), inclusive a carta destruída pelo limite de mão.
+- **Erro do motor:** os clientes recebem só `erro interno do jogo; a partida foi encerrada` (no evento `engine_error` e no campo `erro` da visão). A mensagem inteira, a carta que rodava e o traceback ficam no log do servidor (`[duelo] partida: ERRO DO MOTOR ...`) e em `DUELO.Partida.estado()`.
+
+**Mensagens e limites** (detalhes nos cabeçalhos de `rede.lua`, `partida_servidor.lua` e `visao.lua`):
+
+| Sentido | RPC | Conteúdo |
+|---|---|---|
+| cliente → servidor | `acao` | texto da ação (até 1024 bytes; a maior ação das partidas simuladas tem 241) e o número dela no cliente (inteiro de 0 a 2^31 - 1; outra coisa volta como `false` na recusa) |
+| cliente → servidor | `pedir_estado` | nada |
+| servidor → cliente | `eventos` | `{ partida, seq, eventos, mudancas }` |
+| servidor → cliente | `estado` | `{ partida, seq, lado, estado }` ou `{ partida = false }` |
+| servidor → cliente | `recusada` | `{ n, motivo }`, só para quem enviou |
+
+- **Taxa:** 10 ações por segundo por jogador; o excesso é descartado antes de chegar à partida, com um aviso no log do servidor e uma recusa (`ações demais por segundo`) por segundo. Pedidos de estado: 2 por segundo por jogador. As janelas são medidas com `GetTimeRealSeconds()` (tempo real), não com `GetTime()`, que para com o servidor pausado enquanto as RPCs continuam chegando; as de quem sai são apagadas (`ms_playerleft`).
+- **Retentativa:** se a fotografia pedida não chega, o cliente repete o pedido a cada 1 s (tarefa periódica estática do jogador local, que roda também na pausa).
+- **Forma da ação:** tabela com `type` em texto, até 64 valores, 4 níveis de tabelas e textos de até 64 caracteres; `target` é uma tabela (`{ p = jogador, slot = espaço, zone = ... }`) ou, para equipar, o número do espaço da criatura; `targets` é uma lista dessas tabelas. O leitor do texto (`duelo/core/serial`) recusa número não finito (`1e999`) e tem limite de níveis e de valores (8 e 256 para as ações; 16 e 200000 por padrão).
+- **Pedaços:** as mensagens do servidor saem em pedaços de até 1000 bytes e são remontadas no cliente (uma fotografia tem cerca de 5 KB; um lote, até uns 9 KB). Os scripts do jogo não dizem qual é o limite de uma string de RPC; 1000 é um valor conservador, em `Rede.LIMITES.FRAGMENTO`.
+- **Host:** o que é do jogador do próprio host não passa pela RPC: vai direto de um módulo ao outro, pela mesma serialização. Uma ação mandada de dentro de um ouvinte de eventos do host (enquanto um lote está saindo) espera numa fila e é aplicada depois do envio, para os lotes chegarem em ordem aos outros.
+
+**Comandos de console** (até a US #42 preparar a partida pela interface):
+
+- No servidor (no host, o console já é o do servidor; num cliente, com o console em modo remoto):
+  - `DUELO.Partida.iniciar_teste()`: começa Wilson (lado 1) x Webber (lado 2) com os jogadores dos lados 1 e 2 da mesa. **Com um jogador só, ele fica nos dois lados**: as ações dele valem para o lado que tem de agir, e a visão do cliente é a do lado 1 (a mão do lado 2 aparece em `DUELO.Partida.estado()`). `DUELO.Partida.iniciar_teste(7)` fixa a semente.
+  - `DUELO.Partida.estado()`: resumo da partida no servidor, com as duas mãos.
+  - `DUELO.Partida.encerrar()`: termina a partida.
+- No cliente (console local):
+  - `DUELO.Cliente.enviar({ type = "pass" })`: manda uma ação. Outras: `{ type = "play", hand_index = 1, slot = 1 }` (a carta 1 da mão no espaço 1), `{ type = "attack", attackers = { 1, 2 } }` (os espaços das criaturas que atacam), `{ type = "choose", index = 1 }`.
+  - `DUELO.Cliente.imprimir()`: a visão local (vida, mana, a própria mão, o campo), os últimos eventos recebidos e as últimas recusas.
+
+**O que conferir no jogo:**
+
+- **Host sozinho:**
+  - Ao entrar, nenhum erro no `client_log.txt` com `[duelo]` nem `Invalid RPC`.
+  - `DUELO.Partida.iniciar_teste()`: o log mostra `[duelo] partida: partida 1 iniciada (semente ...)` e `um jogador só, nos dois lados`. O motor carrega dentro do jogo pela primeira vez aqui: qualquer erro de `require` ou de variável global aparece neste comando.
+  - `DUELO.Cliente.imprimir()`: `eu sou lado 1`, rodada 1, a mão do lado 1 com 5 cartas, `mão: escondida (5 cartas)` no lado 2 e os últimos eventos (`to_hand`, `round_start`, `mana`...).
+  - `DUELO.Cliente.enviar({ type = "pass" })` várias vezes e `DUELO.Cliente.imprimir()`: a vez, o período e a rodada andam, e os eventos `pass`, `vez`, `period` chegam.
+  - `DUELO.Cliente.enviar({ type = "play", hand_index = 99 })`: `[duelo] cliente: ação N recusada: carta não está na mão`.
+  - `DUELO.Partida.estado()` mostra as duas mãos; `DUELO.Partida.encerrar()` e depois `DUELO.Cliente.imprimir()` dá `sem partida`.
+- **Host e um cliente:**
+  - `DUELO.Partida.iniciar_teste()` no host: no cliente, `DUELO.Cliente.imprimir()` mostra o lado dele, a própria mão e `mão: escondida` no lado do host. **O segundo jogador não vê a mão do primeiro**, e o contrário também.
+  - Cada um passa a vez com `DUELO.Cliente.enviar({ type = "pass" })`: quem está fora da vez recebe `recusada: não é a sua vez` no próprio log, e nada aparece no log do outro.
+  - Depois de cada jogada de um, o `imprimir()` do outro já mostra a mudança (o lote chegou). Isto confirma as RPCs nos dois sentidos e a remontagem dos pedaços (a fotografia do começo já sai em vários).
+  - O cliente sai e volta com a partida em curso: ao ativar, o `imprimir()` dele mostra a partida no ponto em que está (a fotografia foi pedida sozinha).
+  - Com o servidor pausado (se a pausa estiver ligada no servidor): `DUELO.Cliente.enviar({ type = "pass" })` continua sendo respondido, e mais de 10 ações seguidas voltam a ser aceitas um segundo depois (a taxa usa o tempo real). **A confirmar no jogo:** que `DoStaticPeriodicTask` no jogador local roda no cliente durante a pausa.
+  - Se alguma mensagem não chegar (visão do cliente parada ou `mensagem "..." descartada` no log), o primeiro suspeito é o tamanho do pedaço: baixar `Rede.LIMITES.FRAGMENTO`.
+- **Servidor dedicado** (se houver como testar): nenhum erro ao subir; `DUELO.Cliente` não existe no servidor.

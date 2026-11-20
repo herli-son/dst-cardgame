@@ -133,7 +133,7 @@ return function(Game)
 
   -- Os alvos de entrada são conferidos na jogada, como os de um feitiço.
   function Game:check_entry_targets(p, def, action)
-    if def.play_targets == nil then return true end
+    if def.play_targets == nil then return self:check_no_targets(action) end
     local ok, err = self:check_targets(action)
     if not ok then return false, err end
     local valid, why = def.play_targets(self, p, action, self:target_objects(action))
@@ -191,13 +191,50 @@ return function(Game)
   -- próprio jogador, em action.target ou na lista action.targets.
   -- O formato é conferido antes de qualquer gasto. Na jogada, o motor trava o uid de
   -- cada alvo; ao resolver, o alvo só vale se aquele mesmo objeto continuar em campo.
+  --
+  -- Invariante: toda ação que a validação aceita (Game:can_act) resolve sem erro
+  -- por causa da forma da ação. Por isso a validação de TODA jogada ou ativação
+  -- passa por check_targets (carta ou efeito que mira) ou por check_no_targets
+  -- (carta ou efeito sem alvos): um action.target ou action.targets de tipo
+  -- errado, ou informado onde não há alvos, é recusado ali, e lock_targets e
+  -- target_objects só veem alvos já conferidos. (A exceção é o equipamento, em
+  -- que action.target é o número do espaço da criatura: ver play_rules.equipamento.)
   local ZONE_SLOTS = { criatura = "FIELD_SLOTS", estrutura = "STRUCTURE_SLOTS" }
 
-  local function each_target(action, fn)
-    if action.target ~= nil then fn(action.target) end
+  -- Lista em sequência exata: só chaves 1..n, sem buracos nem chaves extras.
+  local function is_list(t)
+    if type(t) ~= "table" then return false end
+    local n = 0
+    for _ in pairs(t) do n = n + 1 end
+    for i = 1, n do
+      if t[i] == nil then return false end
+    end
+    return true
+  end
+
+  -- Forma de action.target e action.targets, sem olhar o campo: target é uma
+  -- tabela; targets, uma lista de tabelas.
+  local function check_target_shape(action)
+    if action.target ~= nil and type(action.target) ~= "table" then
+      return false, "alvo inválido: use { p = jogador, slot = espaço, zone = ... }"
+    end
     if action.targets ~= nil then
-      if type(action.targets) ~= "table" then return fn(action.targets) end
-      for _, t in ipairs(action.targets) do fn(t) end
+      if not is_list(action.targets) then return false, "lista de alvos inválida" end
+      for _, t in ipairs(action.targets) do
+        if type(t) ~= "table" then return false, "alvo inválido: use { p = jogador, slot = espaço, zone = ... }" end
+      end
+    end
+    return true
+  end
+
+  -- Só chega aqui o que a validação aceitou; mesmo assim, o que não for tabela
+  -- é pulado em vez de dar erro.
+  local function each_target(action, fn)
+    if type(action.target) == "table" then fn(action.target) end
+    if type(action.targets) == "table" then
+      for _, t in ipairs(action.targets) do
+        if type(t) == "table" then fn(t) end
+      end
     end
   end
 
@@ -209,11 +246,13 @@ return function(Game)
   end
 
   function Game:check_targets(action)
+    local ok, shape_err = check_target_shape(action)
+    if not ok then return false, shape_err end
     local err
     each_target(action, function(t)
       if err then return end
-      if type(t) ~= "table" then err = "alvo inválido"; return end
-      local zone = t.zone or "criatura"
+      local zone = t.zone
+      if zone == nil then zone = "criatura" end
       if zone == "jogador" then
         if t.p ~= 1 and t.p ~= 2 then err = "jogador do alvo inválido" end
         return
@@ -229,6 +268,15 @@ return function(Game)
       if object_at(self, t) == nil then err = "não há alvo nesse espaço" end
     end)
     if err then return false, err end
+    return true
+  end
+
+  -- Para carta ou efeito sem alvos: informar um alvo é recusado, em vez de
+  -- ignorado (a resolução não tem o que fazer com ele).
+  function Game:check_no_targets(action, what)
+    if action.target ~= nil or action.targets ~= nil then
+      return false, (what or "essa carta") .. " não tem alvos"
+    end
     return true
   end
 
@@ -360,7 +408,7 @@ return function(Game)
     validate = function(g, p, card, def, action)
       local ok, err = g:can_use_speed(def.speed)
       if not ok then return false, err end
-      ok, err = g:check_targets(action)
+      if def.targets == nil then ok, err = g:check_no_targets(action) else ok, err = g:check_targets(action) end
       if not ok then return false, err end
       -- Feitiço que cria estrutura (def.creates_structure): com a zona cheia, a
       -- substituída é escolhida na jogada (action.replace). Se abrir vaga até a

@@ -100,13 +100,19 @@ return {
     local env = {
       GLOBAL = {
         require = require,
-        TheNet = { GetIsServer = function() servidor = true; return true end },
+        TheNet = {
+          GetIsServer = function() servidor = true; return true end,
+          IsDedicated = function() return true end,
+        },
       },
       GetModConfigData = function() return nil end,
       AddPlayerPostInit = function() end,
       AddComponentPostInit = function() end,
       AddPrefabPostInit = function() end,
       AddSimPostInit = function() end,
+      -- US #41: as RPCs de mod (tests/test_mod_partida.lua as testa).
+      AddModRPCHandler = function() end,
+      AddClientModRPCHandler = function() end,
     }
     rodar("modmain.lua", env)
     T.eq(env.DUELO.Mesa, Mesa, "DUELO.Mesa é o módulo duelo/mod/mesa")

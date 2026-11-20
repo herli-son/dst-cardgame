@@ -329,7 +329,7 @@ return function(Game)
     local spec = def.activation
     local ok, why = g:can_use_speed(spec.speed)
     if not ok then return false, why end
-    ok, why = g:check_targets(action)
+    if def.targets == nil then ok, why = g:check_no_targets(action, "esse efeito") else ok, why = g:check_targets(action) end
     if not ok then return false, why end
     -- Os usos ficam na carta, não na instância: reequipar não zera o limite.
     -- Passar pelo descarte zera (reset_card), porque a carta volta como nova.
