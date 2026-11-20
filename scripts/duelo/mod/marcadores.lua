@@ -4,7 +4,8 @@
 -- ("J1 3", "J2 E1"), na cor do jogador, e no centro da zona de combate um
 -- rótulo "Combate". No espaço de criatura (2 tiles) o número fica no tile da
 -- carta (o de trás), que é onde ficam as informações da carta; o tile da
--- frente é da criatura viva.
+-- frente é da criatura viva. O contorno de cada tile, na mesma cor do dono,
+-- é desenhado por duelo/mod/contornos.lua.
 -- O marcador é o prefab do mod `duelo_marcador`
 -- (scripts/prefabs/duelo_marcador.lua, registrado por PrefabFiles no
 -- modmain): uma entidade de rede sem física, sem arte e sem clique, só com
