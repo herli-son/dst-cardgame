@@ -150,8 +150,15 @@ local function igual(a, b)
 end
 
 -- A visão de cada cliente é igual à fotografia que o servidor tiraria agora.
-local function conferir_visoes(T, s, clientes, onde)
+-- `conta` (opcional) soma as conferências feitas com escolha pendente e com
+-- a pilha aberta, para o teste afirmar que essas situações foram comparadas.
+local function conferir_visoes(T, s, clientes, onde, conta)
   local g = s.Partida.jogo()
+  if conta then
+    conta.total = (conta.total or 0) + 1
+    if g.pending_choice then conta.escolha = (conta.escolha or 0) + 1 end
+    if #(g.stack or {}) > 0 then conta.pilha = (conta.pilha or 0) + 1 end
+  end
   for lado, c in ipairs(clientes) do
     local esperado = Visao.estado_para(g, lado)
     local d = Replay.first_diff(c.Cliente.visao(), esperado, "visao")
@@ -210,12 +217,18 @@ local function jogar(T, s, clientes, o)
   return g, passo
 end
 
--- Todos os valores do campo `chave` dentro de uma tabela, em qualquer nível.
-local function coletar(v, chave, out)
+-- Todos os números guardados em chaves que apontam uma carta ou um objeto
+-- (`uid`, `card_uid`, `target_uid`, qualquer `*uid`, e `objeto`), em qualquer
+-- nível. Os uids de carta e de objeto em campo saem do mesmo contador do
+-- motor: um número igual ao uid de uma carta escondida é essa carta.
+-- Devolve uma lista de { uid = número, chave = nome }.
+local function coletar_uids(v, out)
   if type(v) ~= "table" then return out end
   for k, x in pairs(v) do
-    if k == chave and type(x) ~= "table" then out[#out + 1] = x end
-    coletar(x, chave, out)
+    if type(k) == "string" and (k:find("uid$") or k == "objeto") and type(x) == "number" then
+      out[#out + 1] = { uid = x, chave = k }
+    end
+    coletar_uids(x, out)
   end
   return out
 end
@@ -362,10 +375,13 @@ return {
 
   { "partida inteira bot x bot pelas RPCs termina igual à mesma partida direto no motor", function(T)
     local net, s, cs = mesa()
+    local conta = {}
     local g, passos = jogar(T, s, cs, { seed = 11, tipos = { "bot", "bot" }, a_cada = function(passo)
-      if passo % 3 == 0 or passo < 30 then conferir_visoes(T, s, cs, "passo " .. passo) end
+      conferir_visoes(T, s, cs, "passo " .. passo, conta)
     end })
     conferir_visoes(T, s, cs, "fim")
+    T.ok((conta.escolha or 0) > 0, "as visões foram comparadas com uma escolha pendente: " .. tostring(conta.escolha))
+    T.ok((conta.pilha or 0) > 0, "as visões foram comparadas com a pilha aberta: " .. tostring(conta.pilha))
     local decks, extras = decks_reais()
     local rep, ref = Simulador.run_game{ decks = decks, extra_decks = extras, seed = 11, players = { "bot", "bot" } }
     T.ok(passos > 20, "a partida teve jogadas: " .. passos)
@@ -418,7 +434,7 @@ return {
     -- descarte, as destruídas, o Inventário, o baralho extra, ou é mostrada).
     local ENTRADA = { play = true, summon = true, structure = true, equip = true, reveal = true,
       destroyed = true, vanish = true, inventory = true }
-    local tipos_vistos, total_ocultos = {}, 0
+    local tipos_vistos, total_ocultos, escolhas_alheias = {}, 0, 0
     for _, o in ipairs(partidas) do
       local net, s, cs = mesa()
       local dono, publica = {}, {}
@@ -455,10 +471,15 @@ return {
           local msgs = net.mensagens[ids[lado]] or {}
           for i = lidos[lado] + 1, #msgs do
             local msg = msgs[i]
-            for _, uid in ipairs(coletar(msg.m, "card_uid", {})) do
-              if dono[uid] ~= lado then
+            for _, achado in ipairs(coletar_uids(msg.m, {})) do
+              local uid = achado.uid
+              -- Um card_uid é sempre de carta (as fichas, sem dono inicial,
+              -- têm de ser públicas); nas outras chaves o número pode ser de
+              -- um objeto em campo, e só conta se for o uid de uma carta.
+              if dono[uid] ~= lado and (dono[uid] ~= nil or achado.chave == "card_uid") then
                 T.ok(publica[uid], "seed " .. o.seed .. ", passo " .. passo .. ": o lado " .. lado
-                  .. " recebeu em \"" .. msg.tipo .. "\" a carta " .. tostring(uid) .. " do lado "
+                  .. " recebeu em \"" .. msg.tipo .. "\", na chave " .. achado.chave .. ", a carta "
+                  .. tostring(uid) .. " do lado "
                   .. tostring(dono[uid]) .. ", que nunca saiu da mão ou do baralho")
               end
             end
@@ -469,6 +490,10 @@ return {
                 T.ok(ev.id == nil and ev.card_uid == nil and ev.oculto == true, "compra do outro sem a carta")
               end
               T.ok(not ev.desconhecido, "tipo de evento fora de Visao.TIPOS: " .. tostring(ev.t))
+              if ev.t == "choice" and ev.p ~= lado then
+                escolhas_alheias = escolhas_alheias + 1
+                T.ok(igual(ev, { t = "choice", p = ev.p, reason = ev.reason }), "escolha do outro só com jogador e motivo")
+              end
             end
             T.ok(not tem_chave(msg.m, "cards") or lado ~= 3, "espectador sem cartas olhadas")
             -- Na fotografia e nas mudanças, a mão só existe no próprio lado.
@@ -493,6 +518,7 @@ return {
       conferir_visoes(T, s, cs, "seed " .. o.seed)
     end
     T.ok(total_ocultos > 20, "houve compras escondidas: " .. total_ocultos)
+    T.ok(escolhas_alheias > 0, "houve escolhas do outro lado: " .. escolhas_alheias)
     for t in pairs(tipos_vistos) do
       T.ok(Visao.TIPOS[t] ~= nil, "tipo de evento do motor fora de Visao.TIPOS: " .. t)
     end
@@ -785,6 +811,292 @@ return {
     conferir_visoes(T, s, cs, "depois do erro")
     cs[2].Cliente.enviar({ type = "pass" })
     T.eq(recusas(net, "KU_dois")[1].motivo, "partida encerrada por erro")
+  end },
+
+  { "alvo que não é tabela: recusado antes do motor ou pelo motor, e a partida continua", function(T)
+    local net, s, cs = mesa()
+    local g = iniciar(s, { first = 1 })
+    local conta = vigiar(g)
+    local function ultima()
+      local r = recusas(net, "KU_um")
+      return r[#r] and r[#r].motivo
+    end
+    local enviadas = 0
+    local function manda(a)
+      net.relogio = net.relogio + 1
+      enviadas = enviadas + 1
+      T.ok(cs[1].Cliente.enviar(a), "ação enviada")
+      T.eq(#recusas(net, "KU_um"), enviadas, "recusada: " .. Simulador.describe_action(a))
+      T.eq(g.phase, "playing", "a partida continua de pé")
+    end
+    -- Forma errada: nem chega ao motor.
+    for _, extra in ipairs({ { target = "1" }, { target = true }, { targets = "1" }, { targets = 1 },
+      { targets = { 1 } }, { targets = { "x" } }, { targets = { [2] = {} } }, { targets = { a = {} } } }) do
+      local a = { type = "play", from = "hand", hand_index = 1, slot = 5 }
+      for k, v in pairs(extra) do a[k] = v end
+      manda(a)
+      T.ok(ultima() == "alvo inválido" or ultima() == "lista de alvos inválida", "motivo: " .. tostring(ultima()))
+    end
+    T.eq(conta.can_act, 0, "a forma errada não chega ao motor")
+    -- Forma certa onde não cabe alvo (ou número, que só vale para equipar):
+    -- o motor recusa em can_act, para todas as cartas da mão.
+    for i = 1, #g.players[1].hand do
+      for _, extra in ipairs({ { target = 1 }, { target = {} }, { targets = {} }, { targets = { {} } },
+        { target = { p = 9 } }, { targets = { { p = 1, zone = "jogador" }, { p = 1, slot = 1.5 } } } }) do
+        local a = { type = "play", from = "hand", hand_index = i, slot = 5 }
+        for k, v in pairs(extra) do a[k] = v end
+        manda(a)
+      end
+    end
+    T.ok(conta.can_act > 0, "essas chegaram à pergunta")
+    T.eq(conta.act, 0, "nenhuma chegou a Game:act")
+    T.eq(#g.log.actions, 0)
+    T.eq(s.Partida.validar_alvos({ target = { p = 1, slot = 1 }, targets = { { p = 2, zone = "jogador" } } }), true)
+    T.eq(s.Partida.validar_alvos({ target = 3 }), true, "número: o espaço da criatura a equipar")
+  end },
+
+  { "número da ação não finito ou torto volta como false, e nenhum handler propaga erro", function(T)
+    local net, s, cs = mesa()
+    local g = iniciar(s, { first = 1 })
+    local function ultimo_n()
+      local r = recusas(net, "KU_um")
+      return r[#r].n
+    end
+    local total = 0
+    for _, n in ipairs({ math.huge, -math.huge, 0 / 0, -1, 1.5, 2 ^ 31, 2 ^ 60, "7", true, {} }) do
+      manda_texto(net, cs[1], "{", n)
+      total = total + 1
+      T.eq(#recusas(net, "KU_um"), total, "a recusa saiu com n = " .. tostring(n))
+      T.eq(ultimo_n(), false, "n = " .. tostring(n) .. " vira false")
+    end
+    manda_texto(net, cs[1], "{", nil)
+    T.eq(ultimo_n(), false, "sem número")
+    for _, n in ipairs({ 0, 1, 2 ^ 31 - 1 }) do
+      manda_texto(net, cs[1], "{", n)
+      T.eq(ultimo_n(), n, "inteiro finito volta igual")
+    end
+    -- Ação recusada pelo motor com n infinito: a recusa também sai.
+    manda_texto(net, cs[2], Serial.serialize({ type = "pass" }), math.huge)
+    T.eq(recusas(net, "KU_dois")[1].motivo, "não é a sua vez"); T.eq(recusas(net, "KU_dois")[1].n, false)
+    for _, linha in ipairs(s.logs) do
+      T.ok(not linha:find("erro ao tratar", 1, true), "nenhum handler estourou: " .. linha)
+    end
+    -- Um erro dentro do handler do servidor não sobe para a fila de RPCs.
+    local original = s.Partida.receber_acao
+    s.Partida.receber_acao = function() error("partida quebrada de propósito") end
+    manda_texto(net, cs[1], Serial.serialize({ type = "pass" }), 3)
+    s.Partida.receber_acao = original
+    local original_estado = s.Partida.pedir_estado
+    s.Partida.pedir_estado = function() error("estado quebrado de propósito") end
+    net.relogio = net.relogio + 5
+    cs[1].ctx.SendModRPCToServer(cs[1].ctx.GetModRPC("duelo", "pedir_estado"))
+    s.Partida.pedir_estado = original_estado
+    local avisos = 0
+    for _, linha in ipairs(s.logs) do
+      if linha:find("erro ao tratar", 1, true) then avisos = avisos + 1 end
+    end
+    T.eq(avisos, 2, "os dois erros ficaram no log do servidor")
+    -- Nem o do cliente.
+    local receber = cs[1].Cliente.receber
+    cs[1].Cliente.receber = function() error("cliente quebrado de propósito") end
+    net.relogio = net.relogio + 5
+    T.ok(cs[1].Cliente.enviar({ type = "pass" }), "o lote sai mesmo com o cliente 1 quebrado")
+    cs[1].Cliente.receber = receber
+    local achou = false
+    for _, linha in ipairs(cs[1].logs) do
+      if linha:find("erro ao tratar", 1, true) and linha:find("cliente quebrado de propósito", 1, true) then achou = true end
+    end
+    T.ok(achou, "o erro ficou no log do cliente")
+    T.eq(cs[2].Cliente.seq(), 2, "os outros receberam o lote")
+    T.eq(g.phase, "playing")
+  end },
+
+  { "o leitor do serial recusa número não finito e respeita os limites de profundidade e de valores", function(T)
+    for _, texto in ipairs({ "1e999", "-1e999", "{[1]=1e999}", "{[\"n\"]=-1e9999}" }) do
+      T.eq(pcall(Serial.deserialize, texto), false, "recusado: " .. texto)
+    end
+    T.eq(Serial.deserialize("1e3"), 1000, "número finito com expoente continua valendo")
+    local function funda(n)
+      return string.rep("{[1]=", n) .. "1" .. string.rep("}", n)
+    end
+    local P = Serial.LIMITES.PROFUNDIDADE
+    T.ok(pcall(Serial.deserialize, funda(P)), "no limite de profundidade")
+    T.eq(pcall(Serial.deserialize, funda(P + 1)), false, "acima do limite de profundidade")
+    T.eq(pcall(Serial.deserialize, funda(5000)), false, "muito funda: erro, sem estourar a pilha")
+    T.ok(pcall(Serial.deserialize, funda(3), { profundidade = 3 }))
+    T.eq(pcall(Serial.deserialize, funda(4), { profundidade = 3 }), false, "limite por leitura")
+    local lista = {}
+    for i = 1, 10 do lista[i] = i end
+    local texto = Serial.serialize(lista) -- 11 valores: a tabela e os 10 números
+    T.ok(pcall(Serial.deserialize, texto, { elementos = 11 }))
+    T.eq(pcall(Serial.deserialize, texto, { elementos = 10 }), false, "valores demais")
+    -- A fotografia de uma partida cabe com folga nos limites padrão.
+    local decks, extras = decks_reais()
+    local g = Game.new{ decks = decks, extra_decks = extras, seed = 3, mulligan = false }
+    g:start()
+    local foto = Visao.estado_para(g, 1)
+    T.ok(igual(Serial.deserialize(Serial.serialize(foto)), foto))
+    T.ok(igual(Serial.deserialize(Serial.serialize(g.log)), g.log), "e o registro da partida")
+  end },
+
+  { "Máquina de Ciência: a quantidade de opções da escolha só chega a quem escolhe", function(T)
+    local net, s, cs = mesa()
+    local g = iniciar(s, { first = 1 })
+    -- A Máquina em campo e exatamente dois equipamentos entre as 5 do topo.
+    g:put_structure(1, { id = "maquina_de_ciencia", uid = g:next_uid() }, 1)
+    local deck = g.players[1].deck
+    local equips, outras = {}, {}
+    for _, c in ipairs(deck) do
+      if g:def_of(c).kind == "equipamento" then equips[#equips + 1] = c else outras[#outras + 1] = c end
+    end
+    T.ok(#equips >= 2 and #outras >= 3, "o baralho tem equipamentos e outras cartas")
+    local topo = { outras[1], equips[1], outras[2], equips[2], outras[3] }
+    local no_topo = {}
+    for _, c in ipairs(topo) do no_topo[c] = true end
+    local novo = {}
+    for _, c in ipairs(deck) do if not no_topo[c] then novo[#novo + 1] = c end end
+    for _, c in ipairs(topo) do novo[#novo + 1] = c end
+    g.players[1].deck = novo
+    net.relogio = net.relogio + 1
+    local antes = { #(net.mensagens.KU_dois or {}), #(net.mensagens.KU_tres or {}) }
+    T.ok(cs[1].Cliente.enviar({ type = "activate", structure = 1 }))
+    T.ok(g.pending_choice ~= nil and #g.pending_choice.options == 2, "a escolha abriu com duas opções")
+    -- Quem escolhe vê tudo.
+    local minha = cs[1].Cliente.visao().escolha
+    T.eq(minha.n, 2); T.eq(#minha.opcoes, 2); T.eq(minha.nenhuma, true)
+    -- Os outros: só que há uma escolha do lado 1 e o motivo, na fotografia e nos eventos.
+    for i, userid in ipairs({ "KU_dois", "KU_tres" }) do
+      local visao = cs[i + 1].Cliente.visao()
+      T.ok(igual(visao.escolha, { p = 1, motivo = "maquina_de_ciencia" }), "fotografia do lado " .. (i + 1))
+      local msgs = net.mensagens[userid]
+      local viu = false
+      for k = antes[i] + 1, #msgs do
+        local texto = Serial.serialize(msgs[k].m)
+        T.ok(not texto:find("count", 1, true), "sem a quantidade no que o lado " .. (i + 1) .. " recebeu")
+        T.ok(not texto:find("opcoes", 1, true) and not texto:find("\"n\"", 1, true), "sem opções nem n")
+        for _, ev in ipairs(msgs[k].m.eventos or {}) do
+          T.ok(ev.t ~= "look", "sem as cartas olhadas")
+          if ev.t == "choice" then
+            viu = true
+            T.ok(igual(ev, { t = "choice", p = 1, reason = "maquina_de_ciencia" }), "evento reduzido")
+          end
+        end
+      end
+      T.ok(viu, "o lado " .. (i + 1) .. " soube que há uma escolha")
+    end
+    -- Direto no filtro: o dono recebe o evento inteiro; privado não vai a ninguém mais.
+    local ev = { t = "choice", p = 1, reason = "x", count = 3 }
+    T.ok(igual(Visao.evento_para(ev, 1), ev))
+    T.ok(igual(Visao.evento_para(ev, 2), { t = "choice", p = 1, reason = "x" }))
+    T.ok(igual(Visao.evento_para(ev, 3), { t = "choice", p = 1, reason = "x" }))
+    ev.private = true
+    T.eq(Visao.evento_para(ev, 2), nil)
+    conferir_visoes(T, s, cs, "com a escolha aberta")
+    -- A escolha é feita e as visões continuam em dia.
+    net.relogio = net.relogio + 1
+    T.ok(cs[1].Cliente.enviar({ type = "choose", index = 1 }))
+    T.eq(g.pending_choice, nil)
+    T.eq(cs[2].Cliente.visao().escolha, false)
+    conferir_visoes(T, s, cs, "depois da escolha")
+  end },
+
+  { "erro do motor: os clientes recebem só o texto genérico; o detalhe fica no servidor", function(T)
+    local Cards = require("duelo/core/cards")
+    Cards.define{ id = "us41_segredo", name = "Segredo", kind = "feitico", cost = 0, speed = "instantaneo",
+      on_cast = function() error("detalhe que não pode sair") end }
+    local net, s, cs = mesa()
+    local d1, d2 = {}, {}
+    for i = 1, 12 do d1[i] = { id = "us41_segredo" }; d2[i] = { id = "us41_segredo" } end
+    T.ok(s.Partida.iniciar{ decks = { d1, d2 }, extra_decks = { {}, {} }, seed = 2, first = 1,
+      jogadores = { "KU_um", "KU_dois" } })
+    local g = s.Partida.jogo()
+    local antes = {}
+    for _, userid in ipairs({ "KU_um", "KU_dois", "KU_tres" }) do antes[userid] = #net.mensagens[userid] end
+    cs[1].Cliente.enviar({ type = "play", hand_index = 1 })
+    T.eq(g.phase, "error")
+    T.ok(g.error.message:find("detalhe que não pode sair", 1, true), "o motor guarda a mensagem inteira")
+    for lado, userid in ipairs({ "KU_um", "KU_dois", "KU_tres" }) do
+      local msgs = net.mensagens[userid]
+      local viu = false
+      for k = antes[userid] + 1, #msgs do
+        local texto = Serial.serialize(msgs[k].m)
+        T.ok(not texto:find("detalhe que não pode sair", 1, true), "sem a mensagem crua para o lado " .. lado)
+        T.ok(not texto:find(".lua", 1, true), "sem caminho de arquivo para o lado " .. lado)
+        T.ok(not texto:find("context", 1, true), "sem o contexto do motor para o lado " .. lado)
+        for _, ev in ipairs(msgs[k].m.eventos or {}) do
+          if ev.t == "engine_error" then
+            viu = true
+            T.ok(igual(ev, { t = "engine_error", message = Visao.ERRO_GENERICO }), "evento de erro genérico")
+          end
+        end
+      end
+      T.ok(viu, "o lado " .. lado .. " foi avisado do erro")
+      T.eq(cs[lado].Cliente.visao().erro, Visao.ERRO_GENERICO)
+      T.eq(Visao.estado_para(g, lado).erro, Visao.ERRO_GENERICO)
+    end
+    T.eq(Visao.ERRO_GENERICO, "erro interno do jogo; a partida foi encerrada")
+    -- No servidor: o log e o resumo do console trazem a mensagem e a carta.
+    local log = table.concat(s.logs, "\n")
+    T.ok(log:find("detalhe que não pode sair", 1, true), "a mensagem está no log do servidor")
+    T.ok(log:find("us41_segredo", 1, true), "com a carta que rodava")
+    local _, vezes = log:gsub("ERRO DO MOTOR", "")
+    T.eq(vezes, 1, "registrado uma vez")
+    local resumo = table.concat(s.Partida.resumo(), "\n")
+    T.ok(resumo:find("detalhe que não pode sair", 1, true) and resumo:find("us41_segredo", 1, true),
+      "DUELO.Partida.estado() mostra o detalhe")
+  end },
+
+  { "host: ação mandada de dentro de um ouvinte de eventos não embaralha a ordem dos lotes", function(T)
+    local net = nova_rede()
+    local h = net:maquina{ servidor = true, userid = "KU_host", lado = 1 }
+    local c = net:maquina{ userid = "KU_amigo", lado = 3 }
+    -- O ouvinte do host passa a vez no primeiro evento dos dois primeiros lotes.
+    local reagiu, ultimo_lote = 0, 0
+    h.Cliente.quando_evento(function()
+      local seq = h.Cliente.seq()
+      if seq ~= ultimo_lote and reagiu < 2 then
+        ultimo_lote = seq
+        reagiu = reagiu + 1
+        T.ok(h.Cliente.enviar({ type = "pass" }), "ação enviada de dentro do ouvinte")
+      end
+    end)
+    local lotes_do_amigo = {}
+    c.Cliente.quando_evento(function() lotes_do_amigo[#lotes_do_amigo + 1] = c.Cliente.seq() end)
+    local decks, extras = decks_reais()
+    -- O host joga pelos dois lados; o amigo assiste.
+    T.ok(h.Partida.iniciar{ decks = decks, extra_decks = extras, seed = 5, first = 1,
+      jogadores = { "KU_host", "KU_host" } })
+    local g = h.Partida.jogo()
+    T.eq(reagiu, 2, "o ouvinte reagiu a dois lotes")
+    T.eq(#g.log.actions, 2, "as duas ações foram aplicadas")
+    T.eq(h.Cliente.seq(), 3); T.eq(c.Cliente.seq(), 3, "o cliente remoto recebeu os lotes 1, 2 e 3")
+    T.eq(net.rpcs_servidor.pedir_estado, nil, "sem pedir a fotografia")
+    -- Em ordem: os números de lote vistos pelo amigo nunca voltam, e ele viu os três.
+    local vistos = {}
+    for i, seq in ipairs(lotes_do_amigo) do
+      T.ok(i == 1 or seq >= lotes_do_amigo[i - 1], "lotes em ordem")
+      vistos[seq] = true
+    end
+    T.ok(vistos[1] and vistos[2] and vistos[3], "os eventos dos três lotes chegaram")
+    local ordem = {}
+    for _, msg in ipairs(net.mensagens.KU_amigo) do
+      if msg.tipo == "eventos" then ordem[#ordem + 1] = msg.m.seq end
+    end
+    T.eq(table.concat(ordem, ","), "1,2,3", "ordem de envio ao cliente remoto")
+    T.ok(igual(c.Cliente.visao(), Visao.estado_para(g, 3)), "visão do amigo em dia")
+    T.ok(igual(h.Cliente.visao(), Visao.estado_para(g, 1)), "visão do host em dia")
+    -- Uma ação recusada depois de esperar na fila volta ao remetente com o número dela.
+    local recusadas = {}
+    h.Cliente.quando_recusada(function(motivo, n) recusadas[#recusadas + 1] = { motivo = motivo, n = n } end)
+    local cancelar
+    cancelar = h.Cliente.quando_evento(function()
+      cancelar()
+      h.Cliente.enviar({ type = "play", hand_index = 99 })
+    end)
+    T.ok(h.Cliente.enviar({ type = "pass" }))
+    T.eq(#recusadas, 1, "a recusa da ação adiada chegou")
+    T.eq(recusadas[1].motivo, "carta não está na mão"); T.eq(recusadas[1].n, 4)
+    T.eq(c.Cliente.seq(), 4)
   end },
 
   { "host sozinho: iniciar_teste põe o jogador nos dois lados e as ações valem para quem age", function(T)
