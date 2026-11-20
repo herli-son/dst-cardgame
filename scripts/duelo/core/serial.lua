@@ -12,18 +12,35 @@
 --                                     chaves saem ordenadas: o mesmo valor dá
 --                                     sempre o mesmo texto. Erro com o caminho
 --                                     se houver outra coisa (função, NaN...).
---   Serial.deserialize(texto) -> v    o caminho de volta. Só aceita a sintaxe
+--   Serial.deserialize(texto [, limites]) -> v
+--                                     o caminho de volta. Só aceita a sintaxe
 --                                     que o serializador produz (literais e
 --                                     tabelas com chaves entre colchetes); o
 --                                     texto é lido caractere a caractere e
 --                                     NENHUM código é executado (não usa
 --                                     loadstring). Erro se o texto não for um
---                                     valor serializado por este módulo.
+--                                     valor serializado por este módulo, se
+--                                     trouxer um número não finito ("1e999":
+--                                     o serializador nunca escreve um) ou se
+--                                     passar dos limites.
+--   Serial.LIMITES                    limites padrão da leitura:
+--     PROFUNDIDADE = 16               tabelas dentro de tabelas (a leitura é
+--                                     recursiva; sem limite, um texto só de
+--                                     "{[1]={[1]=..." estouraria a pilha). A
+--                                     fotografia da partida tem 8 níveis.
+--     ELEMENTOS = 200000              valores no texto inteiro, contando
+--                                     tabelas e folhas (um registro de
+--                                     partida longo fica em poucos milhares).
+--                                     `limites = { profundidade = n, elementos
+--                                     = n }` troca um ou os dois numa leitura
+--                                     (a rede lê as ações dos clientes com 8
+--                                     e 256).
 --   Serial.sort_keys(a, b)            a ordem das chaves (números antes de
 --                                     strings, cada tipo na sua ordem).
 
 local Serial = {}
 
+Serial.LIMITES = { PROFUNDIDADE = 16, ELEMENTOS = 200000 }
 
 local function sort_keys(a, b)
   local ta, tb = type(a), type(b)
@@ -81,8 +98,9 @@ end
 -- Lê um valor serializado por Serial.serialize. Só aceita a sintaxe que o
 -- serializador produz: literais e construtores de tabela com chaves entre
 -- colchetes. Nenhum código é executado.
-local function reader(s)
+local function reader(s, max_depth, max_values)
   local pos = 1
+  local values = 0
   local function fail(msg) error("texto de registro inválido na posição " .. pos .. ": " .. msg, 0) end
   local function peek() return s:sub(pos, pos) end
   local value
@@ -126,9 +144,12 @@ local function reader(s)
     pos = pos + 1
     return k
   end
-  function value()
+  function value(depth)
+    values = values + 1
+    if values > max_values then fail("valores demais") end
     local c = peek()
     if c == "{" then
+      if depth > max_depth then fail("tabelas fundas demais") end
       pos = pos + 1
       local t = {}
       if peek() == "}" then pos = pos + 1; return t end
@@ -136,7 +157,7 @@ local function reader(s)
         local k = read_key()
         if peek() ~= "=" then fail("esperava =") end
         pos = pos + 1
-        t[k] = value()
+        t[k] = value(depth + 1)
         local d = peek()
         if d == "}" then pos = pos + 1; return t end
         if d ~= "," then fail("esperava , ou }") end
@@ -153,20 +174,23 @@ local function reader(s)
       if not num or num == "" then fail("valor inesperado") end
       local n = tonumber(num)
       if n == nil then fail("número inválido") end
+      if n ~= n or n == math.huge or n == -math.huge then fail("número não finito") end
       pos = pos + #num
       return n
     end
   end
   return function()
-    local v = value()
+    local v = value(1)
     if pos <= #s then fail("sobra depois do valor") end
     return v
   end
 end
 
-function Serial.deserialize(s)
+function Serial.deserialize(s, limites)
   assert(type(s) == "string", "esperava um texto")
-  return reader(s)()
+  limites = limites or {}
+  return reader(s, limites.profundidade or Serial.LIMITES.PROFUNDIDADE,
+    limites.elementos or Serial.LIMITES.ELEMENTOS)()
 end
 
 Serial.sort_keys = sort_keys

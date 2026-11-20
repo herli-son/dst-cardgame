@@ -576,8 +576,9 @@ return {
     T.eq(ultima("KU_um"), "ação funda demais")
     manda_texto(net, cs[1], Serial.serialize({ type = "play", from = string.rep("y", 100) }), 11)
     T.eq(ultima("KU_um"), "texto grande demais na ação")
+    -- Número não finito: o leitor do texto já recusa.
     manda_texto(net, cs[1], "{[\"hand_index\"]=1e999,[\"type\"]=\"play\"}", 12)
-    T.eq(ultima("KU_um"), "número inválido na ação")
+    T.eq(ultima("KU_um"), "ação inválida")
     -- O número da ação volta na recusa; lixo no lugar dele não quebra nada.
     T.eq(recusas(net, "KU_um")[#recusas(net, "KU_um")].n, 12)
     manda_texto(net, cs[1], "{", "x")

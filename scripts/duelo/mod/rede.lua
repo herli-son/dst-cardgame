@@ -39,7 +39,8 @@
 --     "recusada"  { n, motivo }   só para quem enviou a ação
 --
 -- O servidor NUNCA executa nada que venha do cliente: o texto da ação é lido
--- por Serial.deserialize (caractere a caractere, sem loadstring), depois de
+-- por Serial.deserialize (caractere a caractere, sem loadstring; no máximo 8
+-- níveis de tabela e 256 valores; número não finito é recusado), depois de
 -- conferido o tamanho, e a tabela que sai ainda passa pela conferência de
 -- forma de duelo/mod/partida_servidor.
 --
@@ -73,6 +74,11 @@ Rede.LIMITES = {
   FRAGMENTO = 1000,
   MENSAGEM_BYTES = 262144,
 }
+
+-- Limites da leitura do texto de uma ação (Serial.deserialize): mais folgados
+-- do que a conferência de forma de partida_servidor (que dá a recusa com o
+-- motivo certo), e muito abaixo do padrão do serializador.
+local LEITURA_DA_ACAO = { profundidade = 8, elementos = 256 }
 
 -- Mensagens do servidor para o cliente, na ordem de registro.
 Rede.MENSAGENS = { "eventos", "estado", "recusada" }
@@ -203,7 +209,7 @@ local function ao_receber_acao(player, texto, n)
   end
   if type(texto) ~= "string" then return recusar(userid, n, "ação inválida") end
   if #texto > Rede.LIMITES.ACAO_BYTES then return recusar(userid, n, "ação grande demais") end
-  local ok, action = pcall(Serial.deserialize, texto)
+  local ok, action = pcall(Serial.deserialize, texto, LEITURA_DA_ACAO)
   if not ok then return recusar(userid, n, "ação inválida") end
   local r = estado.servidor.receber_acao(userid, action)
   if not r.ok then recusar(userid, n, r.erro) end
