@@ -102,7 +102,7 @@ return {
     for _, msg in ipairs(net.mensagens.KU_dois or {}) do
       if msg.tipo == "sala" then
         for k in pairs(msg.m) do
-          T.ok(k == "eu" or k == "prontos" or k == "jogadores" or k == "aviso", "campo a mais na sala: " .. tostring(k))
+          T.ok(k == "eu" or k == "prontos" or k == "jogadores" or k == "aviso" or k == "ausente", "campo a mais na sala: " .. tostring(k))
         end
       end
     end

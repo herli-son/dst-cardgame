@@ -18,20 +18,22 @@
 -- (duelo/mod/tela_sala).
 --
 -- Com uma partida em curso (sem resultado), ninguém fica pronto: o pedido é
--- ignorado. Quem sai do servidor deixa de estar pronto; a partida em curso
--- NÃO é encerrada pela saída de um jogador (ele pode voltar e recebe a
--- fotografia de novo). Enquanto ele não volta, a mesa fica presa: só
--- `DUELO.Partida.encerrar()` no servidor a libera.
+-- ignorado. Quem sai do servidor deixa de estar pronto. A saída de um
+-- jogador da partida em curso é tratada por duelo/mod/desconexao (US #43):
+-- quem cai perde, na hora ou depois do prazo para voltar.
 --
 -- Qualquer jogador conectado pode ficar pronto, também quem assistia: depois
 -- do fim, um espectador pode zerar a mesa e entrar na partida seguinte.
 --
 -- Mensagem "sala", uma por destinatário (cada um só sabe de si e dos totais):
---   { eu = bool, prontos = n, jogadores = n, aviso = texto | false }
+--   { eu = bool, prontos = n, jogadores = n, aviso = texto | false,
+--     ausente = { lado = n, prazo = segundos } | false }
 --     eu:        este jogador está pronto;
 --     prontos:   quantos estão prontos (0, 1 ou 2);
 --     jogadores: quantos estão conectados;
---     aviso:     texto para mostrar (falha ao começar), ou false.
+--     aviso:     texto para mostrar (falha ao começar), ou false;
+--     ausente:   US #43: um jogador da partida em curso caiu; o lado dele e
+--                os segundos que faltam para ele voltar (duelo/mod/desconexao).
 --
 -- Interface:
 --   Sala.instalar{ rede = Rede, partida = Partida, GLOBAL = GLOBAL,
@@ -40,9 +42,13 @@
 --       definir_lados(um, dois): acerta o lado da mesa de cada jogador.
 --   Sala.receber_pronto(userid, pronto) -> ok, erro
 --   Sala.pedir(userid)      manda a sala só a ele (quem acabou de entrar)
---   Sala.entrou()           alguém entrou: avisa a todos
+--   Sala.entrou(userid)     alguém entrou: avisa a todos
 --   Sala.saiu(userid)       alguém saiu: deixa de estar pronto e avisa
 --   Sala.prontos() -> lista de userids, na ordem em que ficaram prontos
+--   Sala.avisar()           manda a sala a todos (algo de fora mudou)
+--   Sala.ouvir(fn)          fn("entrou" | "saiu", userid) a cada entrada e saída
+--   Sala.definir_ausente(fn)  fn() -> { lado, prazo } | nil, para o campo
+--                           `ausente` da mensagem (duelo/mod/desconexao)
 --
 -- Lua puro: tudo do jogo chega por `ctx` em `instalar`. Só é carregado no
 -- servidor (modmain.lua): o baralho carrega as cartas e o motor.
@@ -58,6 +64,8 @@ local estado = {
   definir_lados = nil,
   prontos = {},   -- userids, na ordem em que ficaram prontos
   aviso = false,  -- texto do último problema ao começar (some no próximo pronto)
+  ouvintes = {},  -- fn(tipo, userid) a cada entrada e saída
+  ausente = nil,  -- fn() -> { lado, prazo } | nil
 }
 
 local function log(msg)
@@ -103,8 +111,23 @@ local function podar(vistos)
   end
 end
 
+local function ausente()
+  if estado.ausente == nil then return false end
+  local ok, a = pcall(estado.ausente)
+  if not ok or type(a) ~= "table" then return false end
+  return { lado = a.lado, prazo = a.prazo }
+end
+
+local function avisar_ouvintes(tipo, userid)
+  for _, fn in ipairs(estado.ouvintes) do
+    local ok, err = pcall(fn, tipo, userid)
+    if not ok then log("erro num ouvinte de " .. tipo .. ": " .. tostring(err)) end
+  end
+end
+
 local function mensagem(userid, total)
   return {
+    ausente = ausente(),
     eu = posicao(userid) ~= nil,
     prontos = #estado.prontos,
     jogadores = total,
@@ -202,8 +225,19 @@ function Sala.receber_pronto(userid, pronto)
   return true
 end
 
-function Sala.entrou()
+function Sala.entrou(userid)
   if estado.rede == nil then return end
+  -- Com a partida em curso, os lados da mesa continuam sendo os da partida:
+  -- quem volta retoma o lado dele, e quem entrou no lugar vira espectador.
+  local P = estado.partida
+  if estado.definir_lados and P ~= nil and P.em_curso() and not P.terminada() then
+    local j = P.jogadores()
+    if j ~= nil and j[1] ~= j[2] then
+      local certo, erro = pcall(estado.definir_lados, j[1], j[2])
+      if not certo then log("os lados da mesa não foram acertados: " .. tostring(erro)) end
+    end
+  end
+  avisar_ouvintes("entrou", userid)
   avisar_todos()
 end
 
@@ -211,7 +245,21 @@ function Sala.saiu(userid)
   if estado.rede == nil then return end
   local i = posicao(userid)
   if i ~= nil then table.remove(estado.prontos, i) end
+  avisar_ouvintes("saiu", userid)
   avisar_todos(userid)
+end
+
+function Sala.avisar()
+  if estado.rede == nil then return end
+  avisar_todos()
+end
+
+function Sala.ouvir(fn)
+  estado.ouvintes[#estado.ouvintes + 1] = fn
+end
+
+function Sala.definir_ausente(fn)
+  estado.ausente = fn
 end
 
 -- Liga o módulo.
@@ -230,10 +278,13 @@ function Sala.instalar(ctx)
   estado.definir_lados = ctx.definir_lados
   estado.prontos = {}
   estado.aviso = false
+  estado.ouvintes = {}
+  estado.ausente = nil
   -- Uma partida começada por outro caminho (console) esvazia a sala.
   if ctx.partida and ctx.partida.quando_iniciar then
     ctx.partida.quando_iniciar(function()
-      if #estado.prontos == 0 then return end
+      -- Avisa sempre: além dos prontos, o aviso de ausência (US #43) de uma
+      -- partida anterior precisa sair da tela dos clientes.
       estado.prontos = {}
       avisar_todos()
     end)

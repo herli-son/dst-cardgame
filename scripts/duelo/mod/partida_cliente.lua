@@ -16,7 +16,7 @@
 --     ESPERA_PEDIDO segundos (Cliente.tique).
 --   * "recusada": o servidor não aceitou uma ação deste jogador, com o motivo.
 --   * "sala" (US #42): quem está pronto para começar, visto por este jogador
---     ({ eu, prontos, jogadores, aviso }, de duelo/mod/sala_servidor). Chega
+--     ({ eu, prontos, jogadores, aviso, ausente }, de duelo/mod/sala_servidor). Chega
 --     junto com a fotografia pedida e a cada mudança.
 --
 -- Interface:
@@ -36,12 +36,14 @@
 --       refeita a partir dela.
 --   Cliente.quando_recusada(fn) -> cancelar   fn(motivo, n)
 --   Cliente.partida() -> n | nil              número da partida da visão
---   Cliente.sala() -> { eu, prontos, jogadores, aviso } | nil
+--   Cliente.sala() -> { eu, prontos, jogadores, aviso, ausente } | nil
 --   Cliente.quando_sala(fn) -> cancelar       fn(sala): a sala mudou
 --   Cliente.pronto(bool) -> ok, erro          avisa o servidor que este
 --       jogador está (ou deixou de estar) pronto
 --   Cliente.pedir_estado()                    pede a fotografia ao servidor
---   Cliente.tique()                           repete o pedido de fotografia
+--   Cliente.agora() -> segundos | nil         o relógio do cliente
+--   Cliente.tique()                           anda a contagem de um jogador
+--       ausente (US #43) e repete o pedido de fotografia
 --       se ela ainda não chegou e já passou ESPERA_PEDIDO; chamado de tempos
 --       em tempos (INTERVALO_TIQUE) por uma tarefa periódica do jogador local
 --   Cliente.receber(tipo, tabela)             entrada das mensagens (a rede chama)
@@ -150,9 +152,14 @@ end
 -- pedido (pedir_estado só deixa passar depois de ESPERA_PEDIDO). Devolve true
 -- se pediu de novo.
 function Cliente.tique()
+  -- Com um jogador fora (US #43), a contagem do prazo anda na tela.
+  if estado.sala ~= nil and estado.sala.ausente then avisar("sala", estado.sala) end
   if not estado.esperando then return false end
   return Cliente.pedir_estado()
 end
+
+-- O relógio do cliente, em segundos (nil sem relógio).
+function Cliente.agora() return agora() end
 
 local function receber_estado(m)
   estado.esperando = false
@@ -224,7 +231,15 @@ local function receber_sala(m)
     prontos = contagem(m.prontos),
     jogadores = contagem(m.jogadores),
     aviso = type(m.aviso) == "string" and m.aviso or false,
+    ausente = false,
   }
+  -- US #43: um jogador da partida em curso caiu (lado e prazo para voltar).
+  local a = m.ausente
+  if type(a) == "table" and (a.lado == 1 or a.lado == 2) then
+    -- `ate`: quando o prazo vence, no relógio deste cliente (para a contagem).
+    local prazo, t = contagem(a.prazo), agora()
+    estado.sala.ausente = { lado = a.lado, prazo = prazo, ate = t ~= nil and t + prazo or false }
+  end
   avisar("sala", estado.sala)
 end
 

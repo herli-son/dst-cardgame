@@ -847,6 +847,30 @@ function Game:mulligan(p, indices)
   return recorded_call(self, p, { type = "mulligan", indices = indices or {} }, mulligan_impl, p, indices)
 end
 
+-- Derrota por abandono (US #43): o jogador p perde a partida sem que a vida
+-- chegue a zero (caiu e não voltou, por exemplo). `reason` é um texto curto
+-- com o motivo ("desconexao"). Não é uma jogada: não passa por Game:act (um
+-- cliente não consegue mandá-la) e vale em qualquer momento da partida, mesmo
+-- fora da vez e com uma escolha aberta. Entra no registro como
+-- { type = "forfeit", reason = ... }, para a reprodução terminar igual.
+local function forfeit_impl(self, p, reason)
+  if self.winner ~= nil then return false, "partida encerrada" end
+  if self.phase ~= "playing" and self.phase ~= "mulligan" then return false, "a partida ainda não começou" end
+  if p ~= 1 and p ~= 2 then return false, "jogador inválido" end
+  self.forfeited = { p = p, reason = reason }
+  self.winner = 3 - p
+  self.phase = "over"
+  self:emit{ t = "forfeit", p = p, reason = reason }
+  self:emit{ t = "game_over", winner = self.winner }
+  return true
+end
+
+function Game:forfeit(p, reason)
+  if reason ~= nil and type(reason) ~= "string" then return false, "motivo inválido" end
+  reason = reason or "abandono"
+  return recorded_call(self, p, { type = "forfeit", reason = reason }, forfeit_impl, p, reason)
+end
+
 -- Ponto único de entrada das jogadas.
 function Game:act(p, action)
   return recorded_call(self, p, action, act_impl, p, action)
