@@ -71,6 +71,15 @@ return {
       T.ok(type(c.texto) == "string" and c.texto ~= "", "texto de " .. id)
       T.ok(type(c.imagem) == "table" and (c.imagem.tipo == "album" or c.imagem.tipo == "avatar"), "imagem de " .. id)
       T.ok(c.imagem.tex:find("%.tex$"), "nome da imagem de " .. id)
+      -- A figura animada: banco, build, animação e os arquivos de anim/.
+      T.ok(type(c.figura) == "table", "figura de " .. id)
+      for _, campo in ipairs({ "banco", "build", "anim" }) do
+        T.ok(type(c.figura[campo]) == "string" and c.figura[campo] ~= "", campo .. " da figura de " .. id)
+      end
+      T.eq(type(c.figura.arquivos), "table", "arquivos da figura de " .. id)
+      for _, arquivo in ipairs(c.figura.arquivos) do
+        T.ok(type(arquivo) == "string" and not arquivo:find("[/%.]"), "arquivo sem pasta nem extensão: " .. tostring(arquivo))
+      end
       if c.tipo == "criatura" then
         T.ok(type(c.ataque) == "number" and type(c.vida) == "number", "ataque e vida de " .. id)
       end
@@ -80,6 +89,8 @@ return {
     T.eq(no_catalogo, n, "o catálogo não tem carta a mais")
     -- Os campeões usam o retrato; o resto, o Álbum.
     T.eq(Catalogo.wilson.imagem.tipo, "avatar"); T.eq(Catalogo.wilson.campeao, true)
+    T.eq(Catalogo.wilson.sobrevivente, true); T.eq(Catalogo.porco.sobrevivente, nil)
+    T.eq(Catalogo.webber.figura.build, "webber"); T.eq(Catalogo.webber.figura.banco, "wilson")
     T.eq(Catalogo.porco.imagem.tex, "pigman.tex")
   end },
 
@@ -179,14 +190,22 @@ return {
     local Mao = RedeFalsa.carregar("mao").instalar({ cliente = cliente_falso(dados), catalogo = Catalogo })
     local c = Mao.modelo().cartas
     T.eq(c[1].atributos, "4 / 5"); T.eq(c[1].tipo_nome, "Criatura"); T.eq(c[1].pagavel, false)
+    T.eq(c[1].esquerda.valor, "4"); T.eq(c[1].esquerda.rotulo, "ataque")
+    T.eq(c[1].direita.valor, "5"); T.eq(c[1].direita.rotulo, "vida")
+    T.eq(c[1].figura.banco, "pigman", "a figura animada vem do catálogo")
+    T.eq(c[2].esquerda.valor, "+3"); T.eq(c[2].direita.valor, "6"); T.eq(c[2].direita.rotulo, "dur.")
+    T.eq(c[3].esquerda.valor, "+2"); T.eq(c[3].esquerda.rotulo, "vida")
+    T.eq(c[3].direita.valor, "1", "a durabilidade de agora")
+    T.eq(c[4].esquerda, false); T.eq(c[4].direita, false)
     T.eq(c[2].atributos, "+3 ataque · dur. 6"); T.eq(c[2].tipo_nome, "Equipamento"); T.eq(c[2].pagavel, true)
     T.eq(c[3].atributos, "+2 vida · dur. 1", "a durabilidade é a de agora")
     T.eq(c[4].atributos, false); T.eq(c[4].tipo_nome, "Feitiço")
     T.eq(c[5].atributos, false); T.eq(c[5].tipo_nome, "Estrutura")
-    T.eq(c[6].tipo_nome, "Campeão"); T.eq(c[6].atributos, "1 / 3")
+    T.eq(c[6].tipo_nome, "Campeão · Sobrevivente"); T.eq(c[6].atributos, "1 / 3")
     T.eq(c[6].custo, 3, "o custo da visão vale mais que o do catálogo")
     -- Uma carta que o catálogo não conhece aparece pelo id, sem quebrar.
     T.eq(c[7].nome, "carta_nova"); T.eq(c[7].texto, false); T.eq(c[7].imagem, false); T.eq(c[7].custo, 1)
+    T.eq(c[7].figura, false); T.eq(c[7].tipo_nome, false); T.eq(c[7].esquerda, false)
   end },
 
   { "visões tortas não quebram a mão", function(T)
@@ -201,6 +220,10 @@ return {
     local m = Mao.modelo()
     T.eq(m.cartas[1].custo, 4, "sem custo na visão, vale o do catálogo")
     T.eq(m.cartas[1].pagavel, false)
+    -- Uma entrada da mão que não é tabela não derruba o modelo.
+    dados.visao = visao_com_mao({ 7, true, { id = "porco", card_uid = 1, custo = 4 } })
+    m = Mao.modelo()
+    T.eq(m.total, 3); T.eq(m.cartas[1].nome, "nil"); T.eq(m.cartas[3].nome, "Porco")
     dados.lado = 3
     T.eq(Mao.modelo().visivel, false)
   end },
@@ -250,14 +273,25 @@ return {
     T.eq(#logs, 2)
     Mao.atualizar()
     T.eq(#logs, 2, "desligado: não tenta de novo")
+    -- Um widget cuja entidade o jogo já desfez nem é chamado.
+    local chamado, valido = 0, true
+    Mao.ligar_widget({ inst = { IsValid = function() return valido end }, Atualizar = function() chamado = chamado + 1 end })
+    T.eq(chamado, 1)
+    valido = false
+    Mao.atualizar()
+    T.eq(chamado, 1, "a tela foi desfeita: o widget morto não é atualizado")
+    valido = true
+    Mao.atualizar()
+    T.eq(chamado, 1, "e fica desligado até a próxima tela")
   end },
 
-  { "widgets/duelo_mao desenha as cartas do modelo e ergue a que está sob o mouse", function(T)
+  { "widgets/duelo_mao desenha as cartas, troca de página pelas setas e ergue a carta sob o mouse", function(T)
     -- Classes de tela falsas, no lugar das do jogo.
+    local frente = 0
     local function classe(nome)
       local c = { nome_da_classe = nome }
       c.__index = c
-      function c:AddChild(w) w.pai = self; self.filhos = self.filhos or {}; self.filhos[#self.filhos + 1] = w; return w end
+      function c:AddChild(w) w.pai = self; return w end
       function c:SetPosition(x, y) self.pos = { x, y } end
       function c:SetScale(e) self.escala = e end
       function c:SetRotation(r) self.rot = r end
@@ -265,17 +299,20 @@ return {
       function c:Show() self.visivel = true end
       function c:Hide() self.visivel = false end
       function c:Kill() self.morto = true end
-      function c:MoveToFront() c.frente = (c.frente or 0) + 1; self.ordem = c.frente end
+      function c:MoveToFront() frente = frente + 1; self.ordem = frente end
       function c:SetString(s) self.texto = s end
+      function c:SetSize(t) self.tamanho_fonte = t end
       function c:SetAutoSizingString(s, largura) self.texto = s; self.largura = largura end
+      function c:SetMultilineTruncatedString(s, linhas, largura, _, _, encolhe, minimo)
+        self.texto = s; self.linhas = linhas; self.largura = largura; self.encolhe = encolhe; self.minimo = minimo
+      end
       function c:SetColour() end
-      function c:SetRegionSize(w, h) self.regiao = { w, h } end
-      function c:EnableWordWrap(v) self.quebra = v end
-      function c:SetHAlign() end
-      function c:SetVAlign() end
       function c:SetTexture(atlas, tex) self.atlas = atlas; self.tex = tex end
       function c:ScaleToSize(w, h) self.tamanho = { w, h } end
       function c:SetTint(r) self.tom = r end
+      function c:SetOnClick(fn) self.ao_clicar = fn end
+      function c:SetFacing(f) self.face = f end
+      function c:GetAnimState() return self.anim end
       return c
     end
     local Widget = classe("Widget")
@@ -287,17 +324,33 @@ return {
         return o
       end })
     end
-    local Text = classe("Text")
-    local Image = classe("Image")
-    local nomes = { "widgets/widget", "widgets/text", "widgets/image" }
+    -- A caixa visual que o "jogo" informa para cada banco: (x1, y1, x2, y2).
+    local caixas = { pigman = { -100, 0, 100, 300 }, wilson = { -60, -10, 60, 230 } }
+    local nomes = { "widgets/widget", "widgets/text", "widgets/image", "widgets/imagebutton", "widgets/uianim" }
+    local GLOBAIS = { "Class", "HEADERFONT", "FACING_DOWN", "PLANTREGISTRYUICOLOURS", "GetScrapbookIconAtlas", "TheSim" }
     local salvos, globais = {}, {}
     for _, n in ipairs(nomes) do salvos[n] = package.loaded[n] end
-    for _, n in ipairs({ "Class", "HEADERFONT", "ANCHOR_MIDDLE", "ANCHOR_TOP", "PLANTREGISTRYUICOLOURS",
-      "GetScrapbookIconAtlas", "TheSim" }) do globais[n] = _G[n] end
-    package.loaded["widgets/widget"] = Widget
-    package.loaded["widgets/text"] = construtor(Text, function(o, fonte, tamanho) o.fonte = fonte; o.tamanho_fonte = tamanho end)
-    package.loaded["widgets/image"] = construtor(Image, function(o, atlas, tex) o.atlas = atlas; o.tex = tex end)
-    _G.HEADERFONT, _G.ANCHOR_MIDDLE, _G.ANCHOR_TOP = "hammerhead", 0, 1
+    for _, n in ipairs(GLOBAIS) do globais[n] = _G[n] end
+    package.loaded["widgets/widget"] = setmetatable(Widget, { __call = function(_, nome)
+      local o = setmetatable({}, Widget); o.nome = nome; return o
+    end })
+    package.loaded["widgets/text"] = construtor(classe("Text"), function(o, fonte, tamanho) o.fonte = fonte; o.tamanho_fonte = tamanho end)
+    package.loaded["widgets/image"] = construtor(classe("Image"), function(o, atlas, tex) o.atlas = atlas; o.tex = tex end)
+    package.loaded["widgets/imagebutton"] = construtor(classe("ImageButton"), function(o, atlas, normal, foco, desligado, baixo)
+      o.atlas = atlas; o.texturas = { normal, foco, desligado, baixo }
+    end)
+    package.loaded["widgets/uianim"] = construtor(classe("UIAnim"), function(o)
+      o.anim = {}
+      function o.anim:SetBank(b) self.banco = b end
+      function o.anim:SetBuild(b) self.build = b end
+      function o.anim:PlayAnimation(a, laco) self.animacao = a; self.laco = laco end
+      function o.anim:GetVisualBB()
+        local c = caixas[self.banco]
+        if c == nil then return 0, 0, 0, 0 end
+        return c[1], c[2], c[3], c[4]
+      end
+    end)
+    _G.HEADERFONT, _G.FACING_DOWN = "hammerhead", 3
     _G.PLANTREGISTRYUICOLOURS = { UNLOCKEDBROWN = { 0.3, 0.2, 0.13, 1 } }
     _G.GetScrapbookIconAtlas = function(tex) return tex ~= "nao_existe.tex" and "images/scrapbook_icons1.xml" or nil end
     _G.TheSim = { AtlasContains = function(_, atlas, tex) return tex == "avatar_wilson.tex" end }
@@ -310,58 +363,137 @@ return {
     end
     local ok, err = pcall(function()
       local DueloMao = assert(loadfile(RedeFalsa.RAIZ .. "scripts/widgets/duelo_mao.lua"))()
+      local catalogo = {}
+      for id, c in pairs(Catalogo) do catalogo[id] = c end
+      -- Uma carta com imagem e sem figura, para a reserva.
+      catalogo.so_imagem = { nome = "Só imagem", tipo = "feitico", custo = 1, texto = "Teste.",
+        imagem = { tipo = "album", tex = "axe.tex" } }
       local dados = { lado = 1, visao = visao_com_mao({
         { id = "porco", card_uid = 1, custo = 4 },
         { id = "wilson", card_uid = 2, custo = 4 },
         { id = "lanca", card_uid = 3, custo = 1 },
+        { id = "so_imagem", card_uid = 4, custo = 1 },
       }, 1) }
-      local Mao = RedeFalsa.carregar("mao").instalar({ cliente = cliente_falso(dados), catalogo = Catalogo })
+      local Mao = RedeFalsa.carregar("mao").instalar({ cliente = cliente_falso(dados), catalogo = catalogo })
       local w = DueloMao()
       T.eq(w.visivel, false, "nasce escondida")
       Mao.ligar_widget(w)
       T.eq(w.visivel, true)
-      T.eq(#w.cartas, 3)
-      local porco, wilson, lanca = w.cartas[1], w.cartas[2], w.cartas[3]
-      T.eq(porco.nome.texto, "Porco"); T.eq(porco.custo.texto, "4")
-      T.eq(porco.atributos.texto, "4 / 5"); T.eq(porco.tipo.texto, "Criatura")
-      T.eq(porco.texto.texto, Catalogo.porco.texto)
-      T.eq(porco.moldura.atlas, "images/plantregistry.xml"); T.eq(porco.moldura.tex, "plant_entry.tex")
-      T.eq(porco.imagem.atlas, "images/scrapbook_icons1.xml"); T.eq(porco.imagem.tex, "pigman.tex")
-      T.eq(porco.imagem.visivel, true)
-      T.eq(wilson.imagem.atlas, "images/avatars.xml"); T.eq(wilson.imagem.tex, "avatar_wilson.tex")
-      T.eq(porco.moldura.tom, 0.68, "a carta que a mana não paga fica escura")
-      T.eq(lanca.moldura.tom, 1)
-      -- Só a moldura recebe o mouse.
-      T.eq(porco.moldura.clicavel, nil); T.eq(porco.nome.clicavel, false); T.eq(porco.imagem.clicavel, false)
-      -- No leque: a do meio reta, as pontas inclinadas para fora.
+      T.eq(#w.cartas, 4)
+      local porco, wilson, lanca, reserva = w.cartas[1], w.cartas[2], w.cartas[3], w.cartas[4]
+
+      -- Cabeçalho: custo centralizado no alto, nome embaixo.
+      T.eq(porco.custo.texto, "4"); T.eq(porco.custo.pos[1], 0, "custo ao centro")
+      T.ok(porco.custo.pos[2] > porco.nome.pos[2], "custo acima do nome")
+      T.eq(porco.nome.texto, "Porco")
+      T.eq(porco.moldura.atlas, "images/plantregistry.xml"); T.eq(porco.moldura.tex, "plant_entry_active.tex")
+
+      -- Página 1: o boneco animado, com ataque à esquerda, tipo ao centro e vida à direita.
+      T.eq(porco.pagina, 1); T.eq(porco.frente.visivel, true); T.eq(porco.verso.visivel, false)
+      T.eq(porco.figura.anim.banco, "pigman"); T.eq(porco.figura.anim.build, "pig_build")
+      T.eq(porco.figura.anim.animacao, "idle_loop"); T.eq(porco.figura.anim.laco, true, "em laço")
+      T.eq(porco.figura.visivel, true); T.eq(porco.imagem.visivel, false, "com figura, o ícone não aparece")
+      T.eq(porco.figura.clicavel, false)
+      T.eq(porco.esquerda.texto, "4"); T.eq(porco.esquerda_rotulo.texto, "ataque")
+      T.eq(porco.direita.texto, "5"); T.eq(porco.direita_rotulo.texto, "vida")
+      T.ok(porco.esquerda.pos[1] < 0 and porco.direita.pos[1] > 0, "ataque à esquerda, vida à direita")
+      T.eq(porco.tipo.texto, "Criatura"); T.eq(porco.tipo.pos[1], 0)
+      T.ok(math.abs(porco.tipo.pos[2] - porco.esquerda.pos[2]) <= 8, "o tipo na mesma linha dos valores")
+      T.eq(wilson.tipo.texto, "Campeão · Sobrevivente")
+      T.eq(wilson.esquerda.texto, "1"); T.eq(wilson.direita.texto, "3")
+      T.eq(wilson.figura.anim.banco, "wilson"); T.eq(wilson.figura.anim.build, "wilson")
+      T.eq(lanca.esquerda.texto, "+3"); T.eq(lanca.direita.texto, "6"); T.eq(lanca.direita_rotulo.texto, "dur.")
+
+      -- O boneco cabe inteiro na caixa da figura e fica centrado nela.
+      local function caixa_na_carta(carta, banco)
+        local c, e, p = caixas[banco], carta.figura.escala, carta.figura.pos
+        return p[1] + e * c[1], p[2] + e * c[2], p[1] + e * c[3], p[2] + e * c[4]
+      end
+      for _, par in ipairs({ { porco, "pigman" }, { wilson, "wilson" } }) do
+        local x1, y1, x2, y2 = caixa_na_carta(par[1], par[2])
+        T.ok(x2 - x1 <= 124 + 1e-6 and y2 - y1 <= 92 + 1e-6, "cabe na caixa: " .. par[2])
+        T.ok(math.abs((x1 + x2) / 2) < 1e-6, "centrado na horizontal: " .. par[2])
+        T.ok(y2 < porco.nome.pos[2] - 10, "abaixo do nome: " .. par[2])
+        T.ok(y1 > porco.esquerda.pos[2], "acima da linha de valores: " .. par[2])
+      end
+      -- Sem caixa visual (lança, banco sem medida no teste): um tamanho padrão, sem erro.
+      T.ok(lanca.figura.escala > 0); T.eq(lanca.figura.visivel, true)
+      -- Sem figura no catálogo: o ícone do Álbum.
+      T.eq(reserva.figura.visivel, false); T.eq(reserva.imagem.visivel, true)
+      T.eq(reserva.imagem.atlas, "images/scrapbook_icons1.xml"); T.eq(reserva.imagem.tex, "axe.tex")
+      T.eq(reserva.esquerda.visivel, false); T.eq(reserva.direita.visivel, false)
+
+      -- Página 2: o texto, que encolhe para caber.
+      T.eq(wilson.texto.texto, Catalogo.wilson.texto)
+      T.eq(wilson.texto.encolhe, true); T.ok(wilson.texto.linhas >= 6); T.ok(wilson.texto.minimo < 15)
+      -- As setas do rodapé são as das fichas de plantas e trocam a página.
+      T.eq(wilson.seta_esq.atlas, "images/plantregistry.xml")
+      T.eq(wilson.seta_esq.texturas[1], "arrow2_left.tex"); T.eq(wilson.seta_dir.texturas[1], "arrow2_right.tex")
+      T.ok(wilson.seta_esq.pos[1] < 0 and wilson.seta_dir.pos[1] > 0)
+      T.eq(wilson.pagina_nome.texto, "Carta")
+      wilson.seta_dir.ao_clicar()
+      T.eq(wilson.pagina, 2); T.eq(wilson.frente.visivel, false); T.eq(wilson.verso.visivel, true)
+      T.eq(wilson.pagina_nome.texto, "Efeito")
+      T.eq(porco.pagina, 1, "cada carta tem a sua página")
+      wilson.seta_esq.ao_clicar()
+      T.eq(wilson.pagina, 1, "as duas setas alternam entre as duas páginas")
+      wilson.seta_dir.ao_clicar()
+
+      -- A carta que a mana não paga fica escura.
+      T.eq(porco.moldura.tom, 0.68); T.eq(lanca.moldura.tom, 1)
+      -- No leque: em ordem, a da direita por cima.
       T.ok(porco.pos[1] < wilson.pos[1] and wilson.pos[1] < lanca.pos[1])
-      T.eq(wilson.rot, 0); T.ok(porco.rot < 0 and lanca.rot > 0)
+      T.ok(porco.rot < 0 and reserva.rot > 0)
       T.ok(lanca.ordem > wilson.ordem and wilson.ordem > porco.ordem, "a da direita por cima")
+
       -- O mouse sobre a primeira: ela cresce, fica reta, sobe e vem para a frente.
       local escala, y = porco.escala, porco.pos[2]
-      porco.moldura.ongainfocusfn()
+      porco.ongainfocusfn()
       T.ok(porco.escala > escala, "cresce"); T.ok(porco.pos[2] > y, "sobe"); T.eq(porco.rot, 0)
-      T.eq(porco.moldura.tex, "plant_entry_active.tex", "moldura clara")
-      T.ok(porco.ordem > lanca.ordem, "vem para a frente")
+      T.eq(porco.moldura.tex, "plant_entry_focus.tex", "moldura de foco")
+      T.eq(porco.linha.tex, "plant_entry_seperator_focus.tex")
+      T.ok(porco.ordem > reserva.ordem, "vem para a frente")
+      -- Erguida, ela ainda cobre a borda de baixo da tela (o mouse não fica sem carta embaixo).
+      T.ok(porco.pos[2] - 230 * porco.escala / 2 <= 0, "a carta erguida chega à borda de baixo")
       -- O mouse passa para a segunda sem aviso de saída da primeira.
-      wilson.moldura.ongainfocusfn()
-      T.eq(porco.escala, escala, "a primeira volta"); T.eq(porco.moldura.tex, "plant_entry.tex")
+      wilson.ongainfocusfn()
+      T.eq(porco.escala, escala, "a primeira volta"); T.eq(porco.moldura.tex, "plant_entry_active.tex")
       T.ok(wilson.escala > escala)
-      porco.moldura.onlosefocusfn() -- aviso atrasado da primeira: não mexe na segunda
+      porco.onlosefocusfn() -- aviso atrasado da primeira: não mexe na segunda
       T.ok(wilson.escala > escala)
-      wilson.moldura.onlosefocusfn()
+      wilson.onlosefocusfn()
       T.eq(wilson.escala, escala)
       T.ok(lanca.ordem > wilson.ordem and wilson.ordem > porco.ordem, "a ordem volta")
-      -- A mão muda com o mouse em cima de uma carta: ela continua erguida.
-      lanca.moldura.focus = true
-      table.remove(dados.visao.jogadores[1].mao, 1)
-      dados.visao.jogadores[1].mao[1].id = "nao_esta_no_catalogo"
+
+      -- A mão muda com o mouse em cima de uma carta que continua nela: a carta
+      -- segue erguida, e a página escolhida acompanha a carta, não a posição.
+      wilson.focus = true
+      table.remove(dados.visao.jogadores[1].mao, 1) -- o porco sai; o Wilson passa a ser a primeira
       Mao.atualizar()
-      T.eq(#w.cartas, 2, "a carta que saiu da mão some")
-      T.eq(lanca.morto, true)
+      T.eq(#w.cartas, 3, "a carta que saiu da mão some")
+      T.eq(reserva.morto, true, "sobra um widget, que é desfeito")
+      -- Os widgets são reaproveitados por posição: o primeiro agora mostra o Wilson.
+      T.eq(porco.nome.texto, "Wilson")
+      T.eq(porco.pagina, 2, "o Wilson continua na página do texto")
+      T.eq(wilson.nome.texto, "Lança"); T.eq(wilson.pagina, 1)
+      T.eq(w.erguida, wilson, "a carta sob o mouse continua erguida")
+      T.ok(wilson.escala > escala); T.eq(wilson.moldura.tex, "plant_entry_focus.tex")
+      T.eq(porco.escala, escala, "as outras ficam no leque")
+      wilson.focus = false
+      -- O nome volta ao tamanho normal antes de encolher (o widget já teve outro nome).
+      T.eq(porco.nome.tamanho_fonte, 15)
+      -- Uma carta que saiu e voltou começa de novo na página 1.
+      dados.visao.jogadores[1].mao = { { id = "porco", card_uid = 1, custo = 4 } }
+      Mao.atualizar()
+      dados.visao.jogadores[1].mao = { { id = "wilson", card_uid = 2, custo = 4 } }
+      Mao.atualizar()
+      T.eq(w.cartas[1].pagina, 1)
+      -- Carta fora do catálogo: sem figura, sem ícone e sem texto, sem quebrar.
+      dados.visao.jogadores[1].mao = { { id = "nao_esta_no_catalogo", card_uid = 9, custo = 2 } }
+      Mao.atualizar()
       T.eq(w.cartas[1].nome.texto, "nao_esta_no_catalogo")
-      T.eq(w.cartas[1].imagem.visivel, false, "sem imagem conhecida, nada é desenhado no lugar")
-      T.eq(w.cartas[1].texto.visivel, false)
+      T.eq(w.cartas[1].figura.visivel, false); T.eq(w.cartas[1].imagem.visivel, false)
+      T.eq(w.cartas[1].texto.texto, ""); T.eq(w.cartas[1].tipo.visivel, false)
       -- Sem partida: tudo some.
       dados.visao = nil
       Mao.atualizar()
@@ -370,11 +502,7 @@ return {
       T.eq(w.visivel, false)
     end)
     for _, n in ipairs(nomes) do package.loaded[n] = salvos[n] end
-    for n, v in pairs(globais) do _G[n] = v end
-    for _, n in ipairs({ "Class", "HEADERFONT", "ANCHOR_MIDDLE", "ANCHOR_TOP", "PLANTREGISTRYUICOLOURS",
-      "GetScrapbookIconAtlas", "TheSim" }) do
-      if globais[n] == nil then _G[n] = nil end
-    end
+    for _, n in ipairs(GLOBAIS) do _G[n] = globais[n] end
     T.ok(ok, tostring(err))
   end },
 
@@ -387,6 +515,7 @@ return {
     local nada = function() end
     local env = setmetatable({
       GLOBAL = G, modname = "dst-cardgame", GetModConfigData = function() return nil end,
+      Asset = function(tipo, arquivo) return { tipo = tipo, arquivo = arquivo } end,
       AddPlayerPostInit = nada, AddComponentPostInit = nada, AddPrefabPostInit = nada, AddSimPostInit = nada,
       AddClassPostConstruct = function(classe, fn) construtores[#construtores + 1] = { classe = classe, fn = fn } end,
       AddModRPCHandler = nada, AddClientModRPCHandler = nada,
@@ -396,6 +525,16 @@ return {
     setfenv(chunk, env)
     chunk()
     T.eq(type(env.DUELO.Mao.modelo), "function", "DUELO.Mao no cliente")
+    -- As animações das figuras entram como assets do mod, sem repetição.
+    T.eq(type(env.Assets), "table", "o mod declara os assets das figuras")
+    local vistos = {}
+    for _, a in ipairs(env.Assets) do
+      T.eq(a.tipo, "ANIM"); T.ok(a.arquivo:find("^anim/[%w_]+%.zip$"), a.arquivo)
+      T.ok(not vistos[a.arquivo], "asset repetido: " .. a.arquivo)
+      vistos[a.arquivo] = true
+    end
+    T.ok(vistos["anim/pig_build.zip"] and vistos["anim/ds_pig_basic.zip"], "o porco")
+    T.ok(vistos["anim/ds_spider_basic.zip"] and vistos["anim/spider_wolf_build.zip"], "a curandeira")
     T.eq(#construtores, 2, "o painel da sala e a mão")
     T.eq(construtores[2].classe, "widgets/controls")
     -- Roda o construtor da mão com controles falsos e um widget falso.
@@ -407,7 +546,8 @@ return {
     end })
     local mostrou = 0
     local controles = {
-      inv = { Hide = function(self) self.escondida = true end, Show = function() mostrou = mostrou + 1 end },
+      inv = { Hide = function(self) self.escondida = true end, Show = function() mostrou = mostrou + 1 end,
+        OpenControllerInventory = function() mostrou = mostrou + 1 end },
       bottom_root = { AddChild = function(self, w) self.filho = w; return w end },
     }
     local ok, err = pcall(construtores[2].fn, controles)
@@ -418,7 +558,8 @@ return {
     T.eq(criado.modelo.visivel, false, "o widget já recebe o modelo (sem partida)")
     T.eq(controles.inv.escondida, true, "a barra de inventário do jogo some")
     controles.inv:Show()
-    T.eq(mostrou, 0, "e o jogo não consegue mostrá-la de novo")
+    controles.inv:OpenControllerInventory()
+    T.eq(mostrou, 0, "e o jogo não consegue mostrá-la de novo, nem pelo controle")
     -- Sem barra de inventário (outro modo de jogo), o construtor não quebra.
     package.loaded["widgets/duelo_mao"] = setmetatable({}, { __call = function() return { Atualizar = nada } end })
     local ok2, err2 = pcall(construtores[2].fn, { bottom_root = { AddChild = function(_, w) return w end } })

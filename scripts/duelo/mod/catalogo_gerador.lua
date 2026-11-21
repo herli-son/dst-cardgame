@@ -6,8 +6,9 @@
 -- motor; os clientes não as carregam (US #41). O catálogo é só dados, e é
 -- público: tudo o que está nele está impresso na carta.
 --
--- Para gerar de novo, depois de criar ou mudar uma carta (na raiz do repo):
---   lua tools/gerar_catalogo.lua
+-- Para gerar de novo, depois de criar ou mudar uma carta (na raiz do repo,
+-- com Lua 5.1, a versão do jogo):
+--   lua5.1 tools/gerar_catalogo.lua
 -- tests/test_mod_mao.lua falha se o arquivo não bater com as cartas.
 --
 -- Este módulo NÃO é carregado no jogo: só pelo gerador e pelos testes.
@@ -18,6 +19,8 @@
 --       GetScrapbookIconAtlas, em simutil.lua);
 --   { tipo = "avatar", tex = "avatar_wilson.tex" }   retrato do personagem
 --       (images/avatars.xml), para os campeões, que não estão no Álbum.
+-- A imagem é a reserva: a carta mostra a figura animada (FIGURAS abaixo) e só
+-- cai na imagem se a carta não tiver figura.
 
 local Gerador = {}
 
@@ -46,9 +49,40 @@ Gerador.IMAGENS = {
   dardo_do_sono = { tipo = "album", tex = "blowdart_sleep.tex" },
 }
 
+-- A figura animada de cada carta (o boneco parado, como no mundo): o banco de
+-- animações, o build (as texturas) e a animação de parado, tirados do prefab
+-- do jogo (scripts/prefabs/<prefab>.lua: SetBank, SetBuild, PlayAnimation).
+-- `arquivos` são os .zip de anim/ que guardam o banco e o build; o modmain os
+-- declara como assets do mod, para estarem carregados em qualquer cliente.
+-- Itens (equipamentos e feitiços) só têm a pose do item no chão: um quadro.
+-- Os campeões usam as animações de jogador, que o jogo sempre carrega.
+Gerador.FIGURAS = {
+  porco = { banco = "pigman", build = "pig_build", anim = "idle_loop", arquivos = { "ds_pig_basic", "pig_build" } },
+  porco_guarda = { banco = "pigman", build = "pig_guard_build", anim = "idle_loop", arquivos = { "ds_pig_basic", "pig_guard_build" } },
+  sapo = { banco = "frog", build = "frog", anim = "idle", arquivos = { "frog" } },
+  morcego = { banco = "bat", build = "bat_basic", anim = "fly_loop", arquivos = { "bat_basic" } },
+  passaro = { banco = "crow", build = "robin_build", anim = "idle", arquivos = { "crow", "robin_build" } },
+  borboleta = { banco = "butterfly", build = "butterfly_basic", anim = "idle", arquivos = { "butterfly_basic" } },
+  cao_de_caca = { banco = "hound", build = "hound_ocean", anim = "idle", arquivos = { "hound_basic", "hound_ocean" } },
+  wilson = { banco = "wilson", build = "wilson", anim = "idle_loop", arquivos = {} },
+  maquina_de_ciencia = { banco = "researchlab", build = "researchlab", anim = "idle", arquivos = { "researchlab" } },
+  machado = { banco = "axe", build = "axe", anim = "idle", arquivos = { "axe" } },
+  lanca = { banco = "spear", build = "swap_spear", anim = "idle", arquivos = { "spear", "swap_spear" } },
+  pa = { banco = "shovel", build = "shovel", anim = "idle", arquivos = { "shovel" } },
+  armadura_de_grama = { banco = "armor_grass", build = "armor_grass", anim = "anim", arquivos = { "armor_grass" } },
+  armadura_de_madeira = { banco = "armor_wood", build = "armor_wood", anim = "anim", arquivos = { "armor_wood" } },
+  webber = { banco = "wilson", build = "webber", anim = "idle_loop", arquivos = {} },
+  aranha = { banco = "spider", build = "spider_build", anim = "idle", arquivos = { "ds_spider_basic", "spider_build" } },
+  aranha_guerreira = { banco = "spider", build = "spider_warrior_build", anim = "idle", arquivos = { "ds_spider_basic", "spider_warrior_build" } },
+  curandeira = { banco = "spider", build = "spider_wolf_build", anim = "idle", arquivos = { "ds_spider_basic", "spider_wolf_build" } },
+  dardo = { banco = "blow_dart", build = "blow_dart", anim = "idle_pipe", arquivos = { "blow_dart" } },
+  pomada = { banco = "spider_gland_salve", build = "spider_gland_salve", anim = "idle", arquivos = { "spider_gland_salve" } },
+  dardo_do_sono = { banco = "blow_dart", build = "blow_dart", anim = "idle_purple", arquivos = { "blow_dart" } },
+}
+
 -- Os campos de cada entrada, na ordem em que saem no arquivo.
 local CAMPOS = { "numero", "nome", "tipo", "custo", "ataque", "vida", "bonus_ataque", "bonus_vida",
-  "durabilidade", "campeao", "texto" }
+  "durabilidade", "campeao", "sobrevivente", "texto" }
 
 -- A tabela do catálogo, a partir das cartas registradas no motor.
 function Gerador.tabela()
@@ -70,8 +104,10 @@ function Gerador.tabela()
       bonus_vida = def.hp_bonus,
       durabilidade = def.durability,
       campeao = def.campeao and true or nil,
+      sobrevivente = def.sobrevivente and true or nil,
       texto = def.text,
       imagem = Gerador.IMAGENS[id],
+      figura = Gerador.FIGURAS[id],
     }
   end
   return out
@@ -108,6 +144,12 @@ function Gerador.texto()
     end
     if c.imagem ~= nil then
       linhas[#linhas + 1] = "    imagem = { tipo = " .. literal(c.imagem.tipo) .. ", tex = " .. literal(c.imagem.tex) .. " },"
+    end
+    if c.figura ~= nil then
+      local arquivos = {}
+      for i, a in ipairs(c.figura.arquivos or {}) do arquivos[i] = literal(a) end
+      linhas[#linhas + 1] = "    figura = { banco = " .. literal(c.figura.banco) .. ", build = " .. literal(c.figura.build)
+        .. ", anim = " .. literal(c.figura.anim) .. ", arquivos = { " .. table.concat(arquivos, ", ") .. " } },"
     end
     linhas[#linhas + 1] = "  },"
   end

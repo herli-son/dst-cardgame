@@ -22,8 +22,13 @@
 --       uid = n, id = texto,
 --       nome, tipo, texto,     do catálogo (id fora do catálogo: nome = id)
 --       custo = n,             custo de agora, da visão (com descontos)
---       atributos = texto,     "4 / 5" (ataque / vida), "+2 ataque · dur. 4"...
---       imagem = { tipo, tex } | false,
+--       tipo_nome = texto,     "Criatura", "Campeão · Sobrevivente"...
+--       esquerda, direita = { valor, rotulo } | false   os dois valores da
+--                              carta: ataque e vida; no equipamento, bônus e
+--                              durabilidade de agora
+--       atributos = texto,     os mesmos valores numa linha ("4 / 5")
+--       imagem = { tipo, tex } | false,       ícone (reserva da figura)
+--       figura = { banco, build, anim } | false,   o boneco animado
 --       pagavel = bool,        a mana de agora paga o custo
 --       x, y, rot              posição no leque (Mao.leque)
 --     }, ... } }
@@ -101,6 +106,39 @@ end
 
 local NOMES_DOS_TIPOS = { criatura = "Criatura", equipamento = "Equipamento", feitico = "Feitiço", estrutura = "Estrutura" }
 
+-- A linha de tipo: "Campeão · Sobrevivente", "Criatura", "Equipamento"...
+local function nome_do_tipo(c)
+  if c == nil then return false end
+  local partes = {}
+  if c.campeao then partes[#partes + 1] = "Campeão" end
+  if c.sobrevivente then partes[#partes + 1] = "Sobrevivente" end
+  if #partes == 0 then partes[1] = NOMES_DOS_TIPOS[c.tipo] end
+  if #partes == 0 then return false end
+  return table.concat(partes, " · ")
+end
+
+-- Os dois valores da linha de baixo da carta: { valor = texto, rotulo = texto }
+-- à esquerda e à direita, ou false. Criatura: ataque e vida. Equipamento: o
+-- bônus (de ataque ou de vida) e a durabilidade de agora.
+local function valores(c, na_visao)
+  if c == nil then return false, false end
+  if c.tipo == "criatura" then
+    if numero(c.ataque) and numero(c.vida) then
+      return { valor = tostring(c.ataque), rotulo = "ataque" }, { valor = tostring(c.vida), rotulo = "vida" }
+    end
+  elseif c.tipo == "equipamento" then
+    local esq = false
+    if numero(c.bonus_ataque) and c.bonus_ataque ~= 0 then
+      esq = { valor = "+" .. c.bonus_ataque, rotulo = "ataque" }
+    elseif numero(c.bonus_vida) and c.bonus_vida ~= 0 then
+      esq = { valor = "+" .. c.bonus_vida, rotulo = "vida" }
+    end
+    local dur = numero(na_visao.durabilidade) or numero(c.durabilidade)
+    return esq, dur and { valor = tostring(dur), rotulo = "dur." } or false
+  end
+  return false, false
+end
+
 function Mao.modelo()
   local vazio = { visivel = false, limite = 0, total = 0, cartas = {} }
   local C = estado.cliente
@@ -116,20 +154,24 @@ function Mao.modelo()
   local posicoes = Mao.leque(#eu.mao)
   local cartas = {}
   for i, na_visao in ipairs(eu.mao) do
+    if type(na_visao) ~= "table" then na_visao = {} end
     local c = catalogo[na_visao.id]
     local custo = numero(na_visao.custo) or (c and numero(c.custo)) or 0
     local tipo = c and c.tipo or false
+    local esquerda, direita = valores(c, na_visao)
     cartas[i] = {
       indice = i,
       uid = na_visao.card_uid,
       id = na_visao.id,
       nome = c and c.nome or tostring(na_visao.id),
       tipo = tipo,
-      tipo_nome = c and ((c.campeao and "Campeão") or NOMES_DOS_TIPOS[tipo]) or false,
+      tipo_nome = nome_do_tipo(c),
+      esquerda = esquerda, direita = direita,
       texto = c and c.texto or false,
       custo = custo,
       atributos = atributos(c, na_visao),
       imagem = c and c.imagem or false,
+      figura = c and c.figura or false,
       pagavel = custo <= mana,
       x = posicoes[i].x, y = posicoes[i].y, rot = posicoes[i].rot,
     }
@@ -140,6 +182,11 @@ end
 function Mao.atualizar()
   local w = estado.widget
   if w == nil then return end
+  -- A tela do jogo foi desfeita e o widget morreu com ela: desliga.
+  if type(w.inst) == "table" and w.inst.IsValid ~= nil and not w.inst:IsValid() then
+    estado.widget = nil
+    return
+  end
   local ok, modelo = pcall(Mao.modelo)
   if not ok then
     log("erro ao montar a mão: " .. tostring(modelo))

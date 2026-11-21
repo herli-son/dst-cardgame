@@ -234,18 +234,38 @@ end
 -- visão de cada lado (US #41).
 local Mao = nil
 if Cliente then
+  local Catalogo = require("duelo/mod/catalogo")
+  -- As animações dos bonecos das cartas (o banco e o build de cada figura)
+  -- entram como assets do mod, para estarem carregadas em qualquer cliente,
+  -- mesmo que o bicho nunca tenha aparecido no mundo. Os nomes vêm dos
+  -- prefabs do jogo (catalogo_gerador.lua, FIGURAS).
+  if Asset ~= nil then
+    local ja, lista = {}, Assets or {}
+    for _, carta in GLOBAL.pairs(Catalogo) do
+      for _, arquivo in GLOBAL.ipairs(carta.figura and carta.figura.arquivos or {}) do
+        if not ja[arquivo] then
+          ja[arquivo] = true
+          lista[#lista + 1] = Asset("ANIM", "anim/" .. arquivo .. ".zip")
+        end
+      end
+    end
+    Assets = lista
+  end
   Mao = require("duelo/mod/mao").instalar({
     cliente = Cliente,
-    catalogo = require("duelo/mod/catalogo"),
+    catalogo = Catalogo,
     log = function(msg) GLOBAL.print(msg) end,
   })
   AddClassPostConstruct("widgets/controls", function(self)
     -- A barra de inventário do jogo não aparece: o jogo a mostra de novo em
     -- vários momentos (Controls:ShowCraftingAndInventory), então o Show dela
     -- deixa de fazer efeito.
+    -- Com controle, o botão de inventário abriria a barra escondida e
+    -- prenderia o jogador nela: abrir também deixa de fazer efeito.
     if self.inv ~= nil then
       self.inv:Hide()
       self.inv.Show = function() end
+      self.inv.OpenControllerInventory = function() end
     end
     local DueloMao = require("widgets/duelo_mao")
     self.duelo_mao = self.bottom_root:AddChild(DueloMao())

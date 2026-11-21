@@ -12,6 +12,7 @@ return {
     vida = 5,
     texto = "Porco. Sem efeito.",
     imagem = { tipo = "album", tex = "pigman.tex" },
+    figura = { banco = "pigman", build = "pig_build", anim = "idle_loop", arquivos = { "ds_pig_basic", "pig_build" } },
   },
   porco_guarda = {
     numero = 2,
@@ -22,6 +23,7 @@ return {
     vida = 7,
     texto = "Porco. Guarda: ao bloquear e sobreviver, passa a bloquear também o próximo atacante à direita que ficou sem bloqueador, uma vez por combate.",
     imagem = { tipo = "album", tex = "pigguard.tex" },
+    figura = { banco = "pigman", build = "pig_guard_build", anim = "idle_loop", arquivos = { "ds_pig_basic", "pig_guard_build" } },
   },
   sapo = {
     numero = 3,
@@ -32,6 +34,7 @@ return {
     vida = 2,
     texto = "Agressivo. Golpear: escolha um equipamento da criatura golpeada; ele vai para o Inventário do dono dela e custa 1 enquanto estiver lá.",
     imagem = { tipo = "album", tex = "frog.tex" },
+    figura = { banco = "frog", build = "frog", anim = "idle", arquivos = { "frog" } },
   },
   morcego = {
     numero = 4,
@@ -42,6 +45,7 @@ return {
     vida = 1,
     texto = "Agressivo. Velocidade 2. De manhã é 0/1, à tarde 1/1 e à noite 2/1.",
     imagem = { tipo = "album", tex = "bat.tex" },
+    figura = { banco = "bat", build = "bat_basic", anim = "fly_loop", arquivos = { "bat_basic" } },
   },
   passaro = {
     numero = 5,
@@ -52,6 +56,7 @@ return {
     vida = 1,
     texto = "Frágil. Quando uma criatura Agressiva entra em jogo, abata o Pássaro e o dono dele compra 1 carta.",
     imagem = { tipo = "album", tex = "robin.tex" },
+    figura = { banco = "crow", build = "robin_build", anim = "idle", arquivos = { "crow", "robin_build" } },
   },
   borboleta = {
     numero = 6,
@@ -62,6 +67,7 @@ return {
     vida = 1,
     texto = "Frágil. Ao morrer, o dono recupera 2 de vida.",
     imagem = { tipo = "album", tex = "butterfly.tex" },
+    figura = { banco = "butterfly", build = "butterfly_basic", anim = "idle", arquivos = { "butterfly_basic" } },
   },
   cao_de_caca = {
     numero = 7,
@@ -72,6 +78,7 @@ return {
     vida = 2,
     texto = "Agressivo.",
     imagem = { tipo = "album", tex = "hound.tex" },
+    figura = { banco = "hound", build = "hound_ocean", anim = "idle", arquivos = { "hound_basic", "hound_ocean" } },
   },
   wilson = {
     numero = 10,
@@ -81,8 +88,10 @@ return {
     ataque = 1,
     vida = 3,
     campeao = true,
+    sobrevivente = true,
     texto = "Campeão. Sobrevivente. Ao entrar em jogo: se você não tiver uma Máquina de Ciência em jogo, procure uma no seu baralho, mostre-a e coloque-a em jogo. Embaralhe o baralho.",
     imagem = { tipo = "avatar", tex = "avatar_wilson.tex" },
+    figura = { banco = "wilson", build = "wilson", anim = "idle_loop", arquivos = {  } },
   },
   maquina_de_ciencia = {
     numero = 11,
@@ -91,6 +100,7 @@ return {
     custo = 4,
     texto = "Ativar (Instantâneo), uma vez por rodada: olhe as 5 cartas do topo do seu baralho. Você pode comprar 1 equipamento entre elas. Embaralhe as outras de volta no baralho.",
     imagem = { tipo = "album", tex = "researchlab.tex" },
+    figura = { banco = "researchlab", build = "researchlab", anim = "idle", arquivos = { "researchlab" } },
   },
   machado = {
     numero = 12,
@@ -101,6 +111,7 @@ return {
     durabilidade = 4,
     texto = "Mão. O portador ganha +2 de ataque. Durabilidade 4. Ao atacar: sua fogueira começa a noite desta rodada com +1 (se já for noite, ganha +1 agora).",
     imagem = { tipo = "album", tex = "axe.tex" },
+    figura = { banco = "axe", build = "axe", anim = "idle", arquivos = { "axe" } },
   },
   lanca = {
     numero = 13,
@@ -111,6 +122,7 @@ return {
     durabilidade = 6,
     texto = "Mão. O portador ganha +3 de ataque. Durabilidade 6.",
     imagem = { tipo = "album", tex = "spear.tex" },
+    figura = { banco = "spear", build = "swap_spear", anim = "idle", arquivos = { "spear", "swap_spear" } },
   },
   pa = {
     numero = 14,
@@ -121,6 +133,7 @@ return {
     durabilidade = 2,
     texto = "Mão. O portador ganha +1 de ataque. Durabilidade 2. Golpear: a Pá fica pronta até o fim da rodada. Ativar (fora do combate): se a Pá estiver pronta, deixa de estar e você compra 1 carta.",
     imagem = { tipo = "album", tex = "shovel.tex" },
+    figura = { banco = "shovel", build = "shovel", anim = "idle", arquivos = { "shovel" } },
   },
   armadura_de_grama = {
     numero = 15,
@@ -131,6 +144,7 @@ return {
     durabilidade = 2,
     texto = "Peito. O portador ganha +2 de vida. Durabilidade 2.",
     imagem = { tipo = "album", tex = "armorgrass.tex" },
+    figura = { banco = "armor_grass", build = "armor_grass", anim = "anim", arquivos = { "armor_grass" } },
   },
   armadura_de_madeira = {
     numero = 16,
@@ -141,6 +155,7 @@ return {
     durabilidade = 3,
     texto = "Peito. O portador ganha +1 de vida e recebe 1 de dano a menos de cada fonte. Durabilidade 3.",
     imagem = { tipo = "album", tex = "armorwood.tex" },
+    figura = { banco = "armor_wood", build = "armor_wood", anim = "anim", arquivos = { "armor_wood" } },
   },
   webber = {
     numero = 20,
@@ -150,8 +165,10 @@ return {
     ataque = 1,
     vida = 3,
     campeao = true,
+    sobrevivente = true,
     texto = "Campeão. Sobrevivente. Aranha. Ao jogar: crie 1 Aranha. Aranhas do adversário não podem bloquear o Webber.",
     imagem = { tipo = "avatar", tex = "avatar_webber.tex" },
+    figura = { banco = "wilson", build = "webber", anim = "idle_loop", arquivos = {  } },
   },
   aranha = {
     numero = 21,
@@ -162,6 +179,7 @@ return {
     vida = 1,
     texto = "Aranha. Agressiva.",
     imagem = { tipo = "album", tex = "spider.tex" },
+    figura = { banco = "spider", build = "spider_build", anim = "idle", arquivos = { "ds_spider_basic", "spider_build" } },
   },
   aranha_guerreira = {
     numero = 22,
@@ -172,6 +190,7 @@ return {
     vida = 4,
     texto = "Aranha. Agressiva. Velocidade 2.",
     imagem = { tipo = "album", tex = "spider_warrior.tex" },
+    figura = { banco = "spider", build = "spider_warrior_build", anim = "idle", arquivos = { "ds_spider_basic", "spider_warrior_build" } },
   },
   curandeira = {
     numero = 23,
@@ -182,6 +201,7 @@ return {
     vida = 4,
     texto = "Aranha. Suas aranhas, incluindo esta, têm +1 de vida. Quando uma aranha sua sobreviver a dano, cure 2 dela.",
     imagem = { tipo = "album", tex = "spider_healer.tex" },
+    figura = { banco = "spider", build = "spider_wolf_build", anim = "idle", arquivos = { "ds_spider_basic", "spider_wolf_build" } },
   },
   dardo = {
     numero = 30,
@@ -190,6 +210,7 @@ return {
     custo = 2,
     texto = "Rápido. Cause 3 de dano a uma criatura.",
     imagem = { tipo = "album", tex = "blowdart_pipe.tex" },
+    figura = { banco = "blow_dart", build = "blow_dart", anim = "idle_pipe", arquivos = { "blow_dart" } },
   },
   pomada = {
     numero = 31,
@@ -198,6 +219,7 @@ return {
     custo = 1,
     texto = "Instantâneo. Cure 3 de dano de uma criatura ou um jogador recupera 3 de vida.",
     imagem = { tipo = "album", tex = "healingsalve.tex" },
+    figura = { banco = "spider_gland_salve", build = "spider_gland_salve", anim = "idle", arquivos = { "spider_gland_salve" } },
   },
   dardo_do_sono = {
     numero = 32,
@@ -206,5 +228,6 @@ return {
     custo = 2,
     texto = "Rápido. Uma criatura fica com Velocidade 0 até o fim da próxima rodada.",
     imagem = { tipo = "album", tex = "blowdart_sleep.tex" },
+    figura = { banco = "blow_dart", build = "blow_dart", anim = "idle_purple", arquivos = { "blow_dart" } },
   },
 }
