@@ -350,7 +350,9 @@ As RPCs são registradas pela ordem: quem tiver uma versão antiga do mod num do
 
 - **Quem cai perde.** O outro jogador vence por abandono.
 - **Servidor dedicado:** quem sai no meio da partida tem **2 minutos** para voltar (`Desconexao.PRAZO`, em `scripts/duelo/mod/desconexao.lua`). Voltando a tempo, a partida segue do ponto em que estava (ele recebe a fotografia de novo). Passado o prazo, perde.
-- **Jogo hospedado por um jogador:** não há prazo; o jogador que sai perde na hora. Se quem cai é o host, o mundo fecha junto.
+- **Jogo hospedado por um jogador:** o prazo é de **10 segundos** (`Desconexao.PRAZO_HOST`): na prática, quem cai perde. O prazo curto existe porque o jogo avisa a saída do mesmo jeito quando o boneco do jogador é só recriado (troca de personagem); aí ele volta em seguida e não perde. Se quem cai é o host, o mundo fecha junto. Um mundo hospedado com cavernas roda como servidor dedicado e segue a regra dos 2 minutos.
+- **Quem está conectado nunca perde por desconexão:** antes de marcar a ausência e de aplicar a derrota, o servidor confere quem está no mundo (o aviso de entrada do jogo não chega com o servidor pausado).
+- **Expulsão conta como queda:** o servidor não distingue quem saiu de quem foi expulso.
 - **Se os dois caem,** perde quem caiu primeiro.
 - **Quem assiste** sai e volta sem mudar nada.
 - **Partida de teste com um jogador só** (`DUELO.Partida.iniciar_teste()`): ninguém vence; no fim do prazo a partida é só encerrada.
@@ -359,20 +361,20 @@ As RPCs são registradas pela ordem: quem tiver uma versão antiga do mod num do
 
 - O prazo é contado em **tempo real** (`GetTimeRealSeconds`), não no tempo do mundo: o servidor dedicado pausa a simulação quando fica vazio, e o prazo de quem saiu continua correndo. Ele é conferido a cada segundo por uma tarefa do mundo e a cada entrada e saída de jogador; quem volta depois do prazo perde na hora em que entra.
 - A derrota é do motor (`Game:forfeit(p, "desconexao")`): não é uma jogada, um cliente não consegue mandá-la (`Game:act` a recusa), e ela entra no registro da partida (`{ type = "forfeit", reason = "desconexao" }`), para a reprodução terminar igual.
-- Enquanto alguém está fora, a mensagem `sala` leva `ausente = { lado, prazo }` e o painel de quem ficou mostra `O outro jogador caiu. Se não voltar em 2 minutos, você vence.` (o texto não tem contagem regressiva).
-- No fim, o painel mostra **Vitória** com `O outro jogador saiu da partida.`; quem perdeu, ao voltar, vê **Derrota** com `Você saiu da partida e não voltou a tempo.` A visão tem o campo `abandono = { p, motivo }` e os clientes recebem o evento `forfeit`.
+- Enquanto alguém está fora, a mensagem `sala` leva `ausente = { lado, prazo }` (os segundos que faltam) e o painel de quem ficou mostra `O outro jogador caiu. Se não voltar em 2:00, você vence.`, em contagem regressiva pelo relógio do próprio cliente.
+- Quem volta retoma o lado dele na mesa: a cada entrada com a partida em curso, os lados são acertados pela partida (`Camera.definir_lados`), e quem entrou no lugar vira espectador.
+- No fim, o painel mostra **Vitória** com `O outro jogador saiu da partida.`; quem perdeu, se voltar antes de o outro clicar em **Jogar de novo**, vê **Derrota** com `Você saiu da partida e não voltou a tempo.` (depois disso a mesa já foi zerada e ele cai na sala). A visão tem o campo `abandono = { p, motivo }` e os clientes recebem o evento `forfeit`.
 - A mesa não fica mais presa: depois da derrota por abandono, quem ficou clica em **Jogar de novo**, como em qualquer fim de partida.
-- **Limitação conhecida:** no jogo hospedado, qualquer saída do mundo conta como queda (o jogo avisa a saída do mesmo jeito quando o jogador troca de personagem); não há como trocar de personagem no meio da partida sem perder.
 
 **Console:** `DUELO.Desconexao.ausente()` no servidor diz quem está fora e quando o prazo vence.
 
 **O que conferir no jogo** (exige duas contas, ou a partida de teste para o caso de um jogador só):
 
 - **Servidor dedicado, dois jogadores:**
-  - Com a partida em curso, um jogador sai do servidor. No log do servidor: `[duelo] desconexão: o jogador KU_... saiu da partida N: tem 120 s para voltar`. O painel do outro mostra o aviso de queda.
+  - Com a partida em curso, um jogador sai do servidor. No log do servidor: `[duelo] desconexão: o jogador KU_... saiu da partida N: tem 120 s para voltar`. O painel do outro mostra o aviso de queda, com a contagem andando.
   - Ele volta antes de 2 minutos: `voltou a tempo` no log, o aviso some e a partida continua.
   - Ele sai de novo e não volta: depois de 2 minutos, `não voltou e perdeu a partida` no log, e o painel de quem ficou mostra **Vitória** e `O outro jogador saiu da partida.`
 - **Servidor dedicado, um jogador (partida de teste):**
   - `DUELO.Partida.iniciar_teste()`, sair do servidor, esperar mais de 2 minutos e voltar: o painel volta para a sala (`a partida de teste foi encerrada` no log do servidor). Voltando antes de 2 minutos, a partida continua.
-- **Host e um cliente:** o cliente sai com a partida em curso: o host vê **Vitória** na hora.
-- **A confirmar no jogo:** que a tarefa de cada segundo roda com o servidor pausado (`DoStaticPeriodicTask` no mundo). Se não rodar, a derrota sai na próxima entrada ou saída de jogador, que é o caso coberto pelos testes.
+- **Host e um cliente:** o cliente sai com a partida em curso: o host vê o aviso de queda com a contagem e, 10 segundos depois, **Vitória**.
+- **A confirmar no jogo:** que a tarefa de cada segundo roda com o servidor dedicado vazio. Ela é estática (`DoStaticPeriodicTask`) e roda com o servidor pausado (`update.lua`), mas os scripts não dizem se o servidor vazio continua atualizando. Se não rodar, a derrota sai quando alguém entra, que é o caso coberto pelos testes.
