@@ -16,7 +16,7 @@
 --     ESPERA_PEDIDO segundos (Cliente.tique).
 --   * "recusada": o servidor não aceitou uma ação deste jogador, com o motivo.
 --   * "sala" (US #42): quem está pronto para começar, visto por este jogador
---     ({ eu, prontos, jogadores, aviso }, de duelo/mod/sala_servidor). Chega
+--     ({ eu, prontos, jogadores, aviso, ausente }, de duelo/mod/sala_servidor). Chega
 --     junto com a fotografia pedida e a cada mudança.
 --
 -- Interface:
@@ -36,7 +36,7 @@
 --       refeita a partir dela.
 --   Cliente.quando_recusada(fn) -> cancelar   fn(motivo, n)
 --   Cliente.partida() -> n | nil              número da partida da visão
---   Cliente.sala() -> { eu, prontos, jogadores, aviso } | nil
+--   Cliente.sala() -> { eu, prontos, jogadores, aviso, ausente } | nil
 --   Cliente.quando_sala(fn) -> cancelar       fn(sala): a sala mudou
 --   Cliente.pronto(bool) -> ok, erro          avisa o servidor que este
 --       jogador está (ou deixou de estar) pronto
@@ -224,7 +224,13 @@ local function receber_sala(m)
     prontos = contagem(m.prontos),
     jogadores = contagem(m.jogadores),
     aviso = type(m.aviso) == "string" and m.aviso or false,
+    ausente = false,
   }
+  -- US #43: um jogador da partida em curso caiu (lado e prazo para voltar).
+  local a = m.ausente
+  if type(a) == "table" and (a.lado == 1 or a.lado == 2) then
+    estado.sala.ausente = { lado = a.lado, prazo = contagem(a.prazo) }
+  end
   avisar("sala", estado.sala)
 end
 

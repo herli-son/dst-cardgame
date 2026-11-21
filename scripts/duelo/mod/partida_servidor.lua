@@ -40,6 +40,9 @@
 --       (vencedor, empate ou erro do motor); fica na mesa até a sala
 --       (duelo/mod/sala_servidor) zerar.
 --   Partida.quando_iniciar(fn)     fn() depois de cada partida começada
+--   Partida.numero() -> n          número da partida em curso (ou da última)
+--   Partida.derrotar(lado, motivo) -> ok, erro   derrota por abandono (US #43):
+--       o lado perde (Game:forfeit) e o resultado sai para todos.
 --   Partida.lado_de(userid) -> 1 | 2 | 3 (visão que ele recebe)
 --   Partida.validar_forma(action) -> ok, erro
 --   Partida.validar_alvos(action) -> ok, erro   (target tabela, ou número
@@ -368,6 +371,19 @@ function Partida.encerrar()
   enviar_estado_a_todos()
   log("partida " .. estado.id .. " encerrada")
   return true
+end
+
+function Partida.numero() return estado.id end
+
+function Partida.derrotar(lado, motivo)
+  local g = estado.g
+  if g == nil then return false, "não há partida em curso" end
+  -- No meio do envio de um lote, quem chamou tenta de novo depois.
+  if estado.distribuindo > 0 then return false, "um lote está saindo" end
+  local ok, err = g:forfeit(lado, motivo)
+  if ok or #g.events > estado.enviados then distribuir() end
+  if ok then log("partida " .. estado.id .. ": o lado " .. tostring(lado) .. " perdeu por " .. tostring(motivo)) end
+  return ok, err
 end
 
 local function recusa(erro)

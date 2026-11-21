@@ -75,7 +75,7 @@ local function run_file(name)
   end
 end
 
-local files = { "test_rodada", "test_periodo", "test_fogueira", "test_mana_mao", "test_criaturas", "test_estruturas", "test_equipamentos", "test_pilha", "test_fichas", "test_regressoes", "test_erros", "test_combate", "test_velocidade", "test_cura", "test_bloqueio_obrigatorio", "test_escolha_pausa", "test_ordem_combate", "test_baralho_extra", "test_substituir", "test_bot", "test_terminal", "test_simulador", "test_limite_mao", "test_neutras", "test_numeros", "test_feiticos", "test_webber", "test_wilson", "test_ganchos_vida", "test_curandeira", "test_decks", "test_mod_arena", "test_mod_protecao", "test_mod_mesa", "test_registro", "test_efeitos_rodada", "test_mod_partida", "test_mod_sala", "test_abandono", "test_fuzz_acoes" }
+local files = { "test_rodada", "test_periodo", "test_fogueira", "test_mana_mao", "test_criaturas", "test_estruturas", "test_equipamentos", "test_pilha", "test_fichas", "test_regressoes", "test_erros", "test_combate", "test_velocidade", "test_cura", "test_bloqueio_obrigatorio", "test_escolha_pausa", "test_ordem_combate", "test_baralho_extra", "test_substituir", "test_bot", "test_terminal", "test_simulador", "test_limite_mao", "test_neutras", "test_numeros", "test_feiticos", "test_webber", "test_wilson", "test_ganchos_vida", "test_curandeira", "test_decks", "test_mod_arena", "test_mod_protecao", "test_mod_mesa", "test_registro", "test_efeitos_rodada", "test_mod_partida", "test_mod_sala", "test_abandono", "test_mod_desconexao", "test_fuzz_acoes" }
 for _, f in ipairs(files) do run_file(f) end
 
 for _, f in ipairs(T.failures) do print("FALHOU  " .. f) end

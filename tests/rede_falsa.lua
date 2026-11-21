@@ -5,6 +5,8 @@
 -- falso. As RPCs são entregues na hora, na ordem.
 --
 --   RedeFalsa.nova{ sala = true, decks = fn, definir_lados = fn, mundo = true } -> net
+--       desconexao: "dedicado" ou "host": instala duelo/mod/desconexao no
+--       servidor (US #43), com o relógio da rede falsa (net.relogio).
 --       mundo: dá um TheWorld falso a cada máquina e guarda o AddSimPostInit
 --       da rede em m.sim_postinit (m.mundo.ouvintes tem os ouvintes).
 --       sala: instala também duelo/mod/sala_servidor no servidor e
@@ -115,6 +117,11 @@ local function nova_rede(opcoes)
       if opcoes.sala then
         m.Sala = carregar("sala_servidor").instalar({ rede = m.Rede, partida = m.Partida, GLOBAL = m.GLOBAL,
           decks = opcoes.decks, definir_lados = opcoes.definir_lados })
+      end
+      if opcoes.desconexao then
+        m.Desconexao = carregar("desconexao").instalar({ partida = m.Partida, sala = m.Sala,
+          agora = function() return net.relogio end, dedicado = opcoes.desconexao == "dedicado",
+          log = m.GLOBAL.print })
       end
       net.servidor = m
     end

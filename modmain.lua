@@ -42,6 +42,9 @@
 --         começo com os decks fixos e a mesa zerada depois do fim.
 --       - duelo/mod/tela_sala.lua e widgets/duelo_sala.lua (só onde há
 --         tela): o painel com o botão "Pronto" e o resultado.
+--   * US #43: desconexão.
+--       - duelo/mod/desconexao.lua (só no servidor): quem cai perde; no
+--         servidor dedicado, depois de 2 minutos sem voltar.
 --
 -- O que vem nas próximas US:
 --   * US #33: criaturas de verdade nos espaços da mesa.
@@ -153,6 +156,31 @@ if Partida then
   })
 end
 
+-- Desconexão (US #43), só no servidor: quem cai perde; no servidor dedicado,
+-- depois de 2 minutos sem voltar. O prazo é em tempo real e é conferido a
+-- cada segundo por uma tarefa do mundo (estática, para rodar também com o
+-- servidor pausado) e a cada entrada e saída de jogador.
+local Desconexao = nil
+if Sala then
+  Desconexao = require("duelo/mod/desconexao").instalar({
+    partida = Partida,
+    sala = Sala,
+    agora = function() return GLOBAL.GetTimeRealSeconds() end,
+    dedicado = GLOBAL.TheNet:IsDedicated(),
+    log = function(msg) GLOBAL.print(msg) end,
+  })
+  AddSimPostInit(function()
+    local mundo = GLOBAL.TheWorld
+    if mundo == nil or not mundo.ismastersim then return end
+    local agendar = mundo.DoStaticPeriodicTask or mundo.DoPeriodicTask
+    if agendar == nil then return end
+    agendar(mundo, 1, function()
+      local ok, err = GLOBAL.pcall(Desconexao.tique)
+      if not ok then GLOBAL.print("[duelo] desconexão: erro na conferência: " .. GLOBAL.tostring(err)) end
+    end)
+  end)
+end
+
 -- A visão da partida em quem tem tela (clientes e host; o servidor dedicado
 -- não tem jogador local). No host os dois lados convivem.
 local Cliente = nil
@@ -207,6 +235,7 @@ DUELO = {
   Partida = Partida, -- nil nos clientes
   Cliente = Cliente, -- nil no servidor dedicado
   Sala = Sala,       -- nil nos clientes
+  Desconexao = Desconexao, -- nil nos clientes
   Tela = Tela,       -- nil no servidor dedicado
 }
 GLOBAL.DUELO = DUELO

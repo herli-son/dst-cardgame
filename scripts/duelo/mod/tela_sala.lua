@@ -10,9 +10,12 @@
 --              "Pronto" (ou "Cancelar", para quem já está pronto) e quantos
 --              estão prontos. Com dois prontos o servidor começa a partida.
 --   "partida"  partida em curso: só uma linha dizendo por qual lado se joga.
+--              Se um jogador caiu (US #43), a linha diz quanto tempo ele tem
+--              para voltar antes de perder.
 --   "fim"      a partida acabou: "Vitória", "Derrota", "Empate" (ou, para
 --              quem assiste, "Lado N venceu"; ou "Partida interrompida", se
---              o motor deu erro). O resultado fica na tela até o jogador
+--              o motor deu erro). Se a partida acabou porque um jogador caiu
+--              (US #43), o texto diz isso. O resultado fica na tela até o jogador
 --              clicar, mesmo que o outro já tenha zerado a mesa no servidor,
 --              ou até uma partida nova começar (aí o painel passa a ela).
 --              Jogador: botão "Jogar de novo" (dispensa o resultado e fica
@@ -43,6 +46,21 @@ local function log(msg)
   if estado.log then estado.log("[duelo] tela: " .. tostring(msg)) end
 end
 
+local function prazo_por_extenso(s)
+  if s >= 120 then return math.floor(s / 60) .. " minutos" end
+  if s >= 60 then return "1 minuto" end
+  return s .. " segundos"
+end
+
+-- Texto do abandono (US #43), para quem ganhou, para quem perdeu e para quem assiste.
+local function texto_do_abandono(v, lado, jogador)
+  local a = v.abandono
+  if type(a) ~= "table" then return false end
+  if not jogador then return "O lado " .. tostring(a.p) .. " saiu da partida." end
+  if a.p == lado then return "Você saiu da partida e não voltou a tempo." end
+  return "O outro jogador saiu da partida."
+end
+
 local function resultado_de(v, lado, partida)
   local jogador = lado == 1 or lado == 2
   local r = { partida = partida, jogador = jogador, texto = false }
@@ -58,6 +76,7 @@ local function resultado_de(v, lado, partida)
   else
     r.titulo = "Derrota"
   end
+  if not r.texto then r.texto = texto_do_abandono(v, lado, jogador) end
   return r
 end
 
@@ -106,6 +125,17 @@ function Tela.modelo()
     local lado = C.lado()
     local texto = "Partida em curso. Você está assistindo."
     if lado == 1 or lado == 2 then texto = "Partida em curso. Você joga pelo lado " .. lado .. "." end
+    local a = sala ~= nil and sala.ausente or false
+    if a then
+      local prazo = prazo_por_extenso(a.prazo)
+      if a.lado == lado then
+        texto = "Você caiu da partida. Volte em até " .. prazo .. " para não perder."
+      elseif lado == 1 or lado == 2 then
+        texto = "O outro jogador caiu. Se não voltar em " .. prazo .. ", você vence."
+      else
+        texto = "O lado " .. a.lado .. " caiu. Se não voltar em " .. prazo .. ", perde a partida."
+      end
+    end
     return { modo = "partida", titulo = false, texto = texto, botao = false }
   end
   if sala == nil then

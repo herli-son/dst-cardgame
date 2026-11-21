@@ -57,7 +57,7 @@
 -- Tipos de evento do motor (emit{ t = ... } em duelo/core/*.lua e nas cartas):
 --   partida e rodada: start, mulligan_start, mulligan (só a quantidade
 --     trocada), round_start, round_end, period, vez, pass, game_over,
---     engine_error;
+--     forfeit (derrota por abandono, US #43), engine_error;
 --   jogadores: mana, fogueira, player_damage, player_heal;
 --   cartas: to_hand ("mao"), play, reveal, inventory, destroyed, vanish,
 --     look ("dono": as cartas do topo do baralho vistas pela Máquina de
@@ -98,7 +98,7 @@ Visao.ESPECTADOR = 3
 
 local PUBLICOS = {
   "start", "mulligan_start", "mulligan", "round_start", "round_end", "period", "vez", "pass",
-  "game_over",
+  "game_over", "forfeit",
   "mana", "fogueira", "player_damage", "player_heal",
   "play", "reveal", "inventory", "destroyed", "vanish",
   "summon", "structure", "equip", "unequip", "activate", "death", "leave", "break",
@@ -338,6 +338,8 @@ function Visao.estado_para(g, lado)
     combate = combate(g),
     escolha = escolha(g, lado),
     erro = g.error and Visao.ERRO_GENERICO or false,
+    -- Derrota por abandono (US #43): quem perdeu e o motivo, ou false.
+    abandono = g.forfeited and { p = g.forfeited.p, motivo = g.forfeited.reason } or false,
   }
   return x
 end
