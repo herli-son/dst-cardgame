@@ -42,13 +42,18 @@
 --         começo com os decks fixos e a mesa zerada depois do fim.
 --       - duelo/mod/tela_sala.lua e widgets/duelo_sala.lua (só onde há
 --         tela): o painel com o botão "Pronto" e o resultado.
+--   * US #37: a mão na tela.
+--       - duelo/mod/catalogo.lua: os dados de cada carta para os clientes
+--         (gerado de scripts/duelo/cartas; sem o motor).
+--       - duelo/mod/mao.lua e widgets/duelo_mao.lua (só onde há tela): as
+--         cartas em leque, no lugar da barra de inventário do jogo.
 --   * US #43: desconexão.
 --       - duelo/mod/desconexao.lua (só no servidor): quem cai perde; no
 --         servidor dedicado, depois de 2 minutos sem voltar.
 --
 -- O que vem nas próximas US:
 --   * US #33: criaturas de verdade nos espaços da mesa.
---   * US #37: a mão no inventário.
+--   * US #38: jogar carta e escolher alvo.
 
 local require = GLOBAL.require
 local TheNet = GLOBAL.TheNet
@@ -221,6 +226,33 @@ if Cliente then
   end)
 end
 
+-- A mão do jogador (US #37), em quem tem tela: as cartas em leque na parte
+-- de baixo, no lugar da barra de inventário do jogo, que fica escondida.
+-- duelo/mod/mao decide o conteúdo, a partir da visão local e do catálogo de
+-- cartas (duelo/mod/catalogo: só dados, sem o motor); widgets/duelo_mao
+-- desenha. A mão não passa pelo inventário do jogo: o segredo dela já vem da
+-- visão de cada lado (US #41).
+local Mao = nil
+if Cliente then
+  Mao = require("duelo/mod/mao").instalar({
+    cliente = Cliente,
+    catalogo = require("duelo/mod/catalogo"),
+    log = function(msg) GLOBAL.print(msg) end,
+  })
+  AddClassPostConstruct("widgets/controls", function(self)
+    -- A barra de inventário do jogo não aparece: o jogo a mostra de novo em
+    -- vários momentos (Controls:ShowCraftingAndInventory), então o Show dela
+    -- deixa de fazer efeito.
+    if self.inv ~= nil then
+      self.inv:Hide()
+      self.inv.Show = function() end
+    end
+    local DueloMao = require("widgets/duelo_mao")
+    self.duelo_mao = self.bottom_root:AddChild(DueloMao())
+    Mao.ligar_widget(self.duelo_mao)
+  end)
+end
+
 -- Exposto no ambiente do mod (para os arquivos das próximas US) e no
 -- ambiente global (para o console: DUELO.Relogio.avancar(1),
 -- DUELO.Relogio.travar(), DUELO.Relogio.liberar(),
@@ -243,6 +275,7 @@ DUELO = {
   Sala = Sala,       -- nil nos clientes
   Desconexao = Desconexao, -- nil nos clientes
   Tela = Tela,       -- nil no servidor dedicado
+  Mao = Mao,         -- nil no servidor dedicado
 }
 GLOBAL.DUELO = DUELO
 

@@ -36,6 +36,8 @@
 --       refeita a partir dela.
 --   Cliente.quando_recusada(fn) -> cancelar   fn(motivo, n)
 --   Cliente.partida() -> n | nil              número da partida da visão
+--   Cliente.quando_lote(fn) -> cancelar       fn(visao): um lote foi aplicado
+--       (uma vez por lote, depois dos eventos dele)
 --   Cliente.sala() -> { eu, prontos, jogadores, aviso, ausente } | nil
 --   Cliente.quando_sala(fn) -> cancelar       fn(sala): a sala mudou
 --   Cliente.pronto(bool) -> ok, erro          avisa o servidor que este
@@ -82,7 +84,7 @@ local estado = {
   ultimos = {},       -- últimos eventos recebidos
   recusas = {},       -- últimas recusas
   sala = nil,         -- a última mensagem "sala"
-  ouvintes = { evento = {}, estado = {}, recusada = {}, sala = {} },
+  ouvintes = { evento = {}, estado = {}, recusada = {}, sala = {}, lote = {} },
 }
 
 local function log(msg)
@@ -124,6 +126,7 @@ function Cliente.quando_estado(fn) return ouvir("estado", fn) end
 function Cliente.quando_recusada(fn) return ouvir("recusada", fn) end
 
 function Cliente.quando_sala(fn) return ouvir("sala", fn) end
+function Cliente.quando_lote(fn) return ouvir("lote", fn) end
 
 function Cliente.sala() return estado.sala end
 function Cliente.partida() return estado.partida end
@@ -208,6 +211,8 @@ local function receber_eventos(m)
     if #u > Cliente.ULTIMOS then table.remove(u, 1) end
     avisar("evento", ev, estado.visao)
   end
+  -- Uma vez por lote, depois dos eventos: a visão já está com as mudanças.
+  avisar("lote", estado.visao)
 end
 
 local function receber_recusada(m)
@@ -380,7 +385,7 @@ function Cliente.instalar(ctx)
   estado.contador = 0
   estado.ultimos, estado.recusas = {}, {}
   estado.sala = nil
-  estado.ouvintes = { evento = {}, estado = {}, recusada = {}, sala = {} }
+  estado.ouvintes = { evento = {}, estado = {}, recusada = {}, sala = {}, lote = {} }
   if ctx.rede and ctx.rede.ligar_cliente then ctx.rede.ligar_cliente(Cliente) end
   if ctx.AddPlayerPostInit then
     ctx.AddPlayerPostInit(function(inst)
