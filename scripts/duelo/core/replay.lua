@@ -11,7 +11,9 @@
 --     extra_decks = { ids, ids },
 --     actions = { { p = 1 | 2, action = {...} }, ... }   as ações aceitas, na
 --                              ordem, com cópia; a troca inicial entra como
---                              { type = "mulligan", indices = {...} }. Uma ação
+--                              { type = "mulligan", indices = {...} } e a
+--                              derrota por abandono (Game:forfeit, US #43)
+--                              como { type = "forfeit", reason = "..." }. Uma ação
 --                              que encerrou a partida por erro também entra, por
 --                              último.
 --   }
@@ -98,6 +100,8 @@ function Replay.run(log)
     local action = Game.deep_copy(entry.action)
     if type(action) == "table" and action.type == "mulligan" then
       ok, err = g:mulligan(entry.p, action.indices)
+    elseif type(action) == "table" and action.type == "forfeit" then
+      ok, err = g:forfeit(entry.p, action.reason)
     else
       ok, err = g:act(entry.p, action)
     end
@@ -177,6 +181,7 @@ function Replay.snapshot(g)
   local s = {
     phase = g.phase, round = g.round, vez = g.vez, active = g.active, attacker = g.attacker,
     first = g.first, winner = g.winner, passes = g.passes, period = g.current_period,
+    forfeit = g.forfeited and { p = g.forfeited.p, reason = g.forfeited.reason } or false,
     fogueira = { g.fogueira[1] or false, g.fogueira[2] or false },
     fogueira_pending = { g.fogueira_pending[1], g.fogueira_pending[2] },
     pending_choice = g.pending_choice and { player = g.pending_choice.player, reason = g.pending_choice.reason,
