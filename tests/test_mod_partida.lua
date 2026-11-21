@@ -21,105 +21,10 @@ local Bot = require("duelo/bot/bot")
 local Decks = require("duelo/decks/init")
 local Visao = require("duelo/mod/visao")
 
-local RAIZ = "./"
-
-local function carregar(nome)
-  local fn, err = loadfile(RAIZ .. "scripts/duelo/mod/" .. nome .. ".lua")
-  assert(fn, err)
-  return fn()
-end
-
-----------------------------------------------------------------------------
--- Transporte falso
-----------------------------------------------------------------------------
-
-local function nova_rede()
-  local net = {
-    maquinas = {},      -- todas, na ordem de criação
-    servidor = nil,     -- a máquina que é servidor
-    jogadores = {},     -- AllPlayers do servidor
-    relogio = 0,
-    perder = nil,       -- fn(userid, tipo, id, i, total) -> true: o pedaço some
-    mensagens = {},     -- userid -> lista de { tipo = , m = tabela } recebidas
-    pedacos = {},       -- todos os pedaços enviados: { userid, tipo, bytes }
-    rpcs_servidor = {}, -- nome -> quantas chegaram ao servidor
-    _juntando = {},
-  }
-
-  local function observar(userid, tipo, id, i, total, pedaco)
-    net.pedacos[#net.pedacos + 1] = { userid = userid, tipo = tipo, bytes = #pedaco }
-    local chave = userid .. "/" .. tipo
-    if i == 1 then net._juntando[chave] = {} end
-    local partes = net._juntando[chave]
-    partes[i] = pedaco
-    if i == total then
-      net.mensagens[userid] = net.mensagens[userid] or {}
-      table.insert(net.mensagens[userid], { tipo = tipo, m = Serial.deserialize(table.concat(partes)) })
-    end
-  end
-
-  -- opts.servidor: roda a partida; opts.userid: tem jogador local (cliente
-  -- ou host); opts.lado: valor da netvar duelo_lado do jogador.
-  function net:maquina(opts)
-    local m = { net = net, userid = opts.userid, logs = {}, srv = {}, cli = {} }
-    local jogador = nil
-    if opts.userid then
-      jogador = { userid = opts.userid }
-      if opts.lado then jogador.duelo_lado = { value = function() return opts.lado end } end
-      function jogador:ListenForEvent(nome, fn) self.eventos = self.eventos or {}; self.eventos[nome] = fn end
-      net.jogadores[#net.jogadores + 1] = jogador
-    end
-    m.jogador = jogador
-    m.GLOBAL = {
-      TheNet = { GetIsServer = function() return opts.servidor == true end },
-      ThePlayer = jogador,
-      AllPlayers = opts.servidor and net.jogadores or {},
-      -- O relógio da simulação fica parado (servidor pausado): a taxa e as
-      -- retentativas usam o tempo real.
-      GetTime = function() return 0 end,
-      GetTimeRealSeconds = function() return net.relogio end,
-      print = function(s) m.logs[#m.logs + 1] = tostring(s) end,
-    }
-    local ctx = {
-      GLOBAL = m.GLOBAL,
-      AddModRPCHandler = function(ns, nome, fn) m.srv[nome] = fn; m.ordem = (m.ordem or "") .. "s:" .. nome .. ";" end,
-      AddClientModRPCHandler = function(ns, nome, fn) m.cli[nome] = fn; m.ordem = (m.ordem or "") .. "c:" .. nome .. ";" end,
-      GetModRPC = function(ns, nome) assert(m.srv[nome], "RPC não registrada: " .. nome); return { namespace = ns, id = nome } end,
-      GetClientModRPC = function(ns, nome) assert(m.cli[nome], "RPC não registrada: " .. nome); return { namespace = ns, id = nome } end,
-      SendModRPCToServer = function(rpc, ...)
-        assert(not opts.servidor, "o servidor não manda RPC para si mesmo")
-        net.rpcs_servidor[rpc.id] = (net.rpcs_servidor[rpc.id] or 0) + 1
-        net.servidor.srv[rpc.id](jogador, ...)
-      end,
-      SendModRPCToClient = function(rpc, users, id, i, total, pedaco)
-        assert(opts.servidor, "só o servidor manda RPC de cliente")
-        if type(users) ~= "table" then users = { users } end
-        for _, userid in ipairs(users) do
-          assert(userid ~= m.userid, "o host não manda RPC para o próprio jogador")
-          observar(userid, rpc.id, id, i, total, pedaco)
-          if not (net.perder and net.perder(userid, rpc.id, id, i, total)) then
-            for _, outra in ipairs(net.maquinas) do
-              if outra.userid == userid and outra ~= m then outra.cli[rpc.id](id, i, total, pedaco) end
-            end
-          end
-        end
-      end,
-    }
-    m.ctx = ctx
-    m.Rede = carregar("rede").instalar(ctx)
-    if opts.servidor then
-      m.Partida = carregar("partida_servidor").instalar({ rede = m.Rede, GLOBAL = m.GLOBAL })
-      net.servidor = m
-    end
-    if opts.userid then
-      m.Cliente = carregar("partida_cliente").instalar({ rede = m.Rede, GLOBAL = m.GLOBAL })
-    end
-    net.maquinas[#net.maquinas + 1] = m
-    return m
-  end
-
-  return net
-end
+local RedeFalsa = require("rede_falsa")
+local RAIZ = RedeFalsa.RAIZ
+local carregar = RedeFalsa.carregar
+local nova_rede = RedeFalsa.nova
 
 -- Servidor dedicado, dois jogadores e um espectador.
 local function mesa(opts)
@@ -370,9 +275,31 @@ return {
     end
   end },
 
+  { "sem resultado, o vencedor na visão é false (não some)", function(T)
+    local net, s, cs = mesa()
+    local g = iniciar(s)
+    T.eq(Visao.estado_para(g, 1).vencedor, false, "false na fotografia")
+    for lado, c in ipairs(cs) do T.eq(c.Cliente.visao().vencedor, false, "false no cliente do lado " .. lado) end
+    local achou = false
+    for _, linha in ipairs(cs[1].Cliente.resumo()) do
+      if linha:find("vencedor", 1, true) then achou = true end
+    end
+    T.ok(not achou, "o resumo do cliente não fala de vencedor antes do fim")
+    g.winner = 0
+    T.eq(Visao.estado_para(g, 1).vencedor, 0, "o empate é 0")
+  end },
+
+  { "o resumo do servidor diz fogueira apagada de dia, não nil", function(T)
+    local net, s = mesa()
+    iniciar(s)
+    local resumo = table.concat(s.Partida.resumo(), "\n")
+    T.ok(resumo:find("fogueira apagada", 1, true), "de dia a fogueira está apagada")
+    T.ok(not resumo:find("fogueira nil", 1, true))
+  end },
+
   { "todas as RPCs são registradas nos dois lados, na mesma ordem", function(T)
     local net, s, cs = mesa()
-    T.eq(s.ordem, "s:acao;s:pedir_estado;c:eventos;c:estado;c:recusada;")
+    T.eq(s.ordem, "s:acao;s:pedir_estado;s:pronto;c:eventos;c:estado;c:recusada;c:sala;")
     for _, c in ipairs(cs) do T.eq(c.ordem, s.ordem, "mesma ordem no cliente") end
   end },
 
@@ -1337,6 +1264,7 @@ return {
   end },
 
   { "modmain.lua liga a rede, a partida só no servidor e o cliente só onde há tela", function(T)
+    local construtores = {}
     local function rodar_modmain(servidor, dedicado)
       local rpcs = {}
       local env = {
@@ -1350,6 +1278,7 @@ return {
         AddComponentPostInit = function() end,
         AddPrefabPostInit = function() end,
         AddSimPostInit = function() end,
+        AddClassPostConstruct = function(classe) construtores[#construtores + 1] = classe end,
         AddModRPCHandler = function(ns, nome) rpcs[#rpcs + 1] = "s:" .. ns .. "." .. nome end,
         AddClientModRPCHandler = function(ns, nome) rpcs[#rpcs + 1] = "c:" .. ns .. "." .. nome end,
         SendModRPCToServer = function() end, SendModRPCToClient = function() end,
@@ -1360,15 +1289,21 @@ return {
       fn()
       return env.DUELO, table.concat(rpcs, " ")
     end
-    local ORDEM = "s:duelo.acao s:duelo.pedir_estado c:duelo.eventos c:duelo.estado c:duelo.recusada"
+    local ORDEM = "s:duelo.acao s:duelo.pedir_estado s:duelo.pronto c:duelo.eventos c:duelo.estado c:duelo.recusada c:duelo.sala"
     local dedicado, r1 = rodar_modmain(true, true)
     T.eq(r1, ORDEM, "RPCs no servidor dedicado")
     T.eq(type(dedicado.Partida.iniciar_teste), "function", "DUELO.Partida no servidor")
     T.eq(type(dedicado.Partida.estado), "function")
     T.eq(dedicado.Cliente, nil, "sem cliente no servidor dedicado")
+    -- US #42: a sala só no servidor; o painel só onde há tela.
+    T.eq(type(dedicado.Sala.receber_pronto), "function", "DUELO.Sala no servidor")
+    T.eq(dedicado.Tela, nil, "sem painel no servidor dedicado")
+    T.eq(#construtores, 0, "o servidor dedicado não mexe na tela")
     local host, r2 = rodar_modmain(true, false)
     T.eq(r2, ORDEM, "RPCs no host")
     T.ok(host.Partida ~= nil and host.Cliente ~= nil, "no host os dois convivem")
+    T.ok(host.Sala ~= nil and host.Tela ~= nil, "no host a sala e o painel convivem")
+    T.eq(construtores[1], "widgets/controls", "o painel entra nos controles da tela")
     -- No cliente, o módulo do servidor (e com ele o motor) nem é pedido.
     local pedidos, original = {}, require
     _G.require = function(nome) pedidos[nome] = true; return original(nome) end
@@ -1377,11 +1312,14 @@ return {
     T.ok(ok, tostring(cliente))
     T.eq(r3, ORDEM, "RPCs no cliente, na mesma ordem")
     T.eq(cliente.Partida, nil, "sem partida no cliente")
+    T.eq(cliente.Sala, nil, "sem sala do servidor no cliente")
+    T.eq(type(cliente.Tela.modelo), "function", "DUELO.Tela")
     T.eq(type(cliente.Cliente.enviar), "function", "DUELO.Cliente")
     T.eq(type(cliente.Cliente.imprimir), "function")
     T.ok(pedidos["duelo/mod/partida_cliente"], "o cliente pede o módulo do cliente")
     for nome in pairs(pedidos) do
-      T.ok(nome ~= "duelo/mod/partida_servidor" and not nome:find("^duelo/core/game"),
+      T.ok(nome ~= "duelo/mod/partida_servidor" and nome ~= "duelo/mod/sala_servidor"
+        and not nome:find("^duelo/core/game") and not nome:find("^duelo/decks"),
         "o modmain do cliente pediu " .. nome)
     end
   end },

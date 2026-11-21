@@ -37,11 +37,15 @@
 --         do outro nunca saem do servidor).
 --       - duelo/mod/partida_cliente.lua (só onde há tela): a visão local da
 --         partida e o envio das ações.
+--   * US #42: início e fim da partida.
+--       - duelo/mod/sala_servidor.lua (só no servidor): quem está pronto, o
+--         começo com os decks fixos e a mesa zerada depois do fim.
+--       - duelo/mod/tela_sala.lua e widgets/duelo_sala.lua (só onde há
+--         tela): o painel com o botão "Pronto" e o resultado.
 --
 -- O que vem nas próximas US:
 --   * US #33: criaturas de verdade nos espaços da mesa.
 --   * US #37: a mão no inventário.
---   * US #42: preparar, começar e terminar a partida.
 
 local require = GLOBAL.require
 local TheNet = GLOBAL.TheNet
@@ -137,6 +141,18 @@ if TheNet:GetIsServer() then
   })
 end
 
+-- A sala de espera (US #42), só no servidor: dois jogadores prontos começam
+-- a partida com os decks fixos; depois do fim, o primeiro pronto zera a mesa.
+local Sala = nil
+if Partida then
+  Sala = require("duelo/mod/sala_servidor").instalar({
+    GLOBAL = GLOBAL,
+    rede = Rede,
+    partida = Partida,
+    definir_lados = Camera.definir_lados,
+  })
+end
+
 -- A visão da partida em quem tem tela (clientes e host; o servidor dedicado
 -- não tem jogador local). No host os dois lados convivem.
 local Cliente = nil
@@ -149,13 +165,35 @@ if not TheNet:IsDedicated() then
   })
 end
 
+-- O painel da sala e do fim da partida (US #42), em quem tem tela: o botão
+-- "Pronto" e o resultado. duelo/mod/tela_sala decide o conteúdo e
+-- widgets/duelo_sala desenha; o painel nasce junto com os controles da tela
+-- do jogador (widgets/controls.lua, raiz `top_root`: alto da tela, ao centro).
+local Tela = nil
+if Cliente then
+  Tela = require("duelo/mod/tela_sala").instalar({
+    cliente = Cliente,
+    log = function(msg) GLOBAL.print(msg) end,
+  })
+  AddClassPostConstruct("widgets/controls", function(self)
+    local DueloSala = require("widgets/duelo_sala")
+    -- O clique roda dentro do tratamento de controles do jogo: um erro
+    -- aqui viraria a tela de erro de script.
+    self.duelo_sala = self.top_root:AddChild(DueloSala(function()
+      local ok, err = GLOBAL.pcall(Tela.clicar)
+      if not ok then GLOBAL.print("[duelo] tela: erro no clique do painel: " .. GLOBAL.tostring(err)) end
+    end))
+    Tela.ligar_widget(self.duelo_sala)
+  end)
+end
+
 -- Exposto no ambiente do mod (para os arquivos das próximas US) e no
 -- ambiente global (para o console: DUELO.Relogio.avancar(1),
 -- DUELO.Relogio.travar(), DUELO.Relogio.liberar(),
 -- DUELO.Calibracao.calibrar(), DUELO.Camera.liberar(),
 -- DUELO.Camera.aplicar(); US #41, no console do servidor:
 -- DUELO.Partida.iniciar_teste(), DUELO.Partida.estado(),
--- DUELO.Partida.encerrar(); no console do cliente:
+-- DUELO.Partida.encerrar(), DUELO.Sala.prontos(); no console do cliente:
 -- DUELO.Cliente.enviar({ type = "pass" }), DUELO.Cliente.imprimir()).
 DUELO = {
   Mesa = Mesa,
@@ -168,6 +206,8 @@ DUELO = {
   Rede = Rede,
   Partida = Partida, -- nil nos clientes
   Cliente = Cliente, -- nil no servidor dedicado
+  Sala = Sala,       -- nil nos clientes
+  Tela = Tela,       -- nil no servidor dedicado
 }
 GLOBAL.DUELO = DUELO
 

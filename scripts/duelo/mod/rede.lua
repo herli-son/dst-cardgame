@@ -33,12 +33,19 @@
 --                                 o número dela no cliente (volta na recusa;
 --                                 só vale inteiro finito em [0, 2^31), senão
 --                                 volta false).
---     "pedir_estado"  ()          pede a fotografia da partida.
+--     "pedir_estado"  ()          pede a fotografia da partida (e a sala).
+--     "pronto"        (1 | 0)     US #42: o jogador está (1) ou deixou de
+--                                 estar (0) pronto para começar; vai para
+--                                 duelo/mod/sala_servidor. É um número, não
+--                                 um booleano: no jogo, o `false` de uma RPC
+--                                 de mod não chegou ao servidor (o "Cancelar"
+--                                 não fazia nada no servidor dedicado).
 --   servidor -> cliente, todas com (id, i, total, pedaco): a mensagem `id`
 --   serializada e cortada em `total` pedaços, mandados em ordem
 --     "eventos"   { partida, seq, eventos, mudancas }
 --     "estado"    { partida, seq, lado, estado } ou { partida = false }
 --     "recusada"  { n, motivo }   só para quem enviou a ação
+--     "sala"      { eu, prontos, jogadores, aviso }   US #42, uma por jogador
 --
 -- O servidor NUNCA executa nada que venha do cliente: o texto da ação é lido
 -- por Serial.deserialize (caractere a caractere, sem loadstring; no máximo 8
@@ -55,6 +62,8 @@
 --                         log e uma recusa ao jogador por janela;
 --   ESTADOS_POR_SEGUNDO   pedidos de fotografia atendidos por jogador a cada
 --                         segundo (o excesso é ignorado; o cliente repete);
+--   PRONTOS_POR_SEGUNDO   avisos de "pronto" aceitos por jogador a cada
+--                         segundo (o excesso é ignorado);
 --   FRAGMENTO             bytes de cada pedaço das mensagens do servidor;
 --   MENSAGEM_BYTES        maior mensagem que o cliente aceita remontar.
 --
@@ -88,6 +97,7 @@ Rede.LIMITES = {
   ACAO_BYTES = 1024,
   ACOES_POR_SEGUNDO = 10,
   ESTADOS_POR_SEGUNDO = 2,
+  PRONTOS_POR_SEGUNDO = 5,
   FRAGMENTO = 1000,
   MENSAGEM_BYTES = 262144,
 }
@@ -98,13 +108,14 @@ Rede.LIMITES = {
 local LEITURA_DA_ACAO = { profundidade = 8, elementos = 256 }
 
 -- Mensagens do servidor para o cliente, na ordem de registro.
-Rede.MENSAGENS = { "eventos", "estado", "recusada" }
+Rede.MENSAGENS = { "eventos", "estado", "recusada", "sala" }
 
 local estado = {
   ctx = nil,
   GLOBAL = nil,
   log = nil,
   servidor = nil,   -- duelo/mod/partida_servidor (só no servidor)
+  sala = nil,       -- duelo/mod/sala_servidor (só no servidor)
   cliente = nil,    -- duelo/mod/partida_cliente (só onde há tela)
   id_mensagem = 0,  -- servidor: contador das mensagens enviadas
   taxa = {},        -- servidor: userid -> { acao = janela, estado = janela }
@@ -288,10 +299,25 @@ local ao_pedir_estado = protegido("pedir_estado", function(player)
   if userid == nil then return end
   if not cabe_na_taxa(userid, "estado", Rede.LIMITES.ESTADOS_POR_SEGUNDO) then return end
   estado.servidor.pedir_estado(userid)
+  if estado.sala ~= nil then estado.sala.pedir(userid) end
+end)
+
+-- Handler da RPC "pronto" no servidor (US #42).
+local ao_receber_pronto = protegido("pronto", function(player, pronto)
+  if estado.sala == nil then return end
+  local userid = userid_de(player)
+  if pronto == 1 then pronto = true elseif pronto == 0 then pronto = false else return end
+  if userid == nil then return end
+  if not cabe_na_taxa(userid, "pronto", Rede.LIMITES.PRONTOS_POR_SEGUNDO) then return end
+  estado.sala.receber_pronto(userid, pronto)
 end)
 
 function Rede.ligar_servidor(partida)
   estado.servidor = partida
+end
+
+function Rede.ligar_sala(sala)
+  estado.sala = sala
 end
 
 ----------------------------------------------------------------------------
@@ -357,6 +383,20 @@ function Rede.pedir_estado()
   return true
 end
 
+-- Avisa o servidor que este jogador está (ou deixou de estar) pronto.
+function Rede.enviar_pronto(pronto)
+  if type(pronto) ~= "boolean" then return false, "pedido inválido" end
+  if estado.sala ~= nil and e_servidor() then
+    local G = estado.GLOBAL
+    if G.ThePlayer == nil then return false, "sem jogador local" end
+    ao_receber_pronto(G.ThePlayer, pronto and 1 or 0)
+    return true
+  end
+  local ctx = estado.ctx
+  ctx.SendModRPCToServer(ctx.GetModRPC(Rede.NAMESPACE, "pronto"), pronto and 1 or 0)
+  return true
+end
+
 function Rede.ligar_cliente(cliente)
   estado.cliente = cliente
 end
@@ -375,23 +415,33 @@ end
 --     (o modmain injeta GLOBAL.GetTimeRealSeconds; sem ctx.agora, é ela que
 --     vale; os testes injetam um relógio falso);
 --   ctx.AddSimPostInit: de modutil.lua (opcional): no servidor, liga a
---     limpeza das janelas de taxa de quem sai ("ms_playerleft" no TheWorld).
+--     limpeza das janelas de taxa de quem sai ("ms_playerleft" no TheWorld)
+--     e avisa a sala de quem entra ("ms_playerjoined") e de quem sai.
 function Rede.instalar(ctx)
   estado.ctx = ctx
   estado.GLOBAL = ctx.GLOBAL
   estado.log = ctx.log or (ctx.GLOBAL and ctx.GLOBAL.print) or nil
   estado.servidor = nil
+  estado.sala = nil
   estado.cliente = nil
   estado.id_mensagem = 0
   estado.taxa = {}
   estado.remontagem = {}
   ctx.AddModRPCHandler(Rede.NAMESPACE, "acao", ao_receber_acao)
   ctx.AddModRPCHandler(Rede.NAMESPACE, "pedir_estado", ao_pedir_estado)
+  ctx.AddModRPCHandler(Rede.NAMESPACE, "pronto", ao_receber_pronto)
   if ctx.AddSimPostInit then
     ctx.AddSimPostInit(function()
       local G = estado.GLOBAL
       if not e_servidor() or G.TheWorld == nil then return end
-      G.TheWorld:ListenForEvent("ms_playerleft", function(_, jogador) Rede.esquecer(userid_de(jogador)) end)
+      G.TheWorld:ListenForEvent("ms_playerleft", protegido("ms_playerleft", function(_, jogador)
+        local userid = userid_de(jogador)
+        Rede.esquecer(userid)
+        if estado.sala ~= nil then estado.sala.saiu(userid) end
+      end))
+      G.TheWorld:ListenForEvent("ms_playerjoined", protegido("ms_playerjoined", function(_, jogador)
+        if estado.sala ~= nil then estado.sala.entrou(userid_de(jogador)) end
+      end))
     end)
   end
   for _, tipo in ipairs(Rede.MENSAGENS) do

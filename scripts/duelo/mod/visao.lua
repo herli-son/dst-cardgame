@@ -324,10 +324,13 @@ end
 
 function Visao.estado_para(g, lado)
   local noite = g.fogueira ~= nil and g.fogueira[1] ~= nil
+  -- false enquanto não há resultado ("x == nil and false or x" daria nil).
+  local vencedor = false
+  if g.winner ~= nil then vencedor = g.winner end
   local x = {
     fase = g.phase, rodada = g.round, vez = g.vez, periodo = g.current_period or false,
     ativo = g.active or false, atacante = g.attacker or false, primeiro = g.first or false,
-    vencedor = g.winner == nil and false or g.winner,
+    vencedor = vencedor,
     fogueira = noite and { g.fogueira[1], g.fogueira[2] } or false,
     fogueira_guardada = { (g.fogueira_pending or {})[1] or 0, (g.fogueira_pending or {})[2] or 0 },
     jogadores = { jogador(g, 1, lado), jogador(g, 2, lado) },
