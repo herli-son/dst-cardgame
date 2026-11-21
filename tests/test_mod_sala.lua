@@ -341,9 +341,10 @@ return {
     T.ok(not s.Sala.receber_pronto("KU_ninguem", true), "só quem está conectado")
     T.ok(not cs[1].Cliente.pronto("sim"), "o cliente nem envia")
     -- Direto na RPC do servidor, com valores que o cliente não mandaria.
-    for _, v in ipairs({ "sim", 1, {} }) do s.srv.pronto(cs[1].jogador, v) end
-    s.srv.pronto(nil, true)
-    s.srv.pronto({ userid = 7 }, true)
+    for _, v in ipairs({ "sim", true, false, 2, 0.5, {} }) do s.srv.pronto(cs[1].jogador, v) end
+    s.srv.pronto(cs[1].jogador)
+    s.srv.pronto(nil, 1)
+    s.srv.pronto({ userid = 7 }, 1)
     T.eq(#s.Sala.prontos(), 0)
     -- Taxa: no mesmo segundo, só os primeiros PRONTOS_POR_SEGUNDO valem.
     local limite = s.Rede.LIMITES.PRONTOS_POR_SEGUNDO

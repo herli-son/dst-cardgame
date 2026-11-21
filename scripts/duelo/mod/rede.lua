@@ -34,9 +34,12 @@
 --                                 só vale inteiro finito em [0, 2^31), senão
 --                                 volta false).
 --     "pedir_estado"  ()          pede a fotografia da partida (e a sala).
---     "pronto"        (bool)      US #42: o jogador está (ou deixou de
---                                 estar) pronto para começar; vai para
---                                 duelo/mod/sala_servidor.
+--     "pronto"        (1 | 0)     US #42: o jogador está (1) ou deixou de
+--                                 estar (0) pronto para começar; vai para
+--                                 duelo/mod/sala_servidor. É um número, não
+--                                 um booleano: no jogo, o `false` de uma RPC
+--                                 de mod não chegou ao servidor (o "Cancelar"
+--                                 não fazia nada no servidor dedicado).
 --   servidor -> cliente, todas com (id, i, total, pedaco): a mensagem `id`
 --   serializada e cortada em `total` pedaços, mandados em ordem
 --     "eventos"   { partida, seq, eventos, mudancas }
@@ -303,7 +306,8 @@ end)
 local ao_receber_pronto = protegido("pronto", function(player, pronto)
   if estado.sala == nil then return end
   local userid = userid_de(player)
-  if userid == nil or type(pronto) ~= "boolean" then return end
+  if pronto == 1 then pronto = true elseif pronto == 0 then pronto = false else return end
+  if userid == nil then return end
   if not cabe_na_taxa(userid, "pronto", Rede.LIMITES.PRONTOS_POR_SEGUNDO) then return end
   estado.sala.receber_pronto(userid, pronto)
 end)
@@ -385,11 +389,11 @@ function Rede.enviar_pronto(pronto)
   if estado.sala ~= nil and e_servidor() then
     local G = estado.GLOBAL
     if G.ThePlayer == nil then return false, "sem jogador local" end
-    ao_receber_pronto(G.ThePlayer, pronto)
+    ao_receber_pronto(G.ThePlayer, pronto and 1 or 0)
     return true
   end
   local ctx = estado.ctx
-  ctx.SendModRPCToServer(ctx.GetModRPC(Rede.NAMESPACE, "pronto"), pronto)
+  ctx.SendModRPCToServer(ctx.GetModRPC(Rede.NAMESPACE, "pronto"), pronto and 1 or 0)
   return true
 end
 

@@ -89,7 +89,10 @@ local function nova_rede(opcoes)
       SendModRPCToServer = function(rpc, ...)
         assert(not opts.servidor, "o servidor não manda RPC para si mesmo")
         net.rpcs_servidor[rpc.id] = (net.rpcs_servidor[rpc.id] or 0) + 1
-        net.servidor.srv[rpc.id](jogador, ...)
+        -- Como no jogo (visto na US #42): um `false` não chega ao servidor.
+        local args, n = { ... }, select("#", ...)
+        for i = 1, n do if args[i] == false then args[i] = nil end end
+        net.servidor.srv[rpc.id](jogador, unpack(args, 1, n))
       end,
       SendModRPCToClient = function(rpc, users, id, i, total, pedaco)
         assert(opts.servidor, "só o servidor manda RPC de cliente")
