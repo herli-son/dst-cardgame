@@ -11,7 +11,9 @@
 --     extra_decks = { ids, ids },
 --     actions = { { p = 1 | 2, action = {...} }, ... }   as ações aceitas, na
 --                              ordem, com cópia; a troca inicial entra como
---                              { type = "mulligan", indices = {...} }. Uma ação
+--                              { type = "mulligan", indices = {...} } e a
+--                              derrota por abandono (Game:forfeit, US #43)
+--                              como { type = "forfeit", reason = "..." }. Uma ação
 --                              que encerrou a partida por erro também entra, por
 --                              último.
 --   }
@@ -38,9 +40,12 @@
 --                                   for um registro serializado por este módulo.
 --   Replay.serialize(v) / Replay.deserialize(s)   as mesmas funções, para
 --                                   qualquer valor simples (chaves ordenadas: o
---                                   mesmo valor dá sempre o mesmo texto).
+--                                   mesmo valor dá sempre o mesmo texto). São
+--                                   as de duelo/core/serial, que não depende
+--                                   do motor.
 
 local Game = require("duelo/core/game")
+local Serial = require("duelo/core/serial")
 
 local Replay = {}
 
@@ -48,149 +53,11 @@ local Replay = {}
 -- Serialização
 ----------------------------------------------------------------------------
 
-local function sort_keys(a, b)
-  local ta, tb = type(a), type(b)
-  if ta ~= tb then return ta < tb end
-  return a < b
-end
-
-local function write(v, out, seen, path)
-  local tv = type(v)
-  if tv == "number" then
-    if v ~= v or v == math.huge or v == -math.huge then
-      error("valor não serializável em " .. path .. ": " .. tostring(v))
-    end
-    if v % 1 == 0 and math.abs(v) < 2 ^ 53 then
-      out[#out + 1] = string.format("%.0f", v)
-    else
-      out[#out + 1] = string.format("%.17g", v)
-    end
-  elseif tv == "string" then
-    out[#out + 1] = string.format("%q", v)
-  elseif tv == "boolean" then
-    out[#out + 1] = tostring(v)
-  elseif tv == "table" then
-    if seen[v] then error("referência cíclica em " .. path) end
-    seen[v] = true
-    local keys = {}
-    for k in pairs(v) do
-      local tk = type(k)
-      if tk ~= "number" and tk ~= "string" then error("chave não serializável em " .. path .. ": " .. tostring(k)) end
-      if tk == "number" and (k ~= k or k % 1 ~= 0) then error("chave não serializável em " .. path .. ": " .. tostring(k)) end
-      keys[#keys + 1] = k
-    end
-    table.sort(keys, sort_keys)
-    out[#out + 1] = "{"
-    for i, k in ipairs(keys) do
-      if i > 1 then out[#out + 1] = "," end
-      local key
-      if type(k) == "number" then key = string.format("[%.0f]", k) else key = string.format("[%q]", k) end
-      out[#out + 1] = key .. "="
-      write(v[k], out, seen, path .. key)
-    end
-    out[#out + 1] = "}"
-    seen[v] = nil
-  else
-    error("valor não serializável em " .. path .. ": " .. tv)
-  end
-end
-
-function Replay.serialize(v)
-  local out = {}
-  write(v, out, {}, "log")
-  return table.concat(out)
-end
-
--- Lê um valor serializado por Replay.serialize. Só aceita a sintaxe que o
--- serializador produz: literais e construtores de tabela com chaves entre
--- colchetes. Nenhum código é executado.
-local function reader(s)
-  local pos = 1
-  local function fail(msg) error("texto de registro inválido na posição " .. pos .. ": " .. msg, 0) end
-  local function peek() return s:sub(pos, pos) end
-  local value
-  local function read_string()
-    -- O formato %q: aspas, escapes com barra e quebras de linha escapadas.
-    local out = {}
-    pos = pos + 1
-    while true do
-      local c = s:sub(pos, pos)
-      if c == "" then fail("string sem fim") end
-      if c == '"' then pos = pos + 1; break end
-      if c == "\\" then
-        local n = s:sub(pos + 1, pos + 1)
-        if n == "\n" then out[#out + 1] = "\n"; pos = pos + 2
-        elseif n == "n" then out[#out + 1] = "\n"; pos = pos + 2
-        elseif n == "r" then out[#out + 1] = "\r"; pos = pos + 2
-        elseif n == "t" then out[#out + 1] = "\t"; pos = pos + 2
-        elseif n:match("%d") then
-          local digits = s:match("^%d%d?%d?", pos + 1)
-          out[#out + 1] = string.char(tonumber(digits))
-          pos = pos + 1 + #digits
-        else out[#out + 1] = n; pos = pos + 2 end
-      else
-        out[#out + 1] = c
-        pos = pos + 1
-      end
-    end
-    return table.concat(out)
-  end
-  local function read_key()
-    if peek() ~= "[" then fail("esperava chave") end
-    pos = pos + 1
-    local k
-    if peek() == '"' then k = read_string() else
-      local num = s:match("^-?%d+", pos)
-      if not num then fail("chave inválida") end
-      pos = pos + #num
-      k = tonumber(num)
-    end
-    if peek() ~= "]" then fail("esperava ]") end
-    pos = pos + 1
-    return k
-  end
-  function value()
-    local c = peek()
-    if c == "{" then
-      pos = pos + 1
-      local t = {}
-      if peek() == "}" then pos = pos + 1; return t end
-      while true do
-        local k = read_key()
-        if peek() ~= "=" then fail("esperava =") end
-        pos = pos + 1
-        t[k] = value()
-        local d = peek()
-        if d == "}" then pos = pos + 1; return t end
-        if d ~= "," then fail("esperava , ou }") end
-        pos = pos + 1
-      end
-    elseif c == '"' then
-      return read_string()
-    elseif s:sub(pos, pos + 3) == "true" then
-      pos = pos + 4; return true
-    elseif s:sub(pos, pos + 4) == "false" then
-      pos = pos + 5; return false
-    else
-      local num = s:match("^-?%d+%.?%d*[eE]?[-+]?%d*", pos)
-      if not num or num == "" then fail("valor inesperado") end
-      local n = tonumber(num)
-      if n == nil then fail("número inválido") end
-      pos = pos + #num
-      return n
-    end
-  end
-  return function()
-    local v = value()
-    if pos <= #s then fail("sobra depois do valor") end
-    return v
-  end
-end
-
-function Replay.deserialize(s)
-  assert(type(s) == "string", "esperava um texto")
-  return reader(s)()
-end
+-- As funções moram em duelo/core/serial (sem dependência do motor), para os
+-- clientes do mod poderem usá-las sem carregar o motor (US #41).
+local sort_keys = Serial.sort_keys
+Replay.serialize = Serial.serialize
+Replay.deserialize = Serial.deserialize
 
 function Replay.log_to_string(log)
   assert(type(log) == "table" and type(log.actions) == "table", "registro inválido")
@@ -233,6 +100,8 @@ function Replay.run(log)
     local action = Game.deep_copy(entry.action)
     if type(action) == "table" and action.type == "mulligan" then
       ok, err = g:mulligan(entry.p, action.indices)
+    elseif type(action) == "table" and action.type == "forfeit" then
+      ok, err = g:forfeit(entry.p, action.reason)
     else
       ok, err = g:act(entry.p, action)
     end
@@ -312,6 +181,7 @@ function Replay.snapshot(g)
   local s = {
     phase = g.phase, round = g.round, vez = g.vez, active = g.active, attacker = g.attacker,
     first = g.first, winner = g.winner, passes = g.passes, period = g.current_period,
+    forfeit = g.forfeited and { p = g.forfeited.p, reason = g.forfeited.reason } or false,
     fogueira = { g.fogueira[1] or false, g.fogueira[2] or false },
     fogueira_pending = { g.fogueira_pending[1], g.fogueira_pending[2] },
     pending_choice = g.pending_choice and { player = g.pending_choice.player, reason = g.pending_choice.reason,

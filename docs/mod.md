@@ -15,8 +15,16 @@ Este repositório **é** o mod: a raiz dele vira a pasta do mod dentro do jogo. 
 | `scripts/duelo/mod/contornos.lua` | Bug #147: contorno de cada tile de espaço com o `tile_outline` do jogo (o quadrado do `gridplacer`, sem o componente `placer`), na cor do dono, amarelo no espaço de eventos (local a cada cliente). |
 | `scripts/prefabs/duelo_marcador.lua` | US #30: prefab de rede do marcador (só um texto, sem clique nem física). |
 | `scripts/duelo/mod/camera.lua` | US #30: lado de cada jogador e câmera fixa no centro da mesa, sem Q/E, com a vista de longe do bug #147 (distância 80, inclinação de 40° a 60°, zoom de 30 a 180). |
+| `scripts/duelo/mod/rede.lua` | US #41: RPCs de mod entre os clientes e o servidor (ação e pedido de estado; eventos, estado e recusa), com limite de tamanho, taxa por jogador e mensagens em pedaços. |
+| `scripts/duelo/mod/partida_servidor.lua` | US #41: a partida em curso, só no servidor. É o único módulo do mod que carrega o motor; confere e aplica as ações e distribui o resultado. |
+| `scripts/duelo/mod/visao.lua` | US #41: o que cada lado pode ver: filtro dos eventos por tipo e fotografia do estado sem a mão nem o baralho do outro. |
+| `scripts/duelo/mod/partida_cliente.lua` | US #41: a visão local da partida em cada cliente (sem o motor) e o envio das ações. |
+| `scripts/duelo/mod/sala_servidor.lua` | US #42: a sala de espera, só no servidor: quem está pronto, o começo da partida com os decks fixos e a mesa zerada depois do fim. |
+| `scripts/duelo/mod/desconexao.lua` | US #43: quem cai perde, só no servidor: o prazo de 2 minutos no servidor dedicado, a derrota na hora no jogo hospedado. |
+| `scripts/duelo/mod/tela_sala.lua` | US #42: o que o painel mostra em cada cliente (sala, partida em curso ou resultado), decidido a partir da visão local. |
+| `scripts/widgets/duelo_sala.lua` | US #42: o painel no alto da tela (título, texto e botão). Só desenha o que `tela_sala.lua` decide. |
 | `scripts/duelo/mod/layouts/mesa.lua` | Static layout (formato do Tiled) gerado a partir de `mesa.lua`. |
-| `scripts/duelo/core`, `cartas`, `decks`, `sim`, `bot`, `terminal` | Motor de regras, Lua puro (ver `docs/terminal.md`). |
+| `scripts/duelo/core`, `cartas`, `decks`, `sim`, `bot`, `terminal` | Motor de regras, Lua puro (ver `docs/terminal.md`). No jogo, só o servidor o carrega (US #41); dos clientes, só `core/serial.lua` (texto das mensagens). |
 
 ## Instalar para testar
 
@@ -231,3 +239,142 @@ col           1         2
 - Lado dos eventos: com o espelhamento do gerador (o caso real), o J1 vê os eventos à direita e o portal à esquerda.
 - Carta de Turf "Cascalho": é o mesmo paralelepípedo do chão da mesa, então jogada num espaço ela fica igual ao chão em volta; vai precisar de uma marcação visual (decisão registrada na #30).
 - Bordas dos turfs (a conferir quando houver cartas de Turf, registrado na #30): com paralelepípedos em volta, o turf de cada carta (Piso de madeira, Pântano, Cascalho) deve aparecer inteiro nos 2 tiles do espaço.
+
+## O que conferir na US #41 (o servidor decide as jogadas)
+
+**Arquitetura:**
+
+- O motor de regras (`scripts/duelo/core`) só é carregado no servidor, por `scripts/duelo/mod/partida_servidor.lua`, que guarda a partida em curso (uma por mundo). Os clientes não têm o motor nem as cartas.
+- O jogador só manda **ações** (`{ type = "pass" }`, `{ type = "play", hand_index = 2, slot = 1 }`...): `partida_cliente.lua` as entrega a `rede.lua`, que as serializa em texto (`duelo/core/serial`, sem `loadstring`) e manda pela RPC `acao`.
+- O servidor acha o lado pelo `userid` de quem mandou a RPC (nunca por um dado da ação), confere o tamanho e a forma (inclusive a dos alvos), pergunta ao motor se a ação vale (`Game:can_act`) e só então a aplica (`Game:act`). O motor garante que o que `can_act` aceita não dá erro em `act` por causa da forma da ação (`tests/test_fuzz_acoes.lua`): um jogador não consegue encerrar a partida mandando uma ação torta.
+- Cada ação aceita vira um **lote** para cada lado: os eventos novos, filtrados por `visao.lua` (a carta comprada pelo outro chega sem dizer qual é; o que a Máquina de Ciência mostra só vai para o dono), e as mudanças da fotografia do estado daquele lado. Os lotes têm um número de sequência.
+- O cliente guarda a fotografia (`estado`) e aplica os lotes em ordem; se faltar um, pede a fotografia de novo. Quem entra no meio pede a fotografia ao ativar. As próximas US (mão, criaturas, histórico) escutam `DUELO.Cliente.quando_evento(fn)` e leem `DUELO.Cliente.visao()`.
+- Uma ação recusada volta só para quem a enviou, com o motivo (`recusada`); os outros não ficam sabendo.
+- Os handlers de RPC, no servidor e no cliente, rodam em `pcall`: um erro vira um aviso `[duelo] rede: erro ao tratar ...` no log e não sobe para o jogo.
+
+**O que cada lado fica sabendo** (regras em `visao.lua`):
+
+- **Mão e baralho:** só do próprio lado; do outro, só a quantidade de cartas.
+- **Escolha pendente:** quem não escolhe sabe só que há uma escolha daquele jogador e o motivo. A quantidade de opções e as opções só vão para quem escolhe (na Máquina de Ciência, a quantidade diria quantos equipamentos há nas 5 cartas do topo).
+- **Limitação conhecida:** quando a Máquina de Ciência não acha equipamento, nenhuma escolha abre, e o adversário vê a ativação sem escolha em seguida: fica sabendo que não há equipamento nas 5 do topo. Resolver exigiria mudar a carta (abrir a escolha mesmo vazia).
+- **Destruídas:** a zona é pública por regra, como o descarte (tem espaço próprio na mesa), inclusive a carta destruída pelo limite de mão.
+- **Erro do motor:** os clientes recebem só `erro interno do jogo; a partida foi encerrada` (no evento `engine_error` e no campo `erro` da visão). A mensagem inteira, a carta que rodava e o traceback ficam no log do servidor (`[duelo] partida: ERRO DO MOTOR ...`) e em `DUELO.Partida.estado()`.
+
+**Mensagens e limites** (detalhes nos cabeçalhos de `rede.lua`, `partida_servidor.lua` e `visao.lua`):
+
+| Sentido | RPC | Conteúdo |
+|---|---|---|
+| cliente → servidor | `acao` | texto da ação (até 1024 bytes; a maior ação das partidas simuladas tem 241) e o número dela no cliente (inteiro de 0 a 2^31 - 1; outra coisa volta como `false` na recusa) |
+| cliente → servidor | `pedir_estado` | nada |
+| servidor → cliente | `eventos` | `{ partida, seq, eventos, mudancas }` |
+| servidor → cliente | `estado` | `{ partida, seq, lado, estado }` ou `{ partida = false }` |
+| servidor → cliente | `recusada` | `{ n, motivo }`, só para quem enviou |
+
+- **Taxa:** 10 ações por segundo por jogador; o excesso é descartado antes de chegar à partida, com um aviso no log do servidor e uma recusa (`ações demais por segundo`) por segundo. Pedidos de estado: 2 por segundo por jogador. As janelas são medidas com `GetTimeRealSeconds()` (tempo real), não com `GetTime()`, que para com o servidor pausado enquanto as RPCs continuam chegando; as de quem sai são apagadas (`ms_playerleft`).
+- **Retentativa:** se a fotografia pedida não chega, o cliente repete o pedido a cada 1 s (tarefa periódica estática do jogador local, que roda também na pausa).
+- **Forma da ação:** tabela com `type` em texto, até 64 valores, 4 níveis de tabelas e textos de até 64 caracteres; `target` é uma tabela (`{ p = jogador, slot = espaço, zone = ... }`) ou, para equipar, o número do espaço da criatura; `targets` é uma lista dessas tabelas. O leitor do texto (`duelo/core/serial`) recusa número não finito (`1e999`) e tem limite de níveis e de valores (8 e 256 para as ações; 16 e 200000 por padrão).
+- **Pedaços:** as mensagens do servidor saem em pedaços de até 1000 bytes e são remontadas no cliente (uma fotografia tem cerca de 5 KB; um lote, até uns 9 KB). Os scripts do jogo não dizem qual é o limite de uma string de RPC; 1000 é um valor conservador, em `Rede.LIMITES.FRAGMENTO`.
+- **Host:** o que é do jogador do próprio host não passa pela RPC: vai direto de um módulo ao outro, pela mesma serialização. Uma ação mandada de dentro de um ouvinte de eventos do host (enquanto um lote está saindo) espera numa fila e é aplicada depois do envio, para os lotes chegarem em ordem aos outros.
+
+**Comandos de console** (para testes; a partida normal começa pelo botão "Pronto" da US #42):
+
+- No servidor (no host, o console já é o do servidor; num cliente, com o console em modo remoto):
+  - `DUELO.Partida.iniciar_teste()`: começa Wilson (lado 1) x Webber (lado 2) com os jogadores dos lados 1 e 2 da mesa. **Com um jogador só, ele fica nos dois lados**: as ações dele valem para o lado que tem de agir, e a visão do cliente é a do lado 1 (a mão do lado 2 aparece em `DUELO.Partida.estado()`). `DUELO.Partida.iniciar_teste(7)` fixa a semente.
+  - `DUELO.Partida.estado()`: resumo da partida no servidor, com as duas mãos.
+  - `DUELO.Partida.encerrar()`: termina a partida.
+- No cliente (console local):
+  - `DUELO.Cliente.enviar({ type = "pass" })`: manda uma ação. Outras: `{ type = "play", hand_index = 1, slot = 1 }` (a carta 1 da mão no espaço 1), `{ type = "attack", attackers = { 1, 2 } }` (os espaços das criaturas que atacam), `{ type = "choose", index = 1 }`.
+  - `DUELO.Cliente.imprimir()`: a visão local (vida, mana, a própria mão, o campo), os últimos eventos recebidos e as últimas recusas.
+
+**O que conferir no jogo:**
+
+- **Host sozinho:**
+  - Ao entrar, nenhum erro no `client_log.txt` com `[duelo]` nem `Invalid RPC`.
+  - `DUELO.Partida.iniciar_teste()`: o log mostra `[duelo] partida: partida 1 iniciada (semente ...)` e `um jogador só, nos dois lados`. O motor carrega dentro do jogo pela primeira vez aqui: qualquer erro de `require` ou de variável global aparece neste comando.
+  - `DUELO.Cliente.imprimir()`: `eu sou lado 1`, rodada 1, a mão do lado 1 com 5 cartas, `mão: escondida (5 cartas)` no lado 2 e os últimos eventos (`to_hand`, `round_start`, `mana`...).
+  - `DUELO.Cliente.enviar({ type = "pass" })` várias vezes e `DUELO.Cliente.imprimir()`: a vez, o período e a rodada andam, e os eventos `pass`, `vez`, `period` chegam.
+  - `DUELO.Cliente.enviar({ type = "play", hand_index = 99 })`: `[duelo] cliente: ação N recusada: carta não está na mão`.
+  - `DUELO.Partida.estado()` mostra as duas mãos; `DUELO.Partida.encerrar()` e depois `DUELO.Cliente.imprimir()` dá `sem partida`.
+- **Host e um cliente:**
+  - `DUELO.Partida.iniciar_teste()` no host: no cliente, `DUELO.Cliente.imprimir()` mostra o lado dele, a própria mão e `mão: escondida` no lado do host. **O segundo jogador não vê a mão do primeiro**, e o contrário também.
+  - Cada um passa a vez com `DUELO.Cliente.enviar({ type = "pass" })`: quem está fora da vez recebe `recusada: não é a sua vez` no próprio log, e nada aparece no log do outro.
+  - Depois de cada jogada de um, o `imprimir()` do outro já mostra a mudança (o lote chegou). Isto confirma as RPCs nos dois sentidos e a remontagem dos pedaços (a fotografia do começo já sai em vários).
+  - O cliente sai e volta com a partida em curso: ao ativar, o `imprimir()` dele mostra a partida no ponto em que está (a fotografia foi pedida sozinha).
+  - Com o servidor pausado (se a pausa estiver ligada no servidor): `DUELO.Cliente.enviar({ type = "pass" })` continua sendo respondido, e mais de 10 ações seguidas voltam a ser aceitas um segundo depois (a taxa usa o tempo real). **A confirmar no jogo:** que `DoStaticPeriodicTask` no jogador local roda no cliente durante a pausa.
+  - Se alguma mensagem não chegar (visão do cliente parada ou `mensagem "..." descartada` no log), o primeiro suspeito é o tamanho do pedaço: baixar `Rede.LIMITES.FRAGMENTO`.
+- **Servidor dedicado** (se houver como testar): nenhum erro ao subir; `DUELO.Cliente` não existe no servidor.
+
+## O que conferir na US #42 (início e fim da partida)
+
+**Como funciona:**
+
+- No alto da tela, ao centro, há um painel com o botão **Pronto**. Quem clica fica pronto (o botão vira **Cancelar**). Cada jogador só fica sabendo de si e dos totais (quantos prontos, quantos conectados).
+- Quando **dois jogadores conectados** estão prontos, a partida começa sozinha com os decks fixos: **Wilson no lado 1, Webber no lado 2**. Quem já está sentado num lado da mesa joga por ele; quem assistia fica com o lado que sobrar (sem ninguém sentado, quem ficou pronto primeiro joga pelo lado 1). Ao começar, a câmera de todos é acertada pela partida: os dois jogadores veem a mesa pelo lado em que jogam e os demais viram espectadores.
+- Durante a partida o painel mostra só `Partida em curso. Você joga pelo lado N.` (as jogadas ainda são pelo console, até a Feature #36). Ninguém fica pronto com a partida em curso.
+- No fim, cada um vê o resultado: **Vitória**, **Derrota** ou **Empate**; quem assiste vê `Lado N venceu`; se o motor der erro, `Partida interrompida`.
+- A partida terminada fica na mesa até alguém clicar em **Jogar de novo**: o primeiro clique **zera a mesa para todos** (`Partida.encerrar`) e já deixa quem clicou pronto. O outro jogador continua vendo o resultado dele, com `O outro jogador quer jogar de novo.`, até clicar também; aí a partida seguinte começa. Quem assiste tem o botão **Fechar**, que só tira o resultado da tela dele. Um resultado que ninguém dispensou sai da tela quando outra partida começa.
+- **Qualquer jogador conectado pode ficar pronto**, também quem assistia: depois do fim, um espectador pode zerar a mesa e entrar na partida seguinte no lugar de um dos dois.
+- Quem sai do servidor deixa de estar pronto. A saída de um jogador da partida em curso segue a regra da US #43 (seção abaixo): quem cai perde.
+- `DUELO.Partida.iniciar_teste()` continua valendo para testar sozinho (um jogador nos dois lados) e esvazia a sala.
+
+**Mensagens novas:**
+
+| Sentido | RPC | Conteúdo |
+|---|---|---|
+| cliente → servidor | `pronto` | `1` (pronto) ou `0` (cancelar); é número porque o `false` de uma RPC de mod não chegou ao servidor no jogo (até 5 por segundo por jogador; o excesso é ignorado) |
+| servidor → cliente | `sala` | `{ eu, prontos, jogadores, aviso }`, uma por jogador; chega a cada mudança e junto com a fotografia pedida |
+
+As RPCs são registradas pela ordem: quem tiver uma versão antiga do mod num dos lados não conversa com o outro (atualizar o mod no servidor e em todos os clientes, e reiniciar o DST).
+
+**Console:** `DUELO.Sala.prontos()` no servidor lista quem está pronto; `DUELO.Cliente.imprimir()` no cliente mostra a linha `sala: ...`; `DUELO.Tela.modelo()` devolve o que o painel está mostrando.
+
+**O que conferir no jogo:**
+
+- **Um jogador (host ou servidor dedicado):**
+  - Ao entrar, o painel aparece no alto da tela: `Duelo`, `Aguardando um segundo jogador entrar no mundo.` e o botão **Pronto**. Nenhum erro com `[duelo]` no log.
+  - Clicar em **Pronto**: o texto vira `Você está pronto. Aguardando o outro jogador.` e o botão vira **Cancelar**. Clicar em **Cancelar** volta ao começo.
+  - `DUELO.Partida.iniciar_teste()` no servidor: o painel vira `Partida em curso. Você joga pelo lado 1.`, sem botão.
+  - Para ver o fim sozinho, no servidor: `local g = DUELO.Partida.jogo(); g.players[2].life = 0; g:check_winner()` e depois, no cliente, `DUELO.Cliente.enviar({ type = "pass" })` (a ação é recusada, mas o lote com o fim chega). O painel mostra **Vitória** e o botão **Jogar de novo**.
+  - Clicar em **Jogar de novo**: a mesa zera (`DUELO.Cliente.imprimir()` dá `sem partida`) e o painel volta para a sala, com você pronto.
+- **Dois jogadores:**
+  - Um clica em **Pronto**: o outro vê `O outro jogador está pronto. Clique em Pronto para começar.`
+  - O segundo clica: a partida começa nos dois, cada um no lado da mesa em que está (`DUELO.Cliente.imprimir()`: `eu sou lado 1` num, `lado 2` no outro; Wilson na mão ou no baralho do lado 1).
+  - No fim, um vê **Vitória** e o outro **Derrota**. Um clica em **Jogar de novo**: o outro continua vendo o resultado, com o aviso de que o outro quer jogar. Quando ele clica, a segunda partida começa.
+  - Um jogador pronto sai do servidor: o outro volta a ver a sala sem ninguém pronto.
+- **Limitação conhecida:** o botão é só de mouse (sem caminho para controle).
+- **A confirmar no jogo:** a posição e o tamanho do painel (alto da tela, ao centro, abaixo dos anúncios de entrada e saída de jogadores) e se o botão padrão do jogo (`TEMPLATES.StandardButton`) aparece com a textura certa dentro da partida.
+
+## O que conferir na US #43 (desconexão)
+
+**Regra:**
+
+- **Quem cai perde.** O outro jogador vence por abandono.
+- **Servidor dedicado:** quem sai no meio da partida tem **2 minutos** para voltar (`Desconexao.PRAZO`, em `scripts/duelo/mod/desconexao.lua`). Voltando a tempo, a partida segue do ponto em que estava (ele recebe a fotografia de novo). Passado o prazo, perde.
+- **Jogo hospedado por um jogador:** o prazo é de **10 segundos** (`Desconexao.PRAZO_HOST`): na prática, quem cai perde. O prazo curto existe porque o jogo avisa a saída do mesmo jeito quando o boneco do jogador é só recriado (troca de personagem); aí ele volta em seguida e não perde. Se quem cai é o host, o mundo fecha junto. Um mundo hospedado com cavernas roda como servidor dedicado e segue a regra dos 2 minutos.
+- **Quem está conectado nunca perde por desconexão:** antes de marcar a ausência e de aplicar a derrota, o servidor confere quem está no mundo (o aviso de entrada do jogo não chega com o servidor pausado).
+- **Expulsão conta como queda:** o servidor não distingue quem saiu de quem foi expulso.
+- **Se os dois caem,** perde quem caiu primeiro.
+- **Quem assiste** sai e volta sem mudar nada.
+- **Partida de teste com um jogador só** (`DUELO.Partida.iniciar_teste()`): ninguém vence; no fim do prazo a partida é só encerrada.
+
+**Como funciona:**
+
+- O prazo é contado em **tempo real** (`GetTimeRealSeconds`), não no tempo do mundo: o servidor dedicado pausa a simulação quando fica vazio, e o prazo de quem saiu continua correndo. Ele é conferido a cada segundo por uma tarefa do mundo e a cada entrada e saída de jogador; quem volta depois do prazo perde na hora em que entra.
+- A derrota é do motor (`Game:forfeit(p, "desconexao")`): não é uma jogada, um cliente não consegue mandá-la (`Game:act` a recusa), e ela entra no registro da partida (`{ type = "forfeit", reason = "desconexao" }`), para a reprodução terminar igual.
+- Enquanto alguém está fora, a mensagem `sala` leva `ausente = { lado, prazo }` (os segundos que faltam) e o painel de quem ficou mostra `O outro jogador caiu. Se não voltar em 2:00, você vence.`, em contagem regressiva pelo relógio do próprio cliente.
+- Quem volta retoma o lado dele na mesa: a cada entrada com a partida em curso, os lados são acertados pela partida (`Camera.definir_lados`), e quem entrou no lugar vira espectador.
+- No fim, o painel mostra **Vitória** com `O outro jogador saiu da partida.`; quem perdeu, se voltar antes de o outro clicar em **Jogar de novo**, vê **Derrota** com `Você saiu da partida e não voltou a tempo.` (depois disso a mesa já foi zerada e ele cai na sala). A visão tem o campo `abandono = { p, motivo }` e os clientes recebem o evento `forfeit`.
+- A mesa não fica mais presa: depois da derrota por abandono, quem ficou clica em **Jogar de novo**, como em qualquer fim de partida.
+
+**Console:** `DUELO.Desconexao.ausente()` no servidor diz quem está fora e quando o prazo vence.
+
+**O que conferir no jogo** (exige duas contas, ou a partida de teste para o caso de um jogador só):
+
+- **Servidor dedicado, dois jogadores:**
+  - Com a partida em curso, um jogador sai do servidor. No log do servidor: `[duelo] desconexão: o jogador KU_... saiu da partida N: tem 120 s para voltar`. O painel do outro mostra o aviso de queda, com a contagem andando.
+  - Ele volta antes de 2 minutos: `voltou a tempo` no log, o aviso some e a partida continua.
+  - Ele sai de novo e não volta: depois de 2 minutos, `não voltou e perdeu a partida` no log, e o painel de quem ficou mostra **Vitória** e `O outro jogador saiu da partida.`
+- **Servidor dedicado, um jogador (partida de teste):**
+  - `DUELO.Partida.iniciar_teste()`, sair do servidor, esperar mais de 2 minutos e voltar: o painel volta para a sala (`a partida de teste foi encerrada` no log do servidor). Voltando antes de 2 minutos, a partida continua.
+- **Host e um cliente:** o cliente sai com a partida em curso: o host vê o aviso de queda com a contagem e, 10 segundos depois, **Vitória**.
+- **A confirmar no jogo:** que a tarefa de cada segundo roda com o servidor dedicado vazio. Ela é estática (`DoStaticPeriodicTask`) e roda com o servidor pausado (`update.lua`), mas os scripts não dizem se o servidor vazio continua atualizando. Se não rodar, a derrota sai quando alguém entra, que é o caso coberto pelos testes.

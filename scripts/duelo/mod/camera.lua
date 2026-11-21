@@ -252,6 +252,23 @@ function Camera.atribuir_lado(jogador)
   return lado
 end
 
+-- Servidor: no começo de uma partida (US #42), o lado da mesa de cada um
+-- passa a ser o lado pelo qual ele joga; os demais ficam de espectadores. Um
+-- espectador que entra na partida deixa de ver a mesa pelo lado errado.
+function Camera.definir_lados(um, dois)
+  if not servidor() then return false end
+  for _, jogador in ipairs(estado.GLOBAL.AllPlayers or {}) do
+    local uid = jogador.userid
+    if jogador.duelo_lado ~= nil and uid ~= nil and uid ~= "" then
+      local lado = Camera.LADO.espectador
+      if uid == um then lado = 1 elseif uid == dois then lado = 2 end
+      estado.lados_por_usuario[uid] = lado
+      if jogador.duelo_lado:value() ~= lado then jogador.duelo_lado:set(lado) end
+    end
+  end
+  return true
+end
+
 -- Heading da câmera para um lado (espectador e desconhecido olham como o 1).
 function Camera.heading(lado, calib)
   return estado.Mesa.heading(lado, calib)
