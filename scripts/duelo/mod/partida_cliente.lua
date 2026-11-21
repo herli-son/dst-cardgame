@@ -41,7 +41,9 @@
 --   Cliente.pronto(bool) -> ok, erro          avisa o servidor que este
 --       jogador está (ou deixou de estar) pronto
 --   Cliente.pedir_estado()                    pede a fotografia ao servidor
---   Cliente.tique()                           repete o pedido de fotografia
+--   Cliente.agora() -> segundos | nil         o relógio do cliente
+--   Cliente.tique()                           anda a contagem de um jogador
+--       ausente (US #43) e repete o pedido de fotografia
 --       se ela ainda não chegou e já passou ESPERA_PEDIDO; chamado de tempos
 --       em tempos (INTERVALO_TIQUE) por uma tarefa periódica do jogador local
 --   Cliente.receber(tipo, tabela)             entrada das mensagens (a rede chama)
@@ -150,9 +152,14 @@ end
 -- pedido (pedir_estado só deixa passar depois de ESPERA_PEDIDO). Devolve true
 -- se pediu de novo.
 function Cliente.tique()
+  -- Com um jogador fora (US #43), a contagem do prazo anda na tela.
+  if estado.sala ~= nil and estado.sala.ausente then avisar("sala", estado.sala) end
   if not estado.esperando then return false end
   return Cliente.pedir_estado()
 end
+
+-- O relógio do cliente, em segundos (nil sem relógio).
+function Cliente.agora() return agora() end
 
 local function receber_estado(m)
   estado.esperando = false
@@ -229,7 +236,9 @@ local function receber_sala(m)
   -- US #43: um jogador da partida em curso caiu (lado e prazo para voltar).
   local a = m.ausente
   if type(a) == "table" and (a.lado == 1 or a.lado == 2) then
-    estado.sala.ausente = { lado = a.lado, prazo = contagem(a.prazo) }
+    -- `ate`: quando o prazo vence, no relógio deste cliente (para a contagem).
+    local prazo, t = contagem(a.prazo), agora()
+    estado.sala.ausente = { lado = a.lado, prazo = prazo, ate = t ~= nil and t + prazo or false }
   end
   avisar("sala", estado.sala)
 end

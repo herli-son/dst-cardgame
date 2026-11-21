@@ -336,7 +336,9 @@ function Visao.estado_para(g, lado)
     jogadores = { jogador(g, 1, lado), jogador(g, 2, lado) },
     pilha = pilha(g),
     combate = combate(g),
-    escolha = escolha(g, lado),
+    -- Com a partida acabada, uma escolha que ficou aberta não tem mais quem
+    -- a faça (derrota por abandono no meio de uma escolha, US #43).
+    escolha = g.winner == nil and escolha(g, lado) or false,
     erro = g.error and Visao.ERRO_GENERICO or false,
     -- Derrota por abandono (US #43): quem perdeu e o motivo, ou false.
     abandono = g.forfeited and { p = g.forfeited.p, motivo = g.forfeited.reason } or false,

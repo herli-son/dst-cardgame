@@ -45,7 +45,7 @@
 --     "eventos"   { partida, seq, eventos, mudancas }
 --     "estado"    { partida, seq, lado, estado } ou { partida = false }
 --     "recusada"  { n, motivo }   só para quem enviou a ação
---     "sala"      { eu, prontos, jogadores, aviso }   US #42, uma por jogador
+--     "sala"      { eu, prontos, jogadores, aviso, ausente }   US #42 e #43, uma por jogador
 --
 -- O servidor NUNCA executa nada que venha do cliente: o texto da ação é lido
 -- por Serial.deserialize (caractere a caractere, sem loadstring; no máximo 8

@@ -157,7 +157,7 @@ if Partida then
 end
 
 -- Desconexão (US #43), só no servidor: quem cai perde; no servidor dedicado,
--- depois de 2 minutos sem voltar. O prazo é em tempo real e é conferido a
+-- depois de 2 minutos sem voltar (no jogo hospedado, depois de 10 segundos). O prazo é em tempo real e é conferido a
 -- cada segundo por uma tarefa do mundo (estática, para rodar também com o
 -- servidor pausado) e a cada entrada e saída de jogador.
 local Desconexao = nil
@@ -167,6 +167,12 @@ if Sala then
     sala = Sala,
     agora = function() return GLOBAL.GetTimeRealSeconds() end,
     dedicado = GLOBAL.TheNet:IsDedicated(),
+    conectado = function(userid)
+      for _, u in GLOBAL.ipairs(Rede.usuarios()) do
+        if u == userid then return true end
+      end
+      return false
+    end,
     log = function(msg) GLOBAL.print(msg) end,
   })
   AddSimPostInit(function()

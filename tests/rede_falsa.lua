@@ -121,6 +121,10 @@ local function nova_rede(opcoes)
       if opcoes.desconexao then
         m.Desconexao = carregar("desconexao").instalar({ partida = m.Partida, sala = m.Sala,
           agora = function() return net.relogio end, dedicado = opcoes.desconexao == "dedicado",
+          conectado = function(userid)
+            for _, u in ipairs(m.Rede.usuarios()) do if u == userid then return true end end
+            return false
+          end,
           log = m.GLOBAL.print })
       end
       net.servidor = m

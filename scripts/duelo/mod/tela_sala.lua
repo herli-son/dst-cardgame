@@ -11,7 +11,7 @@
 --              estão prontos. Com dois prontos o servidor começa a partida.
 --   "partida"  partida em curso: só uma linha dizendo por qual lado se joga.
 --              Se um jogador caiu (US #43), a linha diz quanto tempo ele tem
---              para voltar antes de perder.
+--              para voltar antes de perder, em contagem regressiva.
 --   "fim"      a partida acabou: "Vitória", "Derrota", "Empate" (ou, para
 --              quem assiste, "Lado N venceu"; ou "Partida interrompida", se
 --              o motor deu erro). Se a partida acabou porque um jogador caiu
@@ -46,10 +46,18 @@ local function log(msg)
   if estado.log then estado.log("[duelo] tela: " .. tostring(msg)) end
 end
 
+-- "1:35" ou "35 s".
 local function prazo_por_extenso(s)
-  if s >= 120 then return math.floor(s / 60) .. " minutos" end
-  if s >= 60 then return "1 minuto" end
-  return s .. " segundos"
+  if s >= 60 then return string.format("%d:%02d", math.floor(s / 60), s % 60) end
+  return s .. " s"
+end
+
+-- Os segundos que faltam para o ausente voltar, pelo relógio do cliente.
+local function falta(a)
+  local C = estado.cliente
+  local t = C.agora and C.agora() or nil
+  if a.ate and t ~= nil then return math.max(0, math.ceil(a.ate - t)) end
+  return a.prazo
 end
 
 -- Texto do abandono (US #43), para quem ganhou, para quem perdeu e para quem assiste.
@@ -127,7 +135,7 @@ function Tela.modelo()
     if lado == 1 or lado == 2 then texto = "Partida em curso. Você joga pelo lado " .. lado .. "." end
     local a = sala ~= nil and sala.ausente or false
     if a then
-      local prazo = prazo_por_extenso(a.prazo)
+      local prazo = prazo_por_extenso(falta(a))
       if a.lado == lado then
         texto = "Você caiu da partida. Volte em até " .. prazo .. " para não perder."
       elseif lado == 1 or lado == 2 then

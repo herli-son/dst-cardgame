@@ -33,7 +33,7 @@
 --     jogadores: quantos estão conectados;
 --     aviso:     texto para mostrar (falha ao começar), ou false;
 --     ausente:   US #43: um jogador da partida em curso caiu; o lado dele e
---                o prazo que ele tem para voltar (duelo/mod/desconexao).
+--                os segundos que faltam para ele voltar (duelo/mod/desconexao).
 --
 -- Interface:
 --   Sala.instalar{ rede = Rede, partida = Partida, GLOBAL = GLOBAL,
@@ -227,6 +227,16 @@ end
 
 function Sala.entrou(userid)
   if estado.rede == nil then return end
+  -- Com a partida em curso, os lados da mesa continuam sendo os da partida:
+  -- quem volta retoma o lado dele, e quem entrou no lugar vira espectador.
+  local P = estado.partida
+  if estado.definir_lados and P ~= nil and P.em_curso() and not P.terminada() then
+    local j = P.jogadores()
+    if j ~= nil and j[1] ~= j[2] then
+      local certo, erro = pcall(estado.definir_lados, j[1], j[2])
+      if not certo then log("os lados da mesa não foram acertados: " .. tostring(erro)) end
+    end
+  end
   avisar_ouvintes("entrou", userid)
   avisar_todos()
 end
@@ -273,7 +283,8 @@ function Sala.instalar(ctx)
   -- Uma partida começada por outro caminho (console) esvazia a sala.
   if ctx.partida and ctx.partida.quando_iniciar then
     ctx.partida.quando_iniciar(function()
-      if #estado.prontos == 0 then return end
+      -- Avisa sempre: além dos prontos, o aviso de ausência (US #43) de uma
+      -- partida anterior precisa sair da tela dos clientes.
       estado.prontos = {}
       avisar_todos()
     end)

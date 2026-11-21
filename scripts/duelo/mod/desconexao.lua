@@ -5,9 +5,17 @@
 --     Desconexao.PRAZO segundos (2 minutos) para voltar. Se voltar a tempo, a
 --     partida segue (ele recebe a fotografia de novo, US #41). Se não, perde:
 --     o outro vence por abandono (Game:forfeit, motivo "desconexao").
---   * No jogo hospedado por um jogador (host), não há prazo: o jogador que
---     sai perde na hora. Se quem cai é o host, o mundo fecha junto e não há
---     nada a fazer.
+--   * No jogo hospedado por um jogador (host), o prazo é de
+--     Desconexao.PRAZO_HOST segundos (10): na prática, quem cai perde. O
+--     prazo curto existe porque o jogo avisa a saída do mesmo jeito quando o
+--     boneco do jogador é só recriado (troca de personagem, por exemplo); aí
+--     ele volta em seguida e não perde. Se quem cai é o host, o mundo fecha
+--     junto e não há nada a fazer.
+--   * Quem está conectado nunca perde por desconexão: antes de marcar a
+--     ausência e antes de aplicar a derrota, o módulo confere quem está no
+--     servidor (ctx.conectado). O aviso de entrada do jogo ("ms_playerjoined")
+--     não chega com o servidor pausado e pode chegar fora de ordem.
+--   * Sair por expulsão conta como queda (o servidor não distingue).
 --   * Se os dois caem, perde quem caiu primeiro (o prazo dele vence antes).
 --   * Na partida de teste com um jogador só nos dois lados
 --     (Partida.iniciar_teste), ninguém vence: no fim do prazo a partida é só
@@ -17,27 +25,32 @@
 -- O prazo é contado em tempo real (ctx.agora, GetTimeRealSeconds no jogo), e
 -- não no tempo do mundo: o servidor dedicado pausa a simulação quando fica
 -- vazio, e o prazo de quem saiu continua correndo. Ele é conferido a cada
--- segundo por uma tarefa do mundo e também sempre que alguém entra ou sai
--- (com o mundo pausado a tarefa não roda; quem volta depois do prazo perde
--- na hora em que entra).
+-- segundo por uma tarefa estática do mundo (roda também com o servidor
+-- pausado, update.lua) e sempre que alguém entra ou sai: se a tarefa não
+-- rodar com o servidor vazio, quem volta depois do prazo perde na hora em
+-- que entra.
 --
 -- O que os clientes ficam sabendo: o campo `ausente` da mensagem "sala"
--- ({ lado, prazo }), enquanto alguém está fora, e, no fim, o evento
+-- ({ lado, prazo }, com os segundos que faltam), enquanto alguém está fora, e, no fim, o evento
 -- "forfeit" e o campo `abandono` da visão (duelo/mod/visao).
 --
 -- Interface:
 --   Desconexao.instalar{ partida = Partida, sala = Sala, agora = fn,
---                        dedicado = bool, log = fn } -> Desconexao
+--                        dedicado = bool, conectado = fn, log = fn } -> Desconexao
 --   Desconexao.saiu(userid) / Desconexao.entrou(userid)
---   Desconexao.conferir()        aplica os prazos vencidos
+--   Desconexao.conferir(chegando)  aplica os prazos vencidos (chegando: o
+--       userid de quem está entrando agora, se for o caso)
 --   Desconexao.ausente() -> { lado, prazo, userid, limite } | nil
---       quem está fora com o prazo mais perto de vencer
+--       quem está fora com o prazo mais perto de vencer (prazo: os segundos
+--       que faltam)
+--   Desconexao.tique()           a conferência de cada segundo
 --
 -- Lua puro: tudo do jogo chega por `ctx`. Só é carregado no servidor.
 
 local Desconexao = {}
 
 Desconexao.PRAZO = 120
+Desconexao.PRAZO_HOST = 10
 Desconexao.MOTIVO = "desconexao"
 
 local estado = {
@@ -45,6 +58,7 @@ local estado = {
   sala = nil,
   agora = nil,
   dedicado = false,
+  conectado = nil,
   log = nil,
   -- userid -> { partida = n, limite = segundos (tempo real), ordem = n }
   ausentes = {},
@@ -56,7 +70,13 @@ local function log(msg)
 end
 
 local function prazo()
-  return estado.dedicado and Desconexao.PRAZO or 0
+  return estado.dedicado and Desconexao.PRAZO or Desconexao.PRAZO_HOST
+end
+
+local function conectado(userid)
+  if estado.conectado == nil then return false end
+  local ok, sim = pcall(estado.conectado, userid)
+  return ok and sim == true
 end
 
 -- Os lados que o usuário ocupa na partida em curso ({}: não joga).
@@ -77,14 +97,20 @@ local function em_jogo()
 end
 
 -- Os ausentes da partida em curso, do prazo mais antigo para o mais novo.
--- Esquece os que ficaram de uma partida que já não é a da mesa.
-local function fila()
+-- Esquece os que ficaram de uma partida que já não é a da mesa e os que
+-- estão conectados (voltaram sem o aviso de entrada chegar). `chegando` é
+-- quem está entrando agora: esse ainda responde pelo prazo (quem volta
+-- depois do prazo perde).
+local function fila(chegando)
   local P = estado.partida
   local numero, valendo = P.numero(), em_jogo()
   local out = {}
   for userid, a in pairs(estado.ausentes) do
     if not valendo or a.partida ~= numero or #lados_de(userid) == 0 then
       estado.ausentes[userid] = nil
+    elseif userid ~= chegando and conectado(userid) then
+      estado.ausentes[userid] = nil
+      log("o jogador " .. userid .. " está conectado: a ausência foi desfeita")
     else
       out[#out + 1] = { userid = userid, limite = a.limite, ordem = a.ordem }
     end
@@ -101,15 +127,16 @@ function Desconexao.ausente()
   local primeiro = fila()[1]
   if primeiro == nil then return nil end
   local lados = lados_de(primeiro.userid)
-  return { lado = lados[1], prazo = Desconexao.PRAZO, userid = primeiro.userid, limite = primeiro.limite }
+  local falta = math.max(0, math.ceil(primeiro.limite - estado.agora()))
+  return { lado = lados[1], prazo = falta, userid = primeiro.userid, limite = primeiro.limite }
 end
 
 -- Aplica a derrota de quem estourou o prazo. Devolve true se algo mudou.
-function Desconexao.conferir()
+function Desconexao.conferir(chegando)
   if estado.partida == nil then return false end
   local P = estado.partida
   local agora = estado.agora()
-  for _, a in ipairs(fila()) do
+  for _, a in ipairs(fila(chegando)) do
     if agora < a.limite then break end
     local lados = lados_de(a.userid)
     if #lados == 2 then
@@ -123,10 +150,14 @@ function Desconexao.conferir()
     if ok then
       log("o jogador " .. a.userid .. " (lado " .. lados[1] .. ") não voltou e perdeu a partida")
       estado.ausentes = {}
+      estado.avisou_espera = false
       return true
     end
     -- Não deu agora (um lote saindo): a próxima conferência tenta de novo.
-    log("a derrota do lado " .. lados[1] .. " ficou para depois: " .. tostring(err))
+    if not estado.avisou_espera then
+      estado.avisou_espera = true
+      log("a derrota do lado " .. lados[1] .. " ficou para depois: " .. tostring(err))
+    end
     return false
   end
   return false
@@ -136,11 +167,13 @@ function Desconexao.saiu(userid)
   if estado.partida == nil or type(userid) ~= "string" or userid == "" then return end
   Desconexao.conferir()
   if not em_jogo() or #lados_de(userid) == 0 then return end
+  -- Ainda está no servidor (o boneco novo entrou antes de o velho sair).
+  if conectado(userid) then return end
   if estado.ausentes[userid] == nil then
     estado.ordem = estado.ordem + 1
     estado.ausentes[userid] = { partida = estado.partida.numero(), limite = estado.agora() + prazo(), ordem = estado.ordem }
     log("o jogador " .. userid .. " saiu da partida " .. estado.partida.numero()
-      .. (prazo() > 0 and (": tem " .. prazo() .. " s para voltar") or ": sem prazo para voltar"))
+      .. ": tem " .. prazo() .. " s para voltar")
   end
   Desconexao.conferir()
 end
@@ -148,7 +181,7 @@ end
 function Desconexao.entrou(userid)
   if estado.partida == nil or type(userid) ~= "string" or userid == "" then return end
   -- Primeiro os prazos: quem volta depois do prazo já perdeu.
-  Desconexao.conferir()
+  Desconexao.conferir(userid)
   if estado.ausentes[userid] ~= nil then
     estado.ausentes[userid] = nil
     log("o jogador " .. userid .. " voltou a tempo")
@@ -159,13 +192,16 @@ end
 --   ctx.partida: duelo/mod/partida_servidor.lua já instalado;
 --   ctx.sala: duelo/mod/sala_servidor.lua já instalado (ouvir, definir_ausente, avisar);
 --   ctx.agora: função que devolve o tempo real em segundos;
---   ctx.dedicado: true no servidor dedicado (há prazo para voltar);
+--   ctx.dedicado: true no servidor dedicado (prazo de 2 minutos; senão, o do host);
+--   ctx.conectado: função (userid) -> bool, quem está no servidor agora;
 --   ctx.log: função de log (opcional).
 function Desconexao.instalar(ctx)
   estado.partida = ctx.partida
   estado.sala = ctx.sala
   estado.agora = ctx.agora
   estado.dedicado = ctx.dedicado == true
+  estado.conectado = ctx.conectado
+  estado.avisou_espera = false
   estado.log = ctx.log
   estado.ausentes = {}
   estado.ordem = 0

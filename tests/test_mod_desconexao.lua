@@ -61,9 +61,25 @@ return {
     -- Quem ficou e quem assiste ficam sabendo.
     T.eq(cs[1].Cliente.sala().ausente.lado, 2)
     T.eq(cs[1].Cliente.sala().ausente.prazo, PRAZO)
-    T.eq(cs[1].Tela.modelo().texto, "O outro jogador caiu. Se não voltar em 2 minutos, você vence.")
-    T.eq(cs[3].Tela.modelo().texto, "O lado 2 caiu. Se não voltar em 2 minutos, perde a partida.")
-    net.relogio = net.relogio + PRAZO - 1
+    T.eq(cs[1].Cliente.sala().ausente.userid, nil, "o userid de quem caiu não vai para os outros")
+    T.eq(cs[1].Tela.modelo().texto, "O outro jogador caiu. Se não voltar em 2:00, você vence.")
+    T.eq(cs[3].Tela.modelo().texto, "O lado 2 caiu. Se não voltar em 2:00, perde a partida.")
+    -- A contagem anda na tela pelo relógio do cliente, sem mensagem nova.
+    local vistos = {}
+    cs[1].Tela.ligar_widget({ Atualizar = function(_, m) vistos[#vistos + 1] = m.texto end })
+    local enviadas = #net.mensagens.KU_um
+    net.relogio = net.relogio + 25
+    cs[1].Cliente.tique()
+    T.eq(vistos[#vistos], "O outro jogador caiu. Se não voltar em 1:35, você vence.")
+    net.relogio = net.relogio + 40
+    cs[1].Cliente.tique()
+    T.eq(vistos[#vistos], "O outro jogador caiu. Se não voltar em 55 s, você vence.")
+    T.eq(#net.mensagens.KU_um, enviadas, "o servidor não mandou nada")
+    cs[1].Tela.ligar_widget(nil)
+    -- Uma sala reenviada no meio do prazo leva os segundos que faltam.
+    s.Sala.avisar()
+    T.eq(cs[1].Cliente.sala().ausente.prazo, PRAZO - 65)
+    net.relogio = net.relogio + PRAZO - 66
     s.Desconexao.tique()
     T.eq(g.winner, nil, "um segundo antes do prazo ainda vale")
     voltar(net, s, "KU_dois")
@@ -109,7 +125,7 @@ return {
   end },
 
   { "dedicado: quem volta depois do prazo perde na hora em que entra", function(T)
-    -- Com o servidor vazio a simulação pausa e a tarefa de cada segundo não roda.
+    -- Caso a tarefa de cada segundo não rode com o servidor vazio.
     local net, s, cs = mesa()
     local g = s.Partida.jogo()
     sair(net, s, "KU_dois")
@@ -148,11 +164,28 @@ return {
     T.eq(g.winner, 2)
   end },
 
-  { "host: o jogador que cai perde na hora", function(T)
+  { "host: o jogador que cai perde em 10 segundos", function(T)
+    local PRAZO_HOST = RedeFalsa.carregar("desconexao").PRAZO_HOST
+    T.eq(PRAZO_HOST, 10)
     local net, h, cs = mesa("host")
     local g = h.Partida.jogo()
+    -- O boneco recriado (troca de personagem): sai e volta em seguida, sem perder.
     sair(net, h, "KU_dois")
-    T.eq(g.winner, 1, "sem prazo no jogo hospedado")
+    T.eq(g.winner, nil)
+    T.eq(h.Cliente.sala().ausente.prazo, PRAZO_HOST)
+    net.relogio = net.relogio + 1
+    voltar(net, h, "KU_dois")
+    net.relogio = net.relogio + PRAZO_HOST * 3
+    h.Desconexao.tique()
+    T.eq(g.winner, nil, "quem voltou em seguida não perde")
+    -- A queda de verdade.
+    sair(net, h, "KU_dois")
+    net.relogio = net.relogio + PRAZO_HOST - 1
+    h.Desconexao.tique()
+    T.eq(g.winner, nil)
+    net.relogio = net.relogio + 1
+    h.Desconexao.tique()
+    T.eq(g.winner, 1, "no jogo hospedado o prazo é curto")
     T.eq(g.forfeited.p, 2)
     T.eq(h.Desconexao.ausente(), nil)
     local m = h.Tela.modelo()
@@ -201,19 +234,128 @@ return {
   { "o prazo de uma partida não passa para a seguinte", function(T)
     local net, s, cs = mesa()
     sair(net, s, "KU_dois")
-    -- O servidor encerra a partida e começa outra, com os mesmos jogadores.
-    voltar(net, s, "KU_dois")
-    sair(net, s, "KU_dois")
-    s.Partida.encerrar()
-    voltar(net, s, "KU_dois")
-    net.relogio = net.relogio + 1
-    cs[1].Cliente.pronto(true); cs[2].Cliente.pronto(true)
+    -- Com o jogador ainda fora, o servidor começa outra partida pelo console,
+    -- com os mesmos dois jogadores.
+    local Decks = require("duelo/decks/init")
+    local d1, e1 = Decks.build("wilson")
+    local d2, e2 = Decks.build("webber")
+    T.ok(s.Partida.iniciar{ decks = { d1, d2 }, extra_decks = { e1, e2 }, jogadores = { "KU_um", "KU_dois" } })
     local g = s.Partida.jogo()
-    T.ok(g ~= nil)
+    T.eq(s.Desconexao.ausente(), nil, "a ausência era da partida anterior")
+    T.eq(cs[1].Cliente.sala().ausente, false, "o aviso sai da tela de quem ficou")
     net.relogio = net.relogio + PRAZO * 2
     s.Desconexao.tique()
     T.eq(g.winner, nil, "a ausência da partida antiga não vale na nova")
-    T.eq(s.Desconexao.ausente(), nil)
+  end },
+
+  { "quem está conectado não perde por desconexão", function(T)
+    -- O aviso de entrada não chega com o servidor pausado: o jogador voltou
+    -- (está entre os conectados), mas ninguém avisou.
+    local net, s, cs = mesa()
+    local g = s.Partida.jogo()
+    sair(net, s, "KU_dois")
+    net.relogio = net.relogio + 30
+    net.jogadores[#net.jogadores + 1] = net.saidos.KU_dois
+    net.relogio = net.relogio + PRAZO
+    s.Desconexao.tique()
+    T.eq(g.winner, nil, "conectado não perde")
+    T.eq(s.Desconexao.ausente(), nil, "a ausência foi desfeita")
+    -- Avisos fora de ordem: o boneco novo entra antes de o velho sair.
+    net, s, cs = mesa()
+    g = s.Partida.jogo()
+    s.Sala.entrou("KU_dois")
+    s.Sala.saiu("KU_dois")
+    T.eq(s.Desconexao.ausente(), nil, "quem ainda está no servidor não fica ausente")
+    net.relogio = net.relogio + PRAZO * 2
+    s.Desconexao.tique()
+    T.eq(g.winner, nil)
+  end },
+
+  { "quem volta retoma o lado dele na mesa", function(T)
+    local chamadas = {}
+    local net = RedeFalsa.nova{ sala = true, desconexao = "dedicado",
+      definir_lados = function(um, dois) chamadas[#chamadas + 1] = um .. "/" .. dois end }
+    local s = net:maquina{ servidor = true }
+    local c1 = net:maquina{ userid = "KU_um", lado = 1 }
+    local c2 = net:maquina{ userid = "KU_dois", lado = 2 }
+    net.relogio = net.relogio + 1
+    c1.Cliente.pronto(true); c2.Cliente.pronto(true)
+    T.eq(#chamadas, 1)
+    sair(net, s, "KU_dois")
+    -- Outro jogador entra durante o prazo: os lados continuam os da partida.
+    net.jogadores[#net.jogadores + 1] = { userid = "KU_novo" }
+    s.Sala.entrou("KU_novo")
+    T.eq(chamadas[#chamadas], "KU_um/KU_dois")
+    voltar(net, s, "KU_dois")
+    T.eq(#chamadas, 3, "a cada entrada com a partida em curso")
+    T.eq(chamadas[3], "KU_um/KU_dois")
+    -- Sem partida em curso, a entrada não mexe nos lados.
+    s.Partida.encerrar()
+    s.Sala.entrou("KU_novo")
+    T.eq(#chamadas, 3)
+  end },
+
+  { "abandono com uma escolha aberta: a visão final não mostra a escolha", function(T)
+    local net, s, cs = mesa()
+    local g = s.Partida.jogo()
+    g.pending_choice = { player = 2, reason = "teste", options = { { kind = "player", p = 1 } } }
+    sair(net, s, "KU_dois")
+    net.relogio = net.relogio + PRAZO
+    s.Desconexao.tique()
+    T.eq(g.winner, 1, "a derrota vale com a escolha aberta")
+    T.eq(cs[1].Cliente.visao().escolha, false)
+  end },
+
+  { "modmain: a conferência de cada segundo roda como tarefa estática do mundo", function(T)
+    local RAIZ = RedeFalsa.RAIZ
+    local sim_postinits, logs, tarefas = {}, {}, {}
+    local mundo = { ismastersim = true }
+    function mundo:DoStaticPeriodicTask(t, fn) tarefas[#tarefas + 1] = { tipo = "estatica", t = t, fn = fn } end
+    function mundo:DoPeriodicTask(t, fn) tarefas[#tarefas + 1] = { tipo = "comum", t = t, fn = fn } end
+    function mundo:ListenForEvent() end
+    local G = setmetatable({
+      require = require, pcall = pcall, ipairs = ipairs, tostring = tostring,
+      print = function(s) logs[#logs + 1] = tostring(s) end,
+      TheNet = { GetIsServer = function() return true end, IsDedicated = function() return true end },
+      AllPlayers = {}, GetTimeRealSeconds = function() return 0 end,
+    }, { __index = _G })
+    local nada = function() end
+    local env = setmetatable({
+      GLOBAL = G, modname = "dst-cardgame", GetModConfigData = function() return nil end,
+      AddPlayerPostInit = nada, AddComponentPostInit = nada, AddPrefabPostInit = nada,
+      AddSimPostInit = function(fn) sim_postinits[#sim_postinits + 1] = fn end,
+      AddClassPostConstruct = nada, AddModRPCHandler = nada, AddClientModRPCHandler = nada,
+      GetModRPC = nada, GetClientModRPC = nada, SendModRPCToServer = nada, SendModRPCToClient = nada,
+    }, { __index = _G })
+    local ok, err = pcall(function()
+      local chunk = assert(loadfile(RAIZ .. "modmain.lua"))
+      setfenv(chunk, env)
+      chunk()
+      T.eq(type(env.DUELO.Desconexao.tique), "function", "DUELO.Desconexao no servidor")
+      -- Sem mundo, ou num mundo de cliente, nada é agendado.
+      for _, fn in ipairs(sim_postinits) do pcall(fn) end
+      T.eq(#tarefas, 0, "sem TheWorld não há tarefa")
+      G.TheWorld = mundo
+      for _, fn in ipairs(sim_postinits) do pcall(fn) end
+      local da_desconexao = {}
+      for _, tarefa in ipairs(tarefas) do
+        if tarefa.t == 1 then da_desconexao[#da_desconexao + 1] = tarefa end
+      end
+      T.eq(#da_desconexao, 1, "uma tarefa de 1 segundo")
+      T.eq(da_desconexao[1].tipo, "estatica", "estática: roda com o servidor pausado")
+      da_desconexao[1].fn() -- sem partida: não faz nada e não dá erro
+      -- Um erro na conferência vira um aviso.
+      local original = env.DUELO.Desconexao.tique
+      env.DUELO.Desconexao.tique = function() error("quebrou") end
+      da_desconexao[1].fn()
+      env.DUELO.Desconexao.tique = original
+      local achou = false
+      for _, linha in ipairs(logs) do
+        if linha:find("erro na conferência", 1, true) then achou = true end
+      end
+      T.ok(achou, "o erro da conferência vai para o log")
+    end)
+    T.ok(ok, tostring(err))
   end },
 
   { "partida de teste com um jogador só: no fim do prazo é só encerrada", function(T)
