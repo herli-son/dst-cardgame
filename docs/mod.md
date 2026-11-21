@@ -20,6 +20,7 @@ Este repositório **é** o mod: a raiz dele vira a pasta do mod dentro do jogo. 
 | `scripts/duelo/mod/visao.lua` | US #41: o que cada lado pode ver: filtro dos eventos por tipo e fotografia do estado sem a mão nem o baralho do outro. |
 | `scripts/duelo/mod/partida_cliente.lua` | US #41: a visão local da partida em cada cliente (sem o motor) e o envio das ações. |
 | `scripts/duelo/mod/sala_servidor.lua` | US #42: a sala de espera, só no servidor: quem está pronto, o começo da partida com os decks fixos e a mesa zerada depois do fim. |
+| `scripts/duelo/mod/desconexao.lua` | US #43: quem cai perde, só no servidor: o prazo de 2 minutos no servidor dedicado, a derrota na hora no jogo hospedado. |
 | `scripts/duelo/mod/tela_sala.lua` | US #42: o que o painel mostra em cada cliente (sala, partida em curso ou resultado), decidido a partir da visão local. |
 | `scripts/widgets/duelo_sala.lua` | US #42: o painel no alto da tela (título, texto e botão). Só desenha o que `tela_sala.lua` decide. |
 | `scripts/duelo/mod/layouts/mesa.lua` | Static layout (formato do Tiled) gerado a partir de `mesa.lua`. |
@@ -313,7 +314,7 @@ col           1         2
 - No fim, cada um vê o resultado: **Vitória**, **Derrota** ou **Empate**; quem assiste vê `Lado N venceu`; se o motor der erro, `Partida interrompida`.
 - A partida terminada fica na mesa até alguém clicar em **Jogar de novo**: o primeiro clique **zera a mesa para todos** (`Partida.encerrar`) e já deixa quem clicou pronto. O outro jogador continua vendo o resultado dele, com `O outro jogador quer jogar de novo.`, até clicar também; aí a partida seguinte começa. Quem assiste tem o botão **Fechar**, que só tira o resultado da tela dele. Um resultado que ninguém dispensou sai da tela quando outra partida começa.
 - **Qualquer jogador conectado pode ficar pronto**, também quem assistia: depois do fim, um espectador pode zerar a mesa e entrar na partida seguinte no lugar de um dos dois.
-- Quem sai do servidor deixa de estar pronto. **A saída de um jogador não encerra a partida em curso** (ele pode voltar e recebe a fotografia de novo). **Limitação conhecida:** enquanto ele não volta, ninguém começa outra partida; só `DUELO.Partida.encerrar()` no servidor destrava a mesa.
+- Quem sai do servidor deixa de estar pronto. A saída de um jogador da partida em curso segue a regra da US #43 (seção abaixo): quem cai perde.
 - `DUELO.Partida.iniciar_teste()` continua valendo para testar sozinho (um jogador nos dois lados) e esvazia a sala.
 
 **Mensagens novas:**
@@ -342,3 +343,36 @@ As RPCs são registradas pela ordem: quem tiver uma versão antiga do mod num do
   - Um jogador pronto sai do servidor: o outro volta a ver a sala sem ninguém pronto.
 - **Limitação conhecida:** o botão é só de mouse (sem caminho para controle).
 - **A confirmar no jogo:** a posição e o tamanho do painel (alto da tela, ao centro, abaixo dos anúncios de entrada e saída de jogadores) e se o botão padrão do jogo (`TEMPLATES.StandardButton`) aparece com a textura certa dentro da partida.
+
+## O que conferir na US #43 (desconexão)
+
+**Regra:**
+
+- **Quem cai perde.** O outro jogador vence por abandono.
+- **Servidor dedicado:** quem sai no meio da partida tem **2 minutos** para voltar (`Desconexao.PRAZO`, em `scripts/duelo/mod/desconexao.lua`). Voltando a tempo, a partida segue do ponto em que estava (ele recebe a fotografia de novo). Passado o prazo, perde.
+- **Jogo hospedado por um jogador:** não há prazo; o jogador que sai perde na hora. Se quem cai é o host, o mundo fecha junto.
+- **Se os dois caem,** perde quem caiu primeiro.
+- **Quem assiste** sai e volta sem mudar nada.
+- **Partida de teste com um jogador só** (`DUELO.Partida.iniciar_teste()`): ninguém vence; no fim do prazo a partida é só encerrada.
+
+**Como funciona:**
+
+- O prazo é contado em **tempo real** (`GetTimeRealSeconds`), não no tempo do mundo: o servidor dedicado pausa a simulação quando fica vazio, e o prazo de quem saiu continua correndo. Ele é conferido a cada segundo por uma tarefa do mundo e a cada entrada e saída de jogador; quem volta depois do prazo perde na hora em que entra.
+- A derrota é do motor (`Game:forfeit(p, "desconexao")`): não é uma jogada, um cliente não consegue mandá-la (`Game:act` a recusa), e ela entra no registro da partida (`{ type = "forfeit", reason = "desconexao" }`), para a reprodução terminar igual.
+- Enquanto alguém está fora, a mensagem `sala` leva `ausente = { lado, prazo }` e o painel de quem ficou mostra `O outro jogador caiu. Se não voltar em 2 minutos, você vence.` (o texto não tem contagem regressiva).
+- No fim, o painel mostra **Vitória** com `O outro jogador saiu da partida.`; quem perdeu, ao voltar, vê **Derrota** com `Você saiu da partida e não voltou a tempo.` A visão tem o campo `abandono = { p, motivo }` e os clientes recebem o evento `forfeit`.
+- A mesa não fica mais presa: depois da derrota por abandono, quem ficou clica em **Jogar de novo**, como em qualquer fim de partida.
+- **Limitação conhecida:** no jogo hospedado, qualquer saída do mundo conta como queda (o jogo avisa a saída do mesmo jeito quando o jogador troca de personagem); não há como trocar de personagem no meio da partida sem perder.
+
+**Console:** `DUELO.Desconexao.ausente()` no servidor diz quem está fora e quando o prazo vence.
+
+**O que conferir no jogo** (exige duas contas, ou a partida de teste para o caso de um jogador só):
+
+- **Servidor dedicado, dois jogadores:**
+  - Com a partida em curso, um jogador sai do servidor. No log do servidor: `[duelo] desconexão: o jogador KU_... saiu da partida N: tem 120 s para voltar`. O painel do outro mostra o aviso de queda.
+  - Ele volta antes de 2 minutos: `voltou a tempo` no log, o aviso some e a partida continua.
+  - Ele sai de novo e não volta: depois de 2 minutos, `não voltou e perdeu a partida` no log, e o painel de quem ficou mostra **Vitória** e `O outro jogador saiu da partida.`
+- **Servidor dedicado, um jogador (partida de teste):**
+  - `DUELO.Partida.iniciar_teste()`, sair do servidor, esperar mais de 2 minutos e voltar: o painel volta para a sala (`a partida de teste foi encerrada` no log do servidor). Voltando antes de 2 minutos, a partida continua.
+- **Host e um cliente:** o cliente sai com a partida em curso: o host vê **Vitória** na hora.
+- **A confirmar no jogo:** que a tarefa de cada segundo roda com o servidor pausado (`DoStaticPeriodicTask` no mundo). Se não rodar, a derrota sai na próxima entrada ou saída de jogador, que é o caso coberto pelos testes.
