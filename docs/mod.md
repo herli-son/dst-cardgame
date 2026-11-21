@@ -320,7 +320,7 @@ col           1         2
 
 | Sentido | RPC | Conteúdo |
 |---|---|---|
-| cliente → servidor | `pronto` | `true` ou `false` (até 5 por segundo por jogador; o excesso é ignorado) |
+| cliente → servidor | `pronto` | `1` (pronto) ou `0` (cancelar); é número porque o `false` de uma RPC de mod não chegou ao servidor no jogo (até 5 por segundo por jogador; o excesso é ignorado) |
 | servidor → cliente | `sala` | `{ eu, prontos, jogadores, aviso }`, uma por jogador; chega a cada mudança e junto com a fotografia pedida |
 
 As RPCs são registradas pela ordem: quem tiver uma versão antiga do mod num dos lados não conversa com o outro (atualizar o mod no servidor e em todos os clientes, e reiniciar o DST).
