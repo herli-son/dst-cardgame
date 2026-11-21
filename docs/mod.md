@@ -23,10 +23,10 @@ Este repositório **é** o mod: a raiz dele vira a pasta do mod dentro do jogo. 
 | `scripts/duelo/mod/desconexao.lua` | US #43: quem cai perde, só no servidor: o prazo de 2 minutos no servidor dedicado, a derrota na hora no jogo hospedado. |
 | `scripts/duelo/mod/tela_sala.lua` | US #42: o que o painel mostra em cada cliente (sala, partida em curso ou resultado), decidido a partir da visão local. |
 | `scripts/widgets/duelo_sala.lua` | US #42: o painel no alto da tela (título, texto e botão). Só desenha o que `tela_sala.lua` decide. |
-| `scripts/duelo/mod/catalogo.lua` | US #37: os dados de cada carta para os clientes (nome, tipo, custo, ataque, vida, texto, imagem). Arquivo gerado de `scripts/duelo/cartas` por `tools/gerar_catalogo.lua`; só dados, sem o motor. |
-| `scripts/duelo/mod/catalogo_gerador.lua` | US #37: gera o catálogo e guarda a imagem de cada carta. Não é carregado no jogo. |
+| `scripts/duelo/mod/catalogo.lua` | US #37: os dados de cada carta para os clientes (nome, tipo, custo, ataque, vida, texto, figura animada, imagem). Arquivo gerado de `scripts/duelo/cartas` por `tools/gerar_catalogo.lua`; só dados, sem o motor. |
+| `scripts/duelo/mod/catalogo_gerador.lua` | US #37: gera o catálogo e guarda a figura animada e a imagem de cada carta. Não é carregado no jogo. |
 | `scripts/duelo/mod/mao.lua` | US #37: o que o painel da mão mostra (as cartas do jogador, com custo de agora, e a posição de cada uma no leque). |
-| `scripts/widgets/duelo_mao.lua` | US #37: as cartas em leque na parte de baixo da tela, com a moldura das fichas de adubo do jogo. Só desenha o que `mao.lua` decide. |
+| `scripts/widgets/duelo_mao.lua` | US #37: as cartas em leque na parte de baixo da tela, com a moldura das fichas de adubo do jogo, o boneco animado e duas páginas por carta. Só desenha o que `mao.lua` decide. |
 | `scripts/duelo/mod/layouts/mesa.lua` | Static layout (formato do Tiled) gerado a partir de `mesa.lua`. |
 | `scripts/duelo/core`, `cartas`, `decks`, `sim`, `bot`, `terminal` | Motor de regras, Lua puro (ver `docs/terminal.md`). No jogo, só o servidor o carrega (US #41); dos clientes, só `core/serial.lua` (texto das mensagens). |
 
@@ -385,28 +385,46 @@ As RPCs são registradas pela ordem: quem tiver uma versão antiga do mod num do
 
 ## O que conferir na US #37 (a mão na tela)
 
-**Decisão (21/11):** a mão **não usa o inventário do jogo**. É um painel do mod, com forma de cartas, e a barra de inventário do jogo fica escondida. A história dizia "cartas como itens do inventário"; o segredo da mão, que era o motivo, já vem da visão de cada lado (US #41): o cliente só recebe a própria mão.
+**Decisões (21/11):**
+
+- A mão **não usa o inventário do jogo**. É um painel do mod, com forma de cartas, e a barra de inventário do jogo fica escondida. A história dizia "cartas como itens do inventário"; o segredo da mão, que era o motivo, já vem da visão de cada lado (US #41): o cliente só recebe a própria mão.
+- A carta reaproveita as **fichas do livro de jardinagem** do jogo: a moldura das fichas de adubo (160 por 230) e as setas de página das fichas de plantas.
+- A figura da carta é o **boneco animado** do jogo, parado, e não um ícone.
+- A carta tem **duas páginas**, trocadas pelas setas do rodapé.
 
 **Como funciona:**
 
-- As cartas da mão aparecem em **leque** na parte de baixo da tela, ao centro. Cada carta usa a moldura das **fichas de adubo** do livro de jardinagem do jogo (`plant_entry.tex`, 160 por 230) e mostra: custo (canto de cima), nome, imagem, tipo, atributos (ataque / vida; nos equipamentos, bônus e durabilidade) e o texto.
-- **Imagem:** o ícone do Álbum do jogo; nos campeões (Wilson, Webber), o retrato do personagem, porque eles não estão no Álbum. A tabela de imagens fica em `catalogo_gerador.lua` (`IMAGENS`).
-- **Sob o mouse**, a carta cresce, fica reta, sobe e ganha a moldura clara, para o texto dar para ler.
+- As cartas da mão aparecem em **leque** na parte de baixo da tela, ao centro.
+- **Página 1 ("Carta"):** custo no alto, ao centro; nome; o boneco animado; e, numa linha só, ataque à esquerda, tipo ao centro (letra pequena, por exemplo `Campeão · Sobrevivente`) e vida à direita. Nos equipamentos, o bônus à esquerda e a durabilidade de agora à direita. Feitiços e estruturas só têm o tipo.
+- **Página 2 ("Efeito"):** o texto do que a carta faz, na área inteira da carta; a letra encolhe se o texto for longo.
+- **Setas do rodapé:** as duas alternam entre as duas páginas. A página escolhida fica guardada por carta enquanto ela está na mão.
+- **Figura:** o banco de animações, o build e a animação de parado de cada carta vêm do prefab do jogo e ficam em `catalogo_gerador.lua` (`FIGURAS`). O tamanho e a posição do boneco saem da caixa visual que o jogo informa, para ele caber inteiro na carta. Equipamentos e feitiços só têm a pose do item no chão (um quadro só). Os arquivos de animação entram como assets do mod (`Assets`, em `modmain.lua`), para estarem carregados em qualquer cliente.
+- **Reserva:** uma carta sem figura no catálogo mostra o ícone do Álbum do jogo (`IMAGENS`); os campeões, o retrato do personagem.
+- **Sob o mouse**, a carta cresce, fica reta, sobe e ganha a moldura de foco.
 - A carta que a mana de agora não paga fica **escurecida**. O custo mostrado é o de agora (com descontos), não o impresso.
 - **Limite de mão:** 10, mais o que a Mochila der. O leque não tem limite próprio: com mais cartas, elas ficam mais juntas.
 - A mão aparece só para os dois jogadores, com a partida em curso. Quem assiste não tem mão; no fim da partida ela sai da tela.
-- **Clicar numa carta ainda não faz nada:** jogar carta e escolher alvo são a US #38. Até lá as jogadas seguem pelo console (`DUELO.Cliente.enviar({ type = "play", hand_index = 1, slot = 1 })`; o `hand_index` é a posição da carta no leque, da esquerda para a direita).
+- **Clicar numa carta ainda não a joga:** jogar carta e escolher alvo são a US #38. Até lá as jogadas seguem pelo console (`DUELO.Cliente.enviar({ type = "play", hand_index = 1, slot = 1 })`; o `hand_index` é a posição da carta no leque, da esquerda para a direita).
 
-**Catálogo de cartas:** os clientes não carregam as cartas nem o motor. O que eles precisam para desenhar uma carta está em `scripts/duelo/mod/catalogo.lua`, gerado a partir das cartas. **Depois de criar ou mudar uma carta, rode `lua tools/gerar_catalogo.lua`** na raiz do repositório (ou `python3 run_lua51.py tools/gerar_catalogo.lua`); `tests/test_mod_mao.lua` falha se o arquivo estiver desatualizado. Uma carta nova precisa também de uma linha em `IMAGENS`.
+**Limitações conhecidas:**
+
+- **Controle:** a mão é de mouse. Com controle, as cartas não ampliam e as setas não são alcançadas; o botão de inventário do controle foi desligado, porque abriria a barra escondida.
+- **Mão com 11 cartas ou mais (Mochila):** a carta ampliada cobre a vizinha da direita; para alcançá-la, é preciso tirar o mouse e voltar.
+- O inventário do jogo continua existindo, só não aparece: as teclas de atalho dele ainda agem.
+
+**Catálogo de cartas:** os clientes não carregam as cartas nem o motor. O que eles precisam para desenhar uma carta está em `scripts/duelo/mod/catalogo.lua`, gerado a partir das cartas. **Depois de criar ou mudar uma carta, gere o catálogo de novo** na raiz do repositório, com Lua 5.1 (`lua5.1 tools/gerar_catalogo.lua`, ou `python3 run_lua51.py tools/gerar_catalogo.lua`); `tests/test_mod_mao.lua` falha se o arquivo estiver desatualizado. Uma carta nova precisa também de uma linha em `IMAGENS` e outra em `FIGURAS`.
 
 **Console:** `DUELO.Mao.modelo()` devolve o que o painel está mostrando.
 
 **O que conferir no jogo:**
 
-- Ao entrar, a **barra de inventário do jogo não aparece** (nem depois de abrir e fechar o mapa).
-- `DUELO.Partida.iniciar_teste()` (modo remoto): aparecem 5 cartas em leque na parte de baixo, com moldura de ficha de adubo, nome, custo e imagem.
-- As imagens: bichos e itens com o ícone do Álbum; o Wilson com o retrato dele. **A confirmar no jogo:** que os ícones do Álbum e o retrato aparecem (se uma imagem não existir no jogo, a carta fica sem imagem, sem erro) e os tamanhos e posições dentro da carta.
-- Passar o mouse sobre uma carta: ela cresce e sobe, e o texto dá para ler. Tirar o mouse: ela volta.
-- `DUELO.Cliente.enviar({ type = "pass" })` até virar a rodada: uma carta nova entra no leque.
+- Ao entrar, a **barra de inventário do jogo não aparece** (nem depois de abrir e fechar o mapa), e nenhum erro de asset no log ao carregar o mod.
+- `DUELO.Partida.iniciar_teste()` (modo remoto): aparecem 5 cartas em leque na parte de baixo, com a moldura de ficha de adubo, o custo no alto e o nome.
+- **Os bonecos:** cada carta mostra o bicho ou o item animado, inteiro dentro da carta. O Wilson aparece como personagem, parado. **A confirmar no jogo, carta por carta:** se o boneco aparece (animação carregada), o tamanho, o enquadramento e para que lado ele olha. É o ponto com mais chance de precisar de ajuste.
+- A linha de baixo: ataque à esquerda, tipo ao centro, vida à direita, sem um texto encostar no outro.
+- Passar o mouse sobre uma carta: ela cresce e sobe. Tirar o mouse: ela volta. Com o mouse parado na borda de baixo da tela, a carta não fica subindo e descendo.
+- Clicar numa seta do rodapé da carta ampliada: a carta mostra o texto ("Efeito"). Clicar de novo: volta para a figura. A carta continua ampliada ao passar o mouse da moldura para a seta.
+- O texto do Wilson (o mais longo entre os campeões) cabe na carta.
+- `DUELO.Cliente.enviar({ type = "pass" })` até virar a rodada: uma carta nova entra no leque, e a carta que estava na página do texto continua nela.
 - Com 1 de mana, as cartas de custo maior aparecem escurecidas.
 - Fim da partida (roteiro da US #42): as cartas somem.
